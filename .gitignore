@@ -48,3 +48,7 @@ app/src/main/jniLibs/
 /prompt.txt
 /new_pp_prompt.md
 benchmark_results.json
+# Agent context & AI scratch directories (hidden, local-only)
+.ai_context/
+.agents/
+.omg/
