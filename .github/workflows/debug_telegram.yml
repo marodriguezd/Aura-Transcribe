@@ -96,15 +96,24 @@ jobs:
         sed -i '/org.gradle.java.home/d' gradle.properties
         sed -i '/android.aapt2FromMavenOverride/d' gradle.properties
 
-    - name: Accept Android SDK Licenses & Install NDK
+    - name: Setup Android SDK & NDK
       run: |
-        yes | sdkmanager --licenses || true
-        sdkmanager --install "ndk;28.0.13004108"
-        echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.0.13004108" >> $GITHUB_ENV
-        echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/28.0.13004108" >> $GITHUB_ENV
-        echo "ANDROID_NDK=$ANDROID_HOME/ndk/28.0.13004108" >> $GITHUB_ENV
-        echo "NDK_HOME=$ANDROID_HOME/ndk/28.0.13004108" >> $GITHUB_ENV
-        echo "CMAKE_ANDROID_NDK=$ANDROID_HOME/ndk/28.0.13004108" >> $GITHUB_ENV
+        SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+        if [ ! -f "$SDKM" ]; then
+          SDKM=$(find "$ANDROID_HOME" -name sdkmanager -type f | head -1)
+        fi
+        echo "Using sdkmanager at: $SDKM"
+        yes | "$SDKM" --licenses || true
+        "$SDKM" --install "ndk;28.0.13004108"
+        
+        NDK_PATH="$ANDROID_HOME/ndk/28.0.13004108"
+        echo "ANDROID_NDK_HOME=$NDK_PATH" >> $GITHUB_ENV
+        echo "ANDROID_NDK_ROOT=$NDK_PATH" >> $GITHUB_ENV
+        echo "ANDROID_NDK=$NDK_PATH" >> $GITHUB_ENV
+        echo "NDK_HOME=$NDK_PATH" >> $GITHUB_ENV
+        echo "CMAKE_ANDROID_NDK=$NDK_PATH" >> $GITHUB_ENV
+        echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
+        echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
 
     - name: Setup Rust
       uses: dtolnay/rust-toolchain@stable
