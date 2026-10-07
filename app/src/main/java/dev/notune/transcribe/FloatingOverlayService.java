@@ -1313,6 +1313,12 @@ public class FloatingOverlayService extends Service {
     }
 
     @Override
+    public void onTimeout(int startId, int fgsType) {
+        Log.w(TAG, "Foreground service timeout triggered (type=" + fgsType + ", startId=" + startId + ")");
+        stopSelf(startId);
+    }
+
+    @Override
     public IBinder onBind(Intent intent) {
         return null;
     }
