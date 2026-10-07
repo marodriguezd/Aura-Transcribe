@@ -76,14 +76,9 @@ jobs:
         sed -i '/org.gradle.java.home/d' gradle.properties
         sed -i '/android.aapt2FromMavenOverride/d' gradle.properties
 
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v3
-
-    - name: Accept Android SDK Licenses
-      run: yes | sdkmanager --licenses || true
-
-    - name: Install Android NDK
+    - name: Accept Android SDK Licenses & Install NDK
       run: |
+        yes | sdkmanager --licenses || true
         sdkmanager --install "ndk;28.0.13004108"
         echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.0.13004108" >> $GITHUB_ENV
         echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/28.0.13004108" >> $GITHUB_ENV
