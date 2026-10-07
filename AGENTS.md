@@ -4,10 +4,10 @@
 
 > **Repo:** `android_transcribe_app` (fork de `notune/android_transcribe_app`)
 > **Tipo:** App Android de transcripción de voz *offline* con opción de post-procesado con IA.
-> **Versión declarada actualmente en Gradle:** 0.1.36 (`versionCode 38`, ver `app/build.gradle.kts`). La versión realmente publicada debe comprobarse en tags/releases; no asumir que coincide con este fichero.
+> **Versión declarada actualmente en Gradle:** 0.2.2 (`versionCode 41`, ver `app/build.gradle.kts`). La versión realmente publicada debe comprobarse en tags/releases; no asumir que coincide con este fichero.
 >
 > **Idioma (decisión 2026-08-04):** los ficheros agénticos nuevos/actualizados
-> (`.agents/`, `agent_prompt.md`) se escriben en **inglés**; este `AGENTS.md`
+> (`.ai_context/`, `agent_prompt.md`) se escriben en **inglés**; este `AGENTS.md`
 > conserva su idioma histórico. Cualquier sección nueva que añadas aquí puede
 > ir en inglés.
 
@@ -30,7 +30,7 @@ App Android que convierte voz en texto **100 % en local**. Se ofrece al sistema 
 | **Servicio de reconocimiento** | `SpeechRecognizer` (Android) — otros keyboards/apps lo usan como STT | `VoiceRecognitionService.java` + `src/recog_service.rs` |
 | **IME (teclado propio)** | `BIND_INPUT_METHOD` (HeliBoard/FlorisBoard/etc.) | `RustInputMethodService.java` + `src/ime.rs` |
 
-Funciones adicionales: **subtítulos en vivo** sobre audio del sistema (`LiveSubtitleService.java` + `src/subtitle.rs`) y **gestión de modelos GGUF** (`ModelsActivity.java` + `src/models.rs`).
+Funciones adicionales: **subtítulos en vivo** sobre audio del sistema (`LiveSubtitleService.java` + `src/subtitle.rs`), **gestión de modelos GGUF** (`ModelsActivity.java` + `src/models.rs`), **overlay flotante** (`FloatingOverlayService.java`) y **transcripción de archivos** (`TranscribeFileActivity.java`).
 
 Post-procesado IA (fork addition): opcional, *off-line-by-default*, refina texto con cualquier LLM compatible OpenAI (`PostProcessor.java`, settings en `PostProcessSettingsActivity.java`).
 
@@ -52,9 +52,9 @@ Post-procesado IA (fork addition): opcional, *off-line-by-default*, refina texto
 | Lenguaje UI | **Java** (sin Kotlin) | Java 8 source/target |
 | Android Gradle Plugin | `com.android.application` | **8.7.3** |
 | Build tool | Gradle wrapper | ver `gradle/wrapper/gradle-wrapper.properties` |
-| Toolchain humano | JDK 17 · Android NDK **28.0.13004108** (unificado en Gradle = CI = README, 2026-08-03) · Rust `aarch64-linux-android` · [`cargo-ndk`](https://github.com/bbqsrc/cargo-ndk) | Host soportados: linux-x86_64, darwin-x86_64, darwin-arm64, windows (ver `ndkPrebuiltDir()` en `app/build.gradle.kts`); un host sin prebuilt NDK falla con mensaje claro |
-| Target NDK ABIs | **`arm64-v8a` únicamente** (`abiFilters += "arm64-v8a"`) | excluidas x86 / armeabi-v7a; no confundir ABI del APK con arquitectura del host de build |
-| `compileSdk` / `targetSdk` / `minSdk` | Gradle efectivo: `34 / 34 / 26` | `AGENTS.md`, README y `.agents/spec.md` deben permanecer alineados con Gradle; la compatibilidad Android 15/SDK 35 queda pendiente de decisión y validación |
+| Toolchain humano | JDK 17 · Android NDK **28.0.13004108** (unificado en Gradle = CI = README) · Rust `aarch64-linux-android` · [`cargo-ndk`](https://github.com/bbqsrc/cargo-ndk) | Host soportados: linux-x86_64, darwin-x86_64, darwin-arm64, windows (ver `ndkPrebuiltDir()` en `app/build.gradle.kts`); un host sin prebuilt NDK falla con mensaje claro |
+| Target NDK ABIs | **`arm64-v8a` únicamente** (`abiFilters += "arm64-v8a"`) | excluidas x86 / armeabi-v7a; 16KB page size aligned |
+| `compileSdk` / `targetSdk` / `minSdk` | Gradle efectivo: `35 / 35 / 26` | Compatible Android 8.0 hasta Android 17 (API 35+) |
 | Material | Material Components for Android | `1.12.0` (Material 3 + Material You) |
 | HTTP (post-procesado) | OkHttp | `4.12.0` |
 | Almacenamiento clave API | marker file Base64 en `filesDir()` | sin dependencia externa |
