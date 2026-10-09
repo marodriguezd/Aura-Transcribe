@@ -1,6 +1,5 @@
 package dev.notune.transcribe;
 
-import android.annotation.TargetApi;
 import android.inputmethodservice.InputMethodService;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -29,6 +28,8 @@ import android.view.ContextThemeWrapper;
 import java.io.File;
 
 import androidx.core.content.ContextCompat;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import com.google.android.material.color.DynamicColors;
 import com.google.android.material.color.MaterialColors;
 
@@ -160,7 +161,6 @@ public class RustInputMethodService extends InputMethodService {
             Log.e(TAG, "Error in initNative", t);
         }
         // Sync Android system user dictionary words (FUTO Keyboard style)
-        UserDictionaryHelper.syncSystemUserDictionaryAsync(this);
         // Listen for cross-process post-processing cancellation from the main
         // process so we can abort in-flight OkHttp calls immediately.
         // RECEIVER_NOT_EXPORTED: only the main process (same app uid) sends
@@ -176,22 +176,47 @@ public class RustInputMethodService extends InputMethodService {
     public View onCreateInputView() {
         Log.d(TAG, "onCreateInputView");
         try {
-            // The IME is a non-AppCompat Service in a separate process, so
-            // AppCompat's delegate can't theme it. Build a context that is
+            // The IME is a non-AppCompat Service (same process as the app — the
+            // manifest declares no android:process; see the process-model note in
+            // App.java), so AppCompat's delegate can't theme it. Build a context that is
             // night-aware (per the saved preference), wears the Material 3 theme,
             // and picks up Material You dynamic color — matching the app.
             Context night = ThemePrefs.wrapForNight(this, ThemePrefs.getMode(this));
             viewIsNight = ThemePrefs.isNight(night);
             Context themed = DynamicColors.wrapContextIfAvailable(
                     new ContextThemeWrapper(night, R.style.AppTheme));
+            // Root = null on purpose: onCreateInputView() has no parent to attach
+            // to — the IME framework attaches whatever it returns to the input
+            // window. This is the documented pattern for an input view, so lint's
+            // InflateParams suggestion does not apply here.
             View view = LayoutInflater.from(themed).inflate(R.layout.ime_layout, null);
             inputView = view;
 
-            // Handle window insets for avoiding navigation bar overlap
-            view.setOnApplyWindowInsetsListener((v, insets) -> {
-                int paddingBottom = insets.getSystemWindowInsetBottom();
-                int originalPaddingBottom = v.getPaddingTop();
-                v.setPadding(v.getPaddingLeft(), v.getPaddingTop(), v.getPaddingRight(), originalPaddingBottom + paddingBottom);
+            // Keep the key row clear of the navigation bar / gesture pill.
+            //
+            // Corrections over the previous version: it read the *top* padding
+            // into a variable called originalPaddingBottom and used that as the
+            // base for the *bottom* padding, which only happened to look right
+            // because ime_layout's root has symmetric 12dp padding; it used the
+            // deprecated WindowInsets.getSystemWindowInsetBottom(); it padded by
+            // absolute left/right instead of start/end, so a right-to-left layout
+            // would not mirror; and it read the current padding on every dispatch,
+            // so repeated inset callbacks could stack. The base padding is now
+            // captured once and the relative padding API is used.
+            final int basePaddingBottom = view.getPaddingBottom();
+            ViewCompat.setOnApplyWindowInsetsListener(view, (v, insets) -> {
+                // Fully qualified on purpose: this class extends
+                // InputMethodService, whose nested Insets class shadows the
+                // simple name (and androidx.core.graphics.Insets is the type
+                // WindowInsetsCompat returns).
+                androidx.core.graphics.Insets bars = insets.getInsets(
+                        WindowInsetsCompat.Type.systemBars()
+                                | WindowInsetsCompat.Type.displayCutout());
+                v.setPaddingRelative(
+                        v.getPaddingStart(),
+                        v.getPaddingTop(),
+                        v.getPaddingEnd(),
+                        basePaddingBottom + bars.bottom);
                 return insets;
             });
 
@@ -282,6 +307,12 @@ public class RustInputMethodService extends InputMethodService {
                         mainHandler.postDelayed(backspaceRepeatRunnable, REPEAT_INITIAL_DELAY);
                         return true;
                     case MotionEvent.ACTION_UP:
+                        // Custom onTouch handling replaces the framework's
+                        // click dispatch; report the click so accessibility
+                        // services still see it (ClickableViewAccessibility).
+                        v.performClick();
+                        mainHandler.removeCallbacks(backspaceRepeatRunnable);
+                        return true;
                     case MotionEvent.ACTION_CANCEL:
                         mainHandler.removeCallbacks(backspaceRepeatRunnable);
                         return true;
@@ -298,7 +329,13 @@ public class RustInputMethodService extends InputMethodService {
                         }
                         mainHandler.postDelayed(spaceRepeatRunnable, REPEAT_INITIAL_DELAY);
                         return true;
+
                     case MotionEvent.ACTION_UP:
+                        // See the backspace key: keep the accessibility click
+                        // event that the custom onTouch handler replaced.
+                        v.performClick();
+                        mainHandler.removeCallbacks(spaceRepeatRunnable);
+                        return true;
                     case MotionEvent.ACTION_CANCEL:
                         mainHandler.removeCallbacks(spaceRepeatRunnable);
                         return true;
@@ -361,7 +398,6 @@ public class RustInputMethodService extends InputMethodService {
                     resultPending = true;
                     updateRecordButtonUI(false);
                 } else {
-                    UserDictionaryHelper.syncSystemUserDictionaryAsync(this);
                     if (isPauseAudioEnabled()) {
                         audioPauser.request(this);
                         pauseAudioActive = true;
@@ -406,7 +442,6 @@ public class RustInputMethodService extends InputMethodService {
         if (new File(getFilesDir(), "auto_record").exists()) {
             if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
                     == PackageManager.PERMISSION_GRANTED) {
-                UserDictionaryHelper.syncSystemUserDictionaryAsync(this);
                 if (isPauseAudioEnabled()) {
                     audioPauser.request(this);
                     pauseAudioActive = true;
@@ -523,10 +558,10 @@ public class RustInputMethodService extends InputMethodService {
     /** Tints the round record button + mic: idle = primary, recording = error. */
     private void tintRecordButton(boolean recording) {
         int circleAttr = recording
-                ? com.google.android.material.R.attr.colorPrimary
+                ? androidx.appcompat.R.attr.colorError
                 : com.google.android.material.R.attr.colorPrimaryContainer;
         int iconAttr = recording
-                ? com.google.android.material.R.attr.colorOnPrimary
+                ? com.google.android.material.R.attr.colorOnError
                 : com.google.android.material.R.attr.colorOnPrimaryContainer;
         if (recordCircle != null) {
             recordCircle.setBackgroundTintList(ColorStateList.valueOf(
@@ -542,8 +577,10 @@ public class RustInputMethodService extends InputMethodService {
     /**
      * Switches to the previously used input method. No-op on API < 28, where
      * {@link #switchToPreviousInputMethod()} does not exist (minSdk is 26).
+     * Do NOT annotate this method with {@code @TargetApi(P)}: that tells lint the
+     * body only ever runs on API 28+, which would flag the guard below as
+     * obsolete and let a 26/27 device reach the call and crash.
      */
-    @TargetApi(Build.VERSION_CODES.P)
     private void switchToPreviousInputMethodSafe() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             switchToPreviousInputMethod();

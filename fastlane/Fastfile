@@ -244,12 +244,11 @@ platform :android do
       Categories:
         - Multimedia
         - System
-        - Accessibility
-      License: Apache-2.0
+      License: MIT
       AuthorName: Aura Transcribe Contributors
-      SourceCode: https://github.com/handy-computer/android_transcribe_app
-      IssueTracker: https://github.com/handy-computer/android_transcribe_app/issues
-      Changelog: https://github.com/handy-computer/android_transcribe_app/releases
+      SourceCode: https://github.com/marodriguezd/android_transcribe_app
+      IssueTracker: https://github.com/marodriguezd/android_transcribe_app/issues
+      Changelog: https://github.com/marodriguezd/android_transcribe_app/releases
       
       AutoName: Aura Transcribe
       Summary: Real-time, private, offline speech-to-text on Android
@@ -258,15 +257,20 @@ platform :android do
         and transcription keyboard and dictation tool for Android.
         
         Features:
-        * 100% On-Device Neural ASR (Nemotron 3.5 Streaming)
+        * On-Device Neural ASR (Nemotron 3.5 Streaming, Q8_0 GGUF)
         * Low latency streaming transcription with real-time preview
         * Native Bluetooth headset and AudioRecord bridge support
         * System-wide IME Keyboard and Floating Dictation Overlay
-        * Multi-language support (40+ languages)
-        * Zero telemetry, no cloud connectivity required for transcription
+        * 33 selectable languages with automatic language detection
+        * No telemetry and no analytics; speech recognition never leaves the device
+
+        Speech recognition is always local. Optional AI post-processing is off by
+        default and must be configured by the user; if it is pointed at a remote
+        OpenAI-compatible provider, the recognised text (never the audio) is sent
+        to that provider with the user's own API key.
 
       RepoType: git
-      Repo: https://github.com/handy-computer/android_transcribe_app.git
+      Repo: https://github.com/marodriguezd/android_transcribe_app.git
 
       Builds:
         - versionName: '#{version_name}'
@@ -278,7 +282,7 @@ platform :android do
           prebuild:
             - export ANDROID_NDK_HOME=$$NDK$$
             - cargo ndk -t arm64-v8a -o app/src/main/jniLibs build --release
-          ndk: r28
+          ndk: 28.2.13676358
 
       AutoUpdateMode: Version v%v
       UpdateCheckMode: Tags

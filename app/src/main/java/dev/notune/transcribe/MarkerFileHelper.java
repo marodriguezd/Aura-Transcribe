@@ -13,7 +13,8 @@ import java.nio.file.Files;
  *
  * All app settings and states (auto_record, model_language, theme_mode, etc.)
  * are stored as marker files in the private app files directory to enable
- * consistent, content-provider-free access across processes (e.g. main and ":ime").
+ * consistent, content-provider-free access from Java and from the native
+ * engine, which reads these files straight from the filesystem.
  */
 public final class MarkerFileHelper {
     private static final String TAG = "MarkerFileHelper";
@@ -71,7 +72,7 @@ public final class MarkerFileHelper {
      * null or empty, deletes the file.
      *
      * <p>The temp file is unique per write (P1.2): concurrent writers of the
-     * same marker (main process, ":ime", settings UI) must never share a
+     * same marker (settings UI, native readers) must never share a
      * temp path, or one writer's rename can move the file another writer is
      * still writing to, exposing partial content to readers. With per-write
      * temps, every rename is atomic and readers only ever see a complete

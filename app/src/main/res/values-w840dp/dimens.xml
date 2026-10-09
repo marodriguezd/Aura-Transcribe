@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Expanded window (tablet landscape, desktop/freeform, unfolded
+         foldable). At 840dp+ a full-bleed column would be unreadably wide, so
+         the margin is pushed far enough in to leave a centred column of
+         roughly 680–900dp of content depending on the window. -->
+    <dimen name="content_horizontal_margin">140dp</dimen>
+</resources>

@@ -2,8 +2,8 @@
 <!-- Normal state for the floating drag-to-dismiss drop target circle -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="oval">
-    <solid android:color="#CC1E1E24" />
+    <solid android:color="@color/overlay_scrim" />
     <stroke
         android:width="1.5dp"
-        android:color="#40FFFFFF" />
+        android:color="@color/overlay_scrim_stroke" />
 </shape>

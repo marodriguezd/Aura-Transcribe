@@ -17,13 +17,15 @@
             app:title="@string/models_title" />
     </com.google.android.material.appbar.AppBarLayout>
 
+    <!-- Adaptive content width: content_horizontal_margin grows with the window
+         size class (16dp compact / 48dp at w600dp / 140dp at w840dp). -->
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
+        android:layout_marginStart="@dimen/content_horizontal_margin"
+        android:layout_marginEnd="@dimen/content_horizontal_margin"
         android:clipToPadding="false"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
         android:paddingTop="8dp"
         android:paddingBottom="16dp">
 
@@ -150,7 +152,7 @@
                         android:id="@+id/spinner_language"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:minHeight="48dp"/>
+                        android:minHeight="@dimen/min_touch_target"/>
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -218,7 +220,7 @@
                         android:id="@+id/spinner_stream_latency"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:minHeight="48dp"/>
+                        android:minHeight="@dimen/min_touch_target"/>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -253,7 +255,7 @@
                         android:id="@+id/spinner_threads"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:minHeight="48dp"/>
+                        android:minHeight="@dimen/min_touch_target"/>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -288,7 +290,7 @@
                         android:id="@+id/spinner_backend"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:minHeight="48dp"/>
+                        android:minHeight="@dimen/min_touch_target"/>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
         </LinearLayout>

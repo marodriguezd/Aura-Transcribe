@@ -50,6 +50,17 @@ public class PostProcessor {
             "API key required; open post-processing settings";
 
     /**
+     * Stable callback error for the on-device provider, which has no inference
+     * engine in this build (see
+     * {@link SettingsManager#LOCAL_S1_INFERENCE_AVAILABLE}). Delivered through
+     * {@code onError}, so every caller keeps its guaranteed fallback to the raw
+     * transcript instead of receiving the input text back as if it were refined.
+     */
+    public static final String LOCAL_S1_UNAVAILABLE_ERROR =
+            "On-device AI cleanup (SuperWhisper S1-mini) is unavailable in this build: "
+                    + "it has no inference engine";
+
+    /**
      * Timeouts for the shared production client: 30 s to reach a provider
      * (DNS + TLS on mobile networks) and 60 s to read/write the complete
      * non-streaming response, which for long transcripts on slow links can
@@ -128,6 +139,14 @@ public class PostProcessor {
 
     public static native String nativeNormalizeOnDevice(String rawText, String preset, String customPrompt);
     public static native void nativeSetS1ModelPath(String path);
+    // Lifecycle probes for the on-device provider. Neither has a Java call site
+    // today: the native side unloads on its own 60-second idle timer and from
+    // App.onTrimMemory -> nativeTrimMemory, which is the hook that actually runs.
+    // They are kept as the explicit API for that lifecycle, and R8 removes them
+    // from release builds as unreachable members (verified against the release
+    // DEX); wiring them up is only meaningful once the on-device inference path
+    // is real — see the PLACEHOLDER note on
+    // src/post_processor.rs::normalize_text_on_device.
     public static native void nativeUnloadS1();
     public static native boolean nativeIsS1Loaded();
     public static native void nativeTrimMemory(int level);
@@ -167,7 +186,10 @@ public class PostProcessor {
         default boolean isPostProcessConfigured() {
             String provider = getProviderId();
             if (PROVIDER_LOCAL_S1.equals(provider)) {
-                return isLocalS1ModelInstalled();
+                // Must mirror SettingsManager.isPostProcessConfigured(): a model
+                // on disk does not make the provider functional while there is no
+                // inference engine behind it.
+                return SettingsManager.LOCAL_S1_INFERENCE_AVAILABLE && isLocalS1ModelInstalled();
             }
             String key = getApiKey();
             return key != null && !key.trim().isEmpty();
@@ -227,7 +249,7 @@ public class PostProcessor {
      * Cancels every in-flight OkHttp call created by any processor instance.
      * Reserved for real process-global shutdown events: the IME service being
      * destroyed and the "post-processing disabled" toggle, which also
-     * broadcasts to the ":ime" process.
+     * broadcasts to the IME component.
      */
     public static void cancelAll() {
         CallRegistry.cancelAll();
@@ -291,6 +313,14 @@ public class PostProcessor {
         }
 
         if (PROVIDER_LOCAL_S1.equals(settings.getProviderId())) {
+            if (!SettingsManager.LOCAL_S1_INFERENCE_AVAILABLE) {
+                // Defensive: the settings UI refuses to enable this provider, but
+                // a marker file written by an older build (or a direct caller
+                // such as the diagnostic button) must still not be answered with
+                // the unchanged transcript dressed up as a refined one.
+                dispatchToUi(() -> callback.onError(LOCAL_S1_UNAVAILABLE_ERROR));
+                return;
+            }
             processOnDeviceInternal(rawText, callback, forceRequest);
             return;
         }

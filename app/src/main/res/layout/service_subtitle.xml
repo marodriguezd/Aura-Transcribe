@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Do NOT collapse these two views (lint's UselessParent suggestion): the
+     outer FrameLayout's 12dp padding is the transparent gutter between the
+     overlay window edge and the card. Moving the card background up onto the
+     FrameLayout, or the padding down onto the card, paints the scrim over that
+     gutter and the subtitle bar grows to the window edge. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -10,7 +15,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:background="@drawable/bg_card"
-        android:backgroundTint="#CC000000"
+        android:backgroundTint="@color/subs_scrim"
         android:padding="12dp"
         android:gravity="center_vertical">
 
@@ -20,25 +25,27 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="@string/subs_waiting_for_audio"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/subs_scrim_fg"
             android:textSize="18sp"
             android:breakStrategy="simple"
-            android:shadowColor="#000000"
+            android:shadowColor="@android:color/black"
             android:shadowDx="1"
             android:shadowDy="1"
             android:shadowRadius="2"/>
 
         <!-- Explicit AppCompat widget so app:tint applies even though this
              overlay is inflated from a plain Service context (no AppCompat
-             LayoutInflater factory). -->
+             LayoutInflater factory). 48dp x 48dp minimum touch target; 12dp
+             padding keeps the glyph at its visual 24dp size. -->
         <androidx.appcompat.widget.AppCompatImageButton
             android:id="@+id/btn_close_subs"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="@dimen/min_touch_target"
+            android:layout_height="@dimen/min_touch_target"
+            android:contentDescription="@string/action_close"
             android:src="@drawable/ic_close"
             android:background="?android:attr/selectableItemBackgroundBorderless"
-            app:tint="#FFFFFF"
-            android:padding="8dp"/>
+            app:tint="@color/subs_scrim_fg"
+            android:padding="12dp"/>
 
     </LinearLayout>
 </FrameLayout>

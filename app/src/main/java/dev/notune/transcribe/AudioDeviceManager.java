@@ -1,7 +1,5 @@
 package dev.notune.transcribe;
 
-import android.annotation.SuppressLint;
-import android.annotation.TargetApi;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.media.AudioDeviceInfo;
@@ -12,6 +10,7 @@ import android.media.MediaRecorder;
 import android.os.Build;
 import android.util.Log;
 
+import androidx.annotation.RequiresApi;
 import androidx.core.content.ContextCompat;
 
 import java.util.ArrayList;
@@ -24,7 +23,6 @@ import java.util.List;
  * USB external microphones, wired headsets, and built-in microphones.
  * Provides pre-warming handshake for zero-latency capture and dedicated AudioRecord creation.</p>
  */
-@SuppressLint({"MissingPermission", "NewApi", "InlinedApi"})
 public final class AudioDeviceManager {
     private static final String TAG = "AudioDeviceManager";
 
@@ -198,7 +196,7 @@ public final class AudioDeviceManager {
                         }
                     }
                 }
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            } else {
                 AudioDeviceInfo[] devices = am.getDevices(AudioManager.GET_DEVICES_INPUTS);
                 if (devices != null) {
                     for (AudioDeviceInfo d : devices) {
@@ -232,8 +230,21 @@ public final class AudioDeviceManager {
      * Creates and configures a dedicated Android AudioRecord instance with
      * MediaRecorder.AudioSource.VOICE_COMMUNICATION, 16000 Hz, mono PCM 16-bit,
      * bound directly to target AudioDeviceInfo via setPreferredDevice().
+     *
+     * <p>Returns {@code null} when RECORD_AUDIO has not been granted at runtime.
+     * Constructing an AudioRecord is only a manifest-declaration question, but
+     * {@code startRecording()} silently fails (or throws) without the runtime
+     * grant, so the condition is checked here and reported as a plain null
+     * instead of an opaque failure inside the HAL. This is also what makes the
+     * {@code MissingPermission} lint check pass without a suppression.
      */
     public static AudioRecord createAudioRecord(Context context, String micPreference) {
+        if (context == null
+                || ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO)
+                        != PackageManager.PERMISSION_GRANTED) {
+            Log.w(TAG, "RECORD_AUDIO not granted; refusing to create an AudioRecord");
+            return null;
+        }
         int minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT);
         if (minBuf <= 0) {
             minBuf = 4096;
@@ -247,27 +258,17 @@ public final class AudioDeviceManager {
         AudioDeviceInfo target = findTargetDevice(context, micPreference);
         AudioRecord record = null;
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                AudioRecord.Builder builder = new AudioRecord.Builder()
-                    .setAudioSource(primarySource)
-                    .setAudioFormat(new AudioFormat.Builder()
-                        .setEncoding(AUDIO_FORMAT)
-                        .setSampleRate(SAMPLE_RATE)
-                        .setChannelMask(CHANNEL_CONFIG)
-                        .build())
-                    .setBufferSizeInBytes(bufferSize);
-                record = builder.build();
-                if (target != null && record != null) {
-                    record.setPreferredDevice(target);
-                }
-            } else {
-                record = new AudioRecord(
-                    primarySource,
-                    SAMPLE_RATE,
-                    CHANNEL_CONFIG,
-                    AUDIO_FORMAT,
-                    bufferSize
-                );
+            AudioRecord.Builder builder = new AudioRecord.Builder()
+                .setAudioSource(primarySource)
+                .setAudioFormat(new AudioFormat.Builder()
+                    .setEncoding(AUDIO_FORMAT)
+                    .setSampleRate(SAMPLE_RATE)
+                    .setChannelMask(CHANNEL_CONFIG)
+                    .build())
+                .setBufferSizeInBytes(bufferSize);
+            record = builder.build();
+            if (target != null && record != null) {
+                record.setPreferredDevice(target);
             }
             Log.i("BluetoothSCO", "AudioRecord initialized with source=" + (primarySource == MediaRecorder.AudioSource.VOICE_COMMUNICATION ? "VOICE_COMMUNICATION" : (primarySource == MediaRecorder.AudioSource.VOICE_RECOGNITION ? "VOICE_RECOGNITION" : "MIC")) + " target=" + (target != null ? target.getId() : "default"));
         } catch (Throwable t) {
@@ -280,27 +281,17 @@ public final class AudioDeviceManager {
                 try { record.release(); } catch (Throwable ignored) {}
             }
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    AudioRecord.Builder builder = new AudioRecord.Builder()
-                        .setAudioSource(fallbackSource)
-                        .setAudioFormat(new AudioFormat.Builder()
-                            .setEncoding(AUDIO_FORMAT)
-                            .setSampleRate(SAMPLE_RATE)
-                            .setChannelMask(CHANNEL_CONFIG)
-                            .build())
-                        .setBufferSizeInBytes(bufferSize);
-                    record = builder.build();
-                    if (target != null && record != null) {
-                        record.setPreferredDevice(target);
-                    }
-                } else {
-                    record = new AudioRecord(
-                        fallbackSource,
-                        SAMPLE_RATE,
-                        CHANNEL_CONFIG,
-                        AUDIO_FORMAT,
-                        bufferSize
-                    );
+                AudioRecord.Builder builder = new AudioRecord.Builder()
+                    .setAudioSource(fallbackSource)
+                    .setAudioFormat(new AudioFormat.Builder()
+                        .setEncoding(AUDIO_FORMAT)
+                        .setSampleRate(SAMPLE_RATE)
+                        .setChannelMask(CHANNEL_CONFIG)
+                        .build())
+                    .setBufferSizeInBytes(bufferSize);
+                record = builder.build();
+                if (target != null && record != null) {
+                    record.setPreferredDevice(target);
                 }
                 Log.i("BluetoothSCO", "AudioRecord fallback initialized with source=" + (fallbackSource == MediaRecorder.AudioSource.VOICE_COMMUNICATION ? "VOICE_COMMUNICATION" : (fallbackSource == MediaRecorder.AudioSource.VOICE_RECOGNITION ? "VOICE_RECOGNITION" : "MIC")));
             } catch (Throwable t) {
@@ -339,7 +330,7 @@ public final class AudioDeviceManager {
         return "📱 " + context.getString(R.string.mic_active_builtin);
     }
 
-    @TargetApi(Build.VERSION_CODES.S)
+    @RequiresApi(Build.VERSION_CODES.S)
     private static void clearCommunicationDeviceApi31(AudioManager am) {
         try {
             am.clearCommunicationDevice();
@@ -367,7 +358,7 @@ public final class AudioDeviceManager {
         }
     }
 
-    @TargetApi(Build.VERSION_CODES.S)
+    @RequiresApi(Build.VERSION_CODES.S)
     private static void routeAutoApi31(Context context, AudioManager am) {
         try {
             List<AudioDeviceInfo> commDevices = am.getAvailableCommunicationDevices();
@@ -401,7 +392,7 @@ public final class AudioDeviceManager {
             if (target != null) {
                 am.setMode(AudioManager.MODE_IN_COMMUNICATION);
                 boolean set = am.setCommunicationDevice(target);
-                String name = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) ? String.valueOf(target.getProductName()) : "device";
+                String name = String.valueOf(target.getProductName());
                 Log.d(TAG, "Auto routed to communication device: " + name + " (success=" + set + ")");
             } else {
                 routeToBuiltinMic(am);
@@ -429,7 +420,7 @@ public final class AudioDeviceManager {
         }
     }
 
-    @TargetApi(Build.VERSION_CODES.S)
+    @RequiresApi(Build.VERSION_CODES.S)
     private static void routeToBluetoothMicApi31(AudioManager am) {
         try {
             List<AudioDeviceInfo> commDevices = am.getAvailableCommunicationDevices();
@@ -440,7 +431,7 @@ public final class AudioDeviceManager {
                     type == AudioDeviceInfo.TYPE_HEARING_AID ||
                     type == AudioDeviceInfo.TYPE_BLE_SPEAKER) {
                     boolean set = am.setCommunicationDevice(d);
-                    String name = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) ? String.valueOf(d.getProductName()) : "bluetooth";
+                    String name = String.valueOf(d.getProductName());
                     Log.d(TAG, "Routed to Bluetooth device: " + name + " (success=" + set + ")");
                     return;
                 }
@@ -488,7 +479,11 @@ public final class AudioDeviceManager {
             try {
                 android.bluetooth.BluetoothAdapter adapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter();
                 if (adapter != null && adapter.isEnabled()) {
-                    if (adapter.getProfileConnectionState(android.bluetooth.BluetoothProfile.HEADSET) == android.bluetooth.BluetoothProfile.STATE_CONNECTED) {
+                    // getProfileConnectionState() is annotated with
+                    // @BluetoothAdapter.ConnectionState: the value is the same as
+                    // BluetoothProfile.STATE_CONNECTED, but the API contract for
+                    // this accessor is the BluetoothAdapter constant set.
+                    if (adapter.getProfileConnectionState(android.bluetooth.BluetoothProfile.HEADSET) == android.bluetooth.BluetoothAdapter.STATE_CONNECTED) {
                         return true;
                     }
                 }
@@ -556,7 +551,11 @@ public final class AudioDeviceManager {
             AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
             if (am == null) return result;
 
-            AudioDeviceInfo[] devices = am.getDevices(AudioManager.GET_DEVICES_ALL);
+            // The explicit union is used instead of the GET_DEVICES_ALL alias:
+            // getDevices() is annotated for exactly these two flags, so this is
+            // the documented combination (and the alias is the same value).
+            AudioDeviceInfo[] devices = am.getDevices(
+                    AudioManager.GET_DEVICES_INPUTS | AudioManager.GET_DEVICES_OUTPUTS);
             if (devices == null) return result;
             for (AudioDeviceInfo d : devices) {
                 String label = "Audio Device";

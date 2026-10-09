@@ -34,7 +34,9 @@ Funciones adicionales: **subtítulos en vivo** sobre audio del sistema (`LiveSub
 
 Post-procesado IA (fork addition): opcional, *off-line-by-default*, refina texto con cualquier LLM compatible OpenAI (`PostProcessor.java`, settings en `PostProcessSettingsActivity.java`).
 
-**Arquitectura general:** proceso Java principal + proceso aislado `:ime` (declarado en `AndroidManifest.xml` con `android:process=":ime"`). Toda la lógica pesada (ASR, captura audio, segmentación, JNI) está en **Rust** compilado como `cdylib` (`Cargo.toml`) y enlazado por JNI desde Java. Los procesos se sincronizan vía ficheros *marker* en `getFilesDir()` (sin `SharedPreferences`).
+**Arquitectura general: UN SOLO PROCESO.** Toda la app (MainActivity, IME, servicio de reconocimiento, overlay, subtítulos) corre en el proceso por defecto: `AndroidManifest.xml` **no declara ningún `android:process`** (la afirmación histórica de un proceso `:ime` aislado era falsa y nunca se implementó — corregido 2026-10). Toda la lógica pesada (ASR, captura audio, segmentación, JNI) está en **Rust** compilado como `cdylib` (`Cargo.toml`) y enlazado por JNI desde Java. Los ajustes se guardan en ficheros *marker* en `getFilesDir()` (sin `SharedPreferences`) porque el motor Rust solo lee del *filesystem* y deben ser legibles sin importar qué componente arrancó primero.
+
+> ⚠️ **NO añadir `android:process=":ime"`.** Estaría tentador para "aislar" el teclado, pero rompería dos invariantes reales: `voice_session.rs` **comparte deliberadamente un único `cpal::Stream`** entre el IME y el popup, y el engine vive en un `Arc<Mutex<Engine>>` global. Separar procesos duplicaría el engine y rompería esa compartición.
 
 ---
 
@@ -49,20 +51,28 @@ Post-procesado IA (fork addition): opcional, *off-line-by-default*, refina texto
 | Concurrencia | `crossbeam-channel`, `once_cell`, `std::sync` (Arc/Mutex/atomic) | — |
 | Logging nativo | `log` + `android_logger` | max level `Info` |
 | Errores | `anyhow` (Rust), `try/catch` + `Throwable` (Java) | — |
-| Lenguaje UI | **Java** (sin Kotlin) | Java 8 source/target |
-| Android Gradle Plugin | `com.android.application` | **8.7.3** |
-| Build tool | Gradle wrapper | ver `gradle/wrapper/gradle-wrapper.properties` |
-| Toolchain humano | JDK 17 · Android NDK **28.0.13004108** (unificado en Gradle = CI = README) · Rust `aarch64-linux-android` · [`cargo-ndk`](https://github.com/bbqsrc/cargo-ndk) | Host soportados: linux-x86_64, darwin-x86_64, darwin-arm64, windows (ver `ndkPrebuiltDir()` en `app/build.gradle.kts`); un host sin prebuilt NDK falla con mensaje claro |
-| Target NDK ABIs | **`arm64-v8a` únicamente** (`abiFilters += "arm64-v8a"`) | excluidas x86 / armeabi-v7a; 16KB page size aligned |
-| `compileSdk` / `targetSdk` / `minSdk` | Gradle efectivo: `35 / 35 / 26` | Compatible Android 8.0 hasta Android 17 (API 35+) |
-| Material | Material Components for Android | `1.12.0` (Material 3 + Material You) |
+| Lenguaje UI | **Java** (sin Kotlin) | Java 17 source/target |
+| Android Gradle Plugin | `com.android.application` | **9.4.1** — obligatorio para API 37, ver nota |
+| Build tool | Gradle wrapper | **9.8.0** (ver `gradle/wrapper/gradle-wrapper.properties`) |
+| Toolchain humano | JDK 17 · Android NDK **28.2.13676358** (unificado en Gradle = CI = README) · Rust `aarch64-linux-android` · [`cargo-ndk`](https://github.com/bbqsrc/cargo-ndk) | Host soportados: linux-x86_64, darwin-x86_64, darwin-arm64, windows (ver `ndkPrebuiltDir()` en `app/build.gradle.kts`); un host sin prebuilt NDK falla con mensaje claro |
+| Target NDK ABIs | **`arm64-v8a` únicamente** (`abiFilters += "arm64-v8a"`) | excluidas x86 / armeabi-v7a; 16 KB page size aligned (gate `checkNativeAlignment`) |
+| `compileSdk` / `targetSdk` / `minSdk` | Gradle efectivo: `37 / 37 / 26` | **Android 17 = API 37**; Android 15 = API 35. Cubre Android 8.0 (API 26) hasta Android 17 |
+| Optimización de release | R8 (minify) + resource shrinking | `isMinifyEnabled = true`, `isShrinkResources = true`; keep rules en `app/proguard-rules.pro` (JNI + callbacks por nombre). Build type `benchmark` + módulo `:benchmark` para Macrobenchmark / Baseline Profile |
+| Material | Material Components for Android | `1.14.0` (Material 3 + Material You) |
 | HTTP (post-procesado) | OkHttp | `4.12.0` |
 | Almacenamiento clave API | marker file Base64 en `filesDir()` | sin dependencia externa |
 | Alineación kotlin-stdlib | Forzadas a `1.8.22` (vacías) | ver bloque `constraints` en `app/build.gradle.kts` |
 
+> ⚠️ **Por qué AGP 9.x y no 8.x:** AGP **8.13.x no puede resolver la plataforma de API 37**. Está probado hasta compile SDK 36.1 y falla con `Failed to find target with hash string 'android-37'` porque instala la plataforma como `android-37.0` pero busca `android-37`. La migración a API 37 exige la línea 9.x. No bajar AGP/Gradle sin bajar también `compileSdk`.
+
+> ℹ️ **R8 / non-transitive R classes:** con `android.nonTransitiveRClass=true` (y AGP 9) el `R` de Material **no** contiene atributos definidos en AppCompat. Usa `androidx.appcompat.R.attr.colorPrimary` / `colorError`, pero `com.google.android.material.R.attr.colorOnError` / `colorPrimaryContainer` (esos sí son de Material). Mezclarlos mal rompe la compilación.
+
 **Permisos críticos** (`AndroidManifest.xml`):
 - `RECORD_AUDIO`, `INTERNET` (post-procesado), `FOREGROUND_SERVICE`,
-  `FOREGROUND_SERVICE_MEDIA_PROJECTION`, `SYSTEM_ALERT_WINDOW`, `POST_NOTIFICATIONS`.
+  `FOREGROUND_SERVICE_MEDIA_PROJECTION`, `FOREGROUND_SERVICE_MICROPHONE`,
+  `SYSTEM_ALERT_WINDOW`, `POST_NOTIFICATIONS`, `BLUETOOTH_CONNECT`.
+- ❌ **`READ_USER_DICTIONARY` fue eliminado** (2026-10): la plataforma lo mantiene fuera del SDK público (`android.Manifest.permission` no expone esa constante), así que una app con SDK moderno **nunca puede obtenerlo**. Declararlo solo anunciaba un acceso imposible y la consulta al `ContentProvider` siempre lanzaba `SecurityException`. **No reintroducirlo.**
+- Backup: `allowBackup="false"` **más** `android:dataExtractionRules` + `fullBackupContent`, que excluyen todo — en Android 12+ `allowBackup=false` por sí solo no impide la transferencia dispositivo-a-dispositivo.
 
 **i18n:** 7 locales paralelos (EN `values/`, ES `values-es/`, DE `values-de/`, FR `values-fr/`, IT `values-it/`, PT `values-pt/`, RU `values-ru/`) + `values-night/` (estilos dark).
 
@@ -77,10 +87,12 @@ Post-procesado IA (fork addition): opcional, *off-line-by-default*, refina texto
 
 ### Wiring Gradle ↔ cargo-ndk (AGENT-ONLY)
 
-- `cargoNdkBuild` está registrada como `preBuild` dependiente y **siempre re-corre**
-  (`outputs.upToDateWhen { false }`): el incremental de Cargo es fiable, el
-  matching inputs/outputs de Gradle no. Sin este override, Gradle salta rebuilds
-  cuando sólo cambian fuentes Rust.
+- `cargoNdkBuild` está registrada como dependencia de `preBuild` y **sólo se ejecuta
+  cuando falta el `.so`** (`onlyIf { !soFile.exists() }`, con
+  `app/src/main/jniLibs/arm64-v8a/libandroid_transcribe_app.so` como referencia).
+  Consecuencia práctica: si sólo cambian ficheros Rust y el `.so` ya existe,
+  Gradle **no** recompila. Para forzar un rebuild nativo, borra ese `.so`
+  (o ejecuta `cargo ndk -t arm64-v8a build --release` a mano).
 - `app/build.gradle.kts` fuerza `GGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16` vía
   env en `cargoNdkBuild`. **No bajar** este flag: ggml cross-compila con kernels
   baseline y la inferencia cuantizada cae a ≥4× más lenta. `check_cpu_features`
@@ -88,11 +100,45 @@ Post-procesado IA (fork addition): opcional, *off-line-by-default*, refina texto
 - `libc++_shared.so` se copia tras cada build desde el NDK a
   `app/src/main/jniLibs/<abi>/` (Bionic no la trae integrada y `transcribe-cpp`
   la enlaza dinámicamente).
-- **APK-only**: cuando `taskNames` contiene `"bundle"`, el bloque `if (!isBundle)`
-  en `app/build.gradle.kts` **NO** añade `model_assets/src/main/assets/builtin-model/`
-  a `assets.srcDirs` — añadirlo ahí causa duplicate-resource errors con el asset
-  pack. Para bundle usa el asset pack `:model_assets` con
-  `dynamicDelivery = "install-time"`.
+- **Entrega del modelo bundled (APK vs AAB):** son mecanismos mutuamente
+  excluyentes para el mismo variant `release`.
+  - El **APK** tiene que llevar el GGUF dentro del módulo base, porque AGP ignora
+    los asset packs al empaquetar un APK por eso el bloque `if (!isBundle)` en
+    `app/build.gradle.kts` añade `model_assets/src/main/assets/` a
+    `assets.srcDirs` del source set `release` (solo ese source set: el APK de
+    debug se queda sin modelo a propósito).
+  - El **AAB** debe llevar el GGUF **solo** en el asset pack `:model_assets`
+    (`dynamicDelivery = "install-time"`), o Play recibiría 750 MB duplicados.
+  - Una invocación que pida **ambos** falla al configurar con un mensaje
+    accionable (`bundleTaskNames` y `apkTaskNames` no vacíos). Antes prefería
+    silenciosamente la rama bundle y producia un APK de 32 MB sin modelo que
+    compilaba "bien". **Construye cada artefacto en su propia invocación.**
+  - Dos gates de artefacto lo verifican sobre el fichero real, no sobre flags:
+    `verifyReleaseApkModel` (dependencia de `assembleRelease`) y
+    `verifyReleaseBundleModel` (dependencia de `signReleaseBundle`). Ambos abren
+    el zip y exigen que el modelo esté **exactamente una vez** (el AAB lo cuenta
+    con el sufijo `assets/builtin-model/…`, así que una copia en `base/` además
+    de en el pack se detecta como entrega duplicada). `verifyReleaseApkModel`
+    solo se puede saltar con `-Pauratranscribe.allowModelLessReleaseApk=true`,
+    que imprime un WARNING; el AAB no tiene opt-out.
+  - La decisión APK/AAB vive en dos funciones puras de `app/build.gradle.kts`
+    (`packagingTaskSets(taskNames)` y `packagingDecision(taskNames)` → modo
+    `apk|bundle|ambiguous|neither`), y la tarea `verifyPackagingDecision` las
+    ejerce junto con los gates de modelo sobre **archivos sintéticos**
+    (17 invocaciones representativas × 9 archivos: acepta y rechaza en ambas
+    direcciones). Es gate duro en ambos workflows y dependencia de `check`, así
+    que un cambio en la heurística de nombres de tarea falla antes de que nadie
+    publique un artefacto sin modelo. No lo sustituyas por un test que recalcule
+    la respuesta esperada por su cuenta: tiene que llamar al mismo código.
+  - `scripts/verify_release_artifact.py` es la verificación **independiente**
+    del artefacto ya construido (`--kind apk|aab`, hash de contenido contra el
+    asset fuente, rechazo de ausente/duplicado/mal ubicado/truncado/corrupto).
+    Sus 14 tests (`scripts/test_verify_release_artifact.py`) corren como gate en
+    ambos workflows porque son Python puro, sin SDK ni modelo descargado.
+  - `downloadModels` se cablea a `preBuild` cuando la invocación produce un
+    artefacto de release (y no es una corrida lint/test/`checkModels`), no
+    cuando "no contiene la palabra Debug" — que era la condición anterior y
+    dejaba sin modelo el APK de release de `assembleDebug assembleRelease`.
 
 ### Build Pipeline & Continuous Integration (REGLA GRABADA A FUEGO)
 
@@ -100,25 +146,81 @@ Post-procesado IA (fork addition): opcional, *off-line-by-default*, refina texto
 - 🚀 **Compilaciones de Lanzamiento (Release):** Se realizan SIEMPRE a través de GitHub Actions (`Build Signed Release APK` workflow / `android_release.yml`) mediante tags `vX.Y.Z` o disparadores manuales.
 - 🛠️ **Disparador Manual Obligatorio (`workflow_dispatch`):** Todos los workflows de release (`android_release.yml`) deben mantener habilitado `workflow_dispatch` en su bloque `on:` y `tag_name: v${{ env.VERSION_NAME }}` en el paso de publicación. Esto garantiza resiliencia si GitHub Actions sufre un outage o pierde un evento de tag.
 
-### Regla de validación por entorno (2026-08-06, REGLA GRABADA A FUEGO)
+### Regla de validación por entorno (2026-08-06, actualizada 2026-10 — REGLA GRABADA A FUEGO)
 
-Los agentes deben validar compilaciones según el host donde se ejecutan:
+La regla depende del **tipo de host**, no del proyecto. Averigua primero dónde estás ejecutando:
 
-- 📱 **Host tipo dispositivo móvil / embebido (p. ej. un Android userspace ARM64 sin KVM — como el host de desarrollo actual): NUNCA ejecutar compilaciones pesadas locales.** `./gradlew assembleDebug`, `cargo build`, `cargo ndk ...`, `cargo check` con NDK, `assembleRelease`, etc. sobrecargan el sistema y pueden dejarlo inoperativo (verificado 2026-08-06). Toda validación de compilación se hace **de forma dinámica vía GitHub**: `git commit` + `git push` a `main` dispara el workflow debug (`debug_telegram.yml`), que corre todos los gates — `cargo fmt --check`, `check_translations.py`, `testDebugUnitTest`, `assembleDebug` (compila el Rust vía cargo-ndk), `lintDebug`, `checkModels` — y envía el APK a Telegram. El agente lee el resultado con `gh run list` / `gh run view` y **itera: arreglar → push → leer CI → repetir**, subiendo pruebas que pasen o no.
-- 💻 **Equipo físico (portátil/ordenador del mantenedor):** se puede compilar localmente (`./gradlew assembleDebug`, `cargo ndk ...`, tests JVM, etc.) respetando la protección térmica (los tests JVM no disparan `cargoNdkBuild`) y los gates de la sección "Validación y estilo".
-- ✅ **Gates ligeros permitidos en el host embebido:** lectura estática de código, `git diff`, `cargo fmt --check` (no compila), `python3 scripts/check_translations.py`, edición de strings XML. Nada que invoque Gradle/Cargo/CMake en modo build.
-- 🛠️ `gh` está autenticado como el mantenedor en el host embebido; úsalo para inspeccionar runs del CI en vez de compilar localmente.
+- 📱 **Host tipo dispositivo móvil / embebido (p. ej. un Android userspace ARM64 sin KVM): NUNCA ejecutar compilaciones pesadas locales.** `./gradlew assembleDebug`, `cargo build`, `cargo ndk ...`, `cargo check` con NDK, `assembleRelease`, etc. sobrecargan el sistema y pueden dejarlo inoperativo (verificado 2026-08-06). En ese host toda validación de compilación se hace **de forma dinámica vía GitHub**: `git commit` + `git push` a `main` dispara el workflow debug (`debug_telegram.yml`), que corre todos los gates — `cargo fmt --check`, `check_translations.py`, `test_send_telegram.py`, `test_verify_release_artifact.py`, `bench_performance.py`, `testDebugUnitTest`, `assembleDebug` (compila el Rust vía cargo-ndk), `lintDebug`, `checkModels`, `checkNativeAlignment`, `verifyPackagingDecision` y `:benchmark:assembleBenchmark` — y envía el APK a Telegram. Se lee el resultado con `gh run list` / `gh run view` y se **itera: arreglar → push → leer CI → repetir**. Se permiten gates ligeros: lectura estática, `git diff`, `cargo fmt --check`, `python3 scripts/check_translations.py`, edición de strings XML.
+- 💻 **Equipo físico (portátil/escritorio con SDK Android, NDK, Rust y red): compilar en local es lo esperado y lo preferido.** Aquí la validación real es local, en este orden: `./gradlew :app:testDebugUnitTest` (rápido; no dispara `cargoNdkBuild`) → `python3 scripts/check_translations.py` → `./gradlew :app:lintDebug` → `./gradlew :app:assembleDebug` (usa el `.so` ya construido) → `./gradlew :app:assembleRelease` si el cambio toca R8. En este tipo de host **no** hace falta esperar a CI para saber si compila.
+- 🛠️ `gh` está autenticado como el mantenedor; úsalo para inspeccionar runs del CI cuando estés en el host embebido.
 
 ### Signing (AGENT-ONLY)
 
-- Si `release.keystore` existe en la raíz **y** las 3 env vars (`KEY_ALIAS`,
-  `KEY_PASS`, `STORE_PASS`) están exportadas, AGP firma el release con
-  `signingConfigs.release`. Si el keystore existe pero falta alguna env var,
-  **los builds release fallan con un error claro** (hardening 2026-08-06):
-  nunca se firma con credenciales por defecto. Sin keystore = release sin
-  firmar (debug-only).
-- En CI la keystore es base64-decoded desde un repo secret; ver
-  `.github/workflows/android_release.yml` §Decode Keystore.
+Los tres casos están explícitos en `app/build.gradle.kts` y verificados
+(2026-10, host x86_64):
+
+| Estado | `./gradlew :app:assembleRelease` |
+|---|---|
+| Keystore **+** las 3 env vars (`KEY_ALIAS`, `KEY_PASS`, `STORE_PASS`) | Firma con `signingConfigs.release` → `app-release.apk` firmado (verificado con `apksigner verify`) |
+| Keystore **pero** falta alguna env var, en una tarea que construye release | **Falla con error claro** (hardening 2026-08-06): nunca se firma con credenciales por defecto |
+| **Sin** keystore | Build correcto → `app-release-unsigned.apk` sin firmar |
+
+**Un build correcto NO es un release publicable.** El caso 3 es el que produce un
+artefacto sin firmar: sirve para F-Droid/buildserver, que recompila desde fuentes
+y firma él mismo, pero **nunca** se publica desde CI. La separación es explícita:
+
+| Workflow | Qué produce | ¿Publica? |
+|---|---|---|
+| `debug_telegram.yml` | APK de **debug** firmado con la debug key del repo | No publica un release: sube el APK como *workflow artifact* y lo envía al bot de Telegram |
+| `android_release.yml` | APK **y** AAB de release firmados con la clave del proyecto | Sí: GitHub Release con ambos ficheros, solo si todos los gates pasan |
+| Build desde fuentes (sin keystore, p. ej. F-Droid) | `app-release-unsigned.apk` sin firmar | No es un canal de este repo; lo firma quien lo consume |
+
+Garantías del workflow de release (no las relajes):
+
+1. **Preflight de credenciales antes de compilar.** Los cuatro secretos
+   (`KEYSTORE_BASE64`, `STORE_PASS`, `KEY_ALIAS`, `KEY_PASS`) se comprueban por
+   presencia y el job sale `1` si falta alguno. Se comprueba la *presencia*: el
+   valor no se imprime jamás (`"${!name:-}"`, nunca `echo $secret`).
+2. **Se rechaza el escape hatch del modelo.** El paso `Reject the model-less
+   release escape hatch` hace `grep` de `allowModelLessReleaseApk=true` en
+   `.github/workflows/` y revisa las `ORG_GRADLE_PROJECT_*` del entorno. La aguja
+   se arma con dos mitades (`"allowModelLess""ReleaseApk=true"`) a propósito:
+   escrita como un literal, el propio paso se auto-detectaría.
+3. **Nunca se firma con la debug key.** Tras `assembleRelease`, el APK se valida
+   con `apksigner verify --print-certs` y el paso compara el SHA-256 del firmante
+   contra el de `keystore/debug.keystore` (`androiddebugkey`); si coinciden,
+   `::error::` y salida `1`. El AAB pasa por el equivalente con `jarsigner -verify
+   -certs` + `keytool -printcert -jarfile`.
+4. **Un artefacto sin firmar no se publica.** Se rechaza explícitamente un
+   `*-unsigned.apk` por nombre, y en el AAB se inspecciona la **salida** de
+   `jarsigner` (`jar is unsigned` → error) porque `jarsigner -verify` sale `0`
+   incluso con un bundle sin firmar.
+5. **Orden correcto.** `zipalign -c -P 16 -v 4` (16 KB de Android 17, no el
+   `-c 4` histórico) y `apksigner verify` corren sobre el APK ya empaquetado y
+   **antes** de `Upload`/`Create Release`; cualquier fallo corta el job, así que
+   el Release no llega a crearse.
+
+> ⚠️ **`set -e -o pipefail` en todo paso que use `| tee`.** Sin `pipefail` el
+> estado del paso es el de `tee` (siempre 0): el gate de tests "pasaba" siempre.
+> Hubo un caso real de esto en `debug_telegram.yml` (2026-10-09).
+
+- ⚠️ **El `signingConfig` de release sólo se adjunta al build type si el keystore
+existe** (`hasReleaseKeystore`). Adjuntar un `signingConfig` cuyo `storeFile` nunca
+se asignó hace que AGP aborte en `validateSigningRelease` con *"Keystore file not
+set for signing config release"*: eso rompía `assembleRelease` en un clon limpio
+**y en el buildserver de F-Droid**, que compila desde fuentes y firma él mismo.
+No volver a atar `signingConfigs.getByName("release")` incondicionalmente.
+- En CI la keystore es base64-decoded desde un repo secret (`KEYSTORE_BASE64`)
+  **después** del preflight y antes de cualquier tarea de release; ver
+  `.github/workflows/android_release.yml` §`Decode Keystore`. El fichero
+  `release.keystore` resultante ya está en `.gitignore`.
+- La keystore de **debug** (`keystore/debug.keystore`, alias `androiddebugkey`,
+  password `android`) sí está versionada a propósito: la usa la firma de debug y
+  es contra la que el workflow de release compara para rechazar un APK firmado
+  con la debug key. Su SHA-256 es
+  `437be41f5719ee1e8c75fb2d005683bd97ce3daccaa615fa53eca89e7ef6e46d`
+  (verificado contra `apksigner verify --print-certs` de `app-debug.apk`,
+  2026-10). No la sustituyas ni la uses para un artefacto distribuible.
 
 ### Validación y estilo (Ley de Arneses / Gauntlet de Uncle Bob)
 
@@ -126,17 +228,27 @@ Los agentes deben validar compilaciones según el host donde se ejecutan:
 - 🛡️ **Invariantes Algorítmicos y Pruebas Negativas Obligatorias (2026-08-14):** Cualquier optimización o cambio heurístico en motores de coincidencia (corrector fonético, VAD, tokenización, segmentación de audio) debe incluir obligatoriamente suites de pruebas negativas (validar que oraciones/entradas cotidianas no relacionadas produzcan 0 falsos positivos y 0 sustituciones espurias). Se priorizan librerías canónicas auditadas (`strsim`, etc.) con filtros de orden $O(1)$ (e.g. poda rápida por longitud) frente a reimplementaciones matriciales ad-hoc sin cobertura exhaustiva.
 - **Soporte Multi-Arquitectura (ARM64 + x86_64):** La aplicación y sus pipelines de construcción deben ser compatibles y validables tanto en dispositivos/máquinas anfitrionas ARM64 como en portátiles/emuladores x86_64.
 - **Protección Térmica y de CPU en Móviles:** Las pruebas unitarias locales (`testDebugUnitTest`) se ejecutan aisladas en la JVM sin desencadenar la compilación pesada nativa en Rust (`cargoNdkBuild`), protegiendo el procesador del dispositivo. La generación de binarios APK/AAB completos se realiza en CI/CD (GitHub Actions). **En hosts tipo dispositivo móvil/embebido (regla 2026-08-06, ver "Regla de validación por entorno"), el agente no compila nada localmente: valida únicamente push a `main` + resultado del workflow debug de GitHub Actions.**
-- **Anulación de AAPT2 del Sistema:** En entornos ARM64 Linux, configurar `android.aapt2FromMavenOverride=/usr/bin/aapt2` en `gradle.properties` para usar el procesador de recursos nativo del sistema.
+- **Anulación de AAPT2 del Sistema (solo host ARM64 Linux):** `android.aapt2FromMavenOverride` está **comentado** en `gradle.properties`. Descoméntalo (apuntando a un `aapt2` real) **únicamente** si estás en un host ARM64 Linux donde el AAPT2 de Maven no puede ejecutarse. Nunca lo dejes activo con una ruta fija: históricamente apuntaba a `/data/data/com.termux/files/usr/bin/aapt2` y en cualquier otro host rompía todas las tareas de recursos.
 - **Validación automatizada:** Ejecutar `./gradlew assembleDebug` o suites de unit test sin nuevos advertencias o fallos + smoke test funcional en dispositivo/emulador.
 - **Java:** Sigue las convenciones de §4.
 - **Rust:** Sigue el estilo inline existente (4 espacios, `rustfmt` por defecto).
 - **Gates configurados / evidencia (Guantelete ABIERTO):**
-  - `testDebugUnitTest`: **34 tests JVM verdes** (`BUILD SUCCESSFUL`, último run 2026-08-04): markers/subtitle prefs + `CallRegistryTest` (cancelación por owner) + `MarkerAtomicityTest` (lecturas concurrentes) + `FileSha256Test` + `PostProcessorTest` (suite HTTP P1.3 — payload, `stream:false`, `${output}` una vez, errores, fallback, timeout real de OkHttp por seam con valores escalados — **más DNS fail real con host `.invalid` y connect timeout por seam contra `192.0.2.1` desde 2026-08-04**; los 30 s/60 s de producción se asertan, no se esperan en wall-clock).
+  - `testDebugUnitTest`: **176 tests JVM verdes, 0 fallos, 0 errores** (`BUILD SUCCESSFUL`, medido 2026-10-09 en host x86_64): `ModelAvailabilityTest` (sondeo de modelo fuera del hilo principal: marker vacío, nombre que apunta a un fichero inexistente, nombre con espacios, fichero homónimo en el directorio equivocado, `AssetManager` nulo, `isModelReady` con la rama importada) + markers/subtitle prefs + `CallRegistryTest` (cancelación por owner) + `MarkerAtomicityTest` (lecturas concurrentes) + `FileSha256Test` + `AccessibilityInsertionTest` (inserción de dictado en la posición real del cursor/selección, incluidos selección desconocida `-1`, fuera de rango, invertida y multilínea) + `FileAudioChunksTest` (remuestreo acotado a la región válida, **upsampling** y ratios no enteros 44.1/48/32 kHz → 16 kHz, **garantía de que la salida no aliasa el buffer de chunk reutilizado**, longitudes 2:1/identidad/degeneradas, clamping de `length` fuera de rango, ausencia de NaN/Inf; **`exceedsDurationCap` con el límite exacto, un frame por encima, escalado por sample rate y argumentos inválidos**; unión de transcripciones sin espacios sobrantes, saltando fragmentos vacíos, preservando el orden en 60 chunks y con un solo chunk) + `PostProcessorTest` (suite HTTP P1.3 — payload, `stream:false`, `${output}` una vez, errores, fallback, timeout real de OkHttp por seam con valores escalados — **más DNS fail real con host `.invalid` y connect timeout por seam contra `192.0.2.1`**; los 30 s/60 s de producción se asertan, no se esperan en wall-clock). No citar `34`, `109` ni `123` tests: esos números son históricos.
   - **Privacidad (2026-08-04):** el transcript crudo y los detalles de error del post-procesado **no se loguean en release** (gating con `BuildConfig.DEBUG`). No reintroducir logs de texto transcrito sin gate de debug.
-  - **Gates CI (2026-08-04):** `cargo fmt --all -- --check` es gate duro en ambos workflows; `checkModels` también corre en el workflow debug; el workflow release falla rápido si falta `KEYSTORE_BASE64` y verifica `zipalign -c` + `apksigner verify` del APK antes de publicar.
-  - `checkModels` verifica SHA-256 de assets bundled presentes; es no-op cuando falta el asset. La descarga runtime debug **también** verifica SHA-256 antes de activar `active_model` (P0.3, `FileSha256`), pendiente de smoke en dispositivo.
+  - **Gates CI (actualizado 2026-10-09):**
+    - *Ambos workflows, job `validate` (barato, sin descargar el modelo):* `cargo fmt --all -- --check`, `scripts/check_translations.py`, `scripts/test_verify_release_artifact.py`, `testDebugUnitTest` y `:app:verifyPackagingDecision` (este último ejerce la decisión de packaging y los gates de modelo sobre archivos sintéticos, sin descargar un byte del GGUF).
+    - *Solo release:* preflight de los cuatro secretos de firma, rechazo del escape hatch del modelo, `lintDebug`, `checkNativeAlignment` (antes del paso de 750 MB, para fallar rápido), `assembleRelease` + `zipalign -c -P 16` + `apksigner verify` + rechazo de debug key + `verify_release_artifact.py --kind apk`, luego `bundleRelease` + `jarsigner`/`keytool` + rechazo de debug key + `verify_release_artifact.py --kind aab`, y sólo después `Upload`/`Create Release`. APK y AAB van en **invocaciones separadas**.
+    - *Solo debug (`build`):* `assembleDebug`, `lintDebug`, `checkModels`, `checkNativeAlignment`, `verifyPackagingDecision`, `:benchmark:assembleBenchmark` — todo con `set -e -o pipefail`.
+    - Todo paso con `| tee` lleva `pipefail`; sin él un gate rojo se reporta verde (era el estado del gate de tests de `debug_telegram.yml`).
+    - Acciones pinneadas a las mismas major que ya usaba el repo (`actions/*@v4`, `dtolnay/rust-toolchain@stable`, `gradle/actions/setup-gradle@v4`, `Swatinem/rust-cache@v2`); `permissions: contents: read` a nivel de workflow y `contents: write` sólo en el job que publica.
+  - `checkModels` verifica SHA-256 del asset bundled presente en
+    `model_assets/src/main/assets/builtin-model/`; sigue siendo no-op cuando el
+    asset falta (para que `check` no dependa de tener 750 MB descargados). El
+    no-op es solo sobre el *fuente*: la garantía sobre el artefacto la dan
+    `verifyReleaseApkModel` y `verifyReleaseBundleModel`, que sí fallan si el
+    APK/AAB no lleva el modelo (ver §3 "Entrega del modelo bundled"). La descarga runtime debug **también** verifica SHA-256 antes de activar `active_model` (P0.3, `FileSha256`), pendiente de smoke en dispositivo.
   - `scripts/check_translations.py` comprueba paridad de nombres en 6 locales alternativos; no detecta todas las cadenas hardcodeadas en Java. P2.4 (2026-08-03): las strings visibles de Java/layouts están migradas a recursos (44 nuevas, gate PASS); excepción documentada para los detalles de error de `PostProcessor` (sin `Context`, seam JVM) y las strings de protocolo JNI que usa la máquina de estados como comparadores.
-  - `lintDebug` está configurado como hard gate en debug CI; pendiente de una ejecución actual tras los cambios del 2026-08-03.
+  - `lintDebug`: es hard gate. **2026-10 (host x86_64, AGP 9.4.1): 0 errores, 18 warnings** (partiendo de 3 errores / 205 warnings). Los 18 restantes son **deliberados y están documentados**; no se han silenciado con `tools:ignore` ni `@SuppressLint`. Re-triados contra el código en 2026-10 (mismo conjunto, misma cuenta). Inventario para no volver a investigarlos desde cero: 5 `InflateParams` (vistas cuyo padre real es `WindowManager`, o la vista devuelta por `onCreateInputView()`), 3 `UselessParent` + 1 `MergeRootFrame` (el contenedor «sobrante» es el tap target de pantalla completa, el gutter del scrim o el target de insets al que el listener aplica `setPadding`), 1 `ObsoleteSdkInt` (`mipmap-anydpi-v26`), 2 `ButtonOrder` (una barra de herramientas de IME/overlay, no un diálogo), 2 `ApplySharedPref` (commits síncronos ordenados de los que depende la migración de markers), 2 `UnusedAttribute` (`enableOnBackInvokedCallback` y `isAccessibilityTool`: solo tienen efecto en API 33+/31+ y ahí sí importan), 1 `ChromeOsAbiSupport` (arm64-only por diseño, §5.1) y 1 `TooManyViews` (la pantalla de ajustes). Cada uno lleva su razón en el propio fichero que lo dispara (comentario junto al `<Button>` de Cancel, junto al `LinearLayout` del disclosure, junto a `abiFilters`, en la cabecera de `recognize_activity.xml`/`service_subtitle.xml`, en el doc de `isAccessibilityTool` y en el XML de `mipmap-anydpi-v26`), **excepto los dos `UnusedAttribute` y el `TooManyViews`**: un atributo dentro de la etiqueta `<application>` no admite comentario XML en línea y el recuento de vistas es del layout entero, así que su justificación vive aquí (y en `CHANGELOG.md`). El `ObsoleteSdkInt` es deliberado: `mipmap-anydpi-v26` **no** puede renombrarse a `mipmap-anydpi` — el calificador `-v26` es obligatorio para los XML de adaptive icon y renombrarlo rompe AAPT con `resource mipmap/ic_launcher not found` (re-verificado 2026-10). La configuración de `lint` en `app/build.gradle.kts` se limpió (2026-10) con `abortOnError = true`, `ignoreWarnings = false` y `checkReleaseBuilds = true`. Antes tenía `ignoreWarnings = true` y ~46 checks desactivados en bloque, lo que ocultaba problemas reales (`NewApi`, `MissingPermission`, receivers sin registrar, componentes exportados, texto hardcodeado, accesibilidad de vistas clicables…). Ahora sólo quedan desactivados un puñado de falsos positivos **documentados** en el propio bloque (`GradleDependency`, `AndroidGradlePluginVersion`, `VectorPath`, `AppLinkUrlError` — este último por los filtros `audio/*`, que son mime handlers y no app links — y `Overdraw`). **No añadir un `disable` nuevo sin justificarlo junto al código.**
   - Tests Rust `#[cfg(test)]` en `audio` y `corrector` tienen cobertura de lógica pura mediante crate espejo; el crate cdylib completo sigue bloqueado por `transcribe-cpp-sys v0.1.3` y no debe describirse como ejecutado satisfactoriamente en CI hasta existir un workflow/log reproducible.
   - El plan, los bloqueadores P0 y los criterios de cierre viven en [`GAUNTLETE_PLAN.md`](GAUNTLETE_PLAN.md) y [`.agents/memory/static-audit-debt-2026-08-03.md`](.agents/memory/static-audit-debt-2026-08-03.md).
 
@@ -149,7 +261,7 @@ Los agentes deben validar compilaciones según el host donde se ejecutan:
 - **Patrón:** **Puente JNI por módulo Rust ↔ Java/Kotlin Service**. Cada servicio Java (`RecognizeActivity`, `RustInputMethodService`, `LiveSubtitleService`, `VoiceRecognitionService`) tiene su homólogo en `src/<mod>.rs` y expone al menos `initNative` / `cleanupNative` más acciones de alto nivel (`startRecording`, `stopRecording`, `pushAudio`, ...).
 - **Estado global:** Rust usa `Lazy<Mutex<..>>` (de `once_cell`) para singletons (engine, sesión IME, sesión recog, estado de subtítulos).
 - **Engine compartido:** `Arc<Mutex<Engine>>` con `Condvar` para coordinar cargas concurrentes. Ver patrón completo en `src/engine.rs` (`ensure_loaded_from_thread`).
-- **Modelo de procesos:** main + `:ime` (aislado). Comparten **marcadores en `getFilesDir()`** — *no* `SharedPreferences` — porque `:ime` no puede leer prefs de la app principal sin un `ContentProvider`, y los marker files son trivialmente compartibles entre procesos.
+- **Modelo de procesos: UNO SOLO.** No existe ningún `android:process` en el manifest. Comparte **marcadores en `getFilesDir()`** — *no* `SharedPreferences` — porque el motor Rust sólo lee del *filesystem* y los ajustes deben estar disponibles sin importar qué componente arrancó primero (el IME puede existir antes que `MainActivity`).
 
 ### 4.2 Naming
 
@@ -208,7 +320,7 @@ Los ajustes son **marker files en `filesDir()`**, no `SharedPreferences`. Ejempl
 | `active_model` | contenido = nombre del GGUF importado en `models/` |
 | `model_threads` | contenido = nº entero; ausente/inválido = automático |
 | `stream_context_right` | contenido = `13`/`6`/`1`/`0` → chunks cache-aware {1.12 s, 560 ms, 160 ms, 80 ms} (Nemotron, `chunk = (right+1) × 80 ms`); ausente/inválido = `13` (default de precisión del modelo). Valores fuera de menú se reintentan con el default del modelo en `run_stream`, no rompen el stream |
-| `hardware_backend` | contenido = `cpu` (ARM NEON + dotprod + fp16 - default/recomendado), `npu` (NNAPI), `gpu` (Vulkan) → acelerador de inferencia seleccionado en `ModelsActivity` |
+| `hardware_backend` | contenido = `cpu` **siempre**. `src/engine.rs` lee el marker y **sólo lo loguea**: no hay ninguna ruta NNAPI/Vulkan en el motor nativo. `ModelsActivity` ya no ofrece NPU/GPU y normaliza a `cpu` cualquier valor antiguo — no reintroducir opciones de UI sin implementación real detrás |
 | `custom_words` | contenido = términos correctos, uno por línea (líneas `#` = comentarios); ausente/vacío = corrección fonética desactivada |
 | `subtitle_translation_target` | contenido = `auto` (idioma original, sin traducción — decisión de producto) o un locale BCP-47 (`es-ES`, `en-US`, `fr-FR`, `de-DE`, `it-IT`, `pt-PT`, `ru-RU`) → traducción on-device de subtítulos **finalizados** (ML Kit, paquetes vía Google Play Services; fallback siempre al texto original). Lo lee `LiveSubtitleService` al iniciar sesión; no requiere recarga del engine |
 
@@ -259,15 +371,15 @@ No renombrar archivos Rust/Java sin actualizar la entrada JNI (§4.3).**Post-pro
   desactivado, se comete el texto ASR directamente; si la llamada falla, se cancela o devuelve
   una respuesta vacía/no válida, siempre se comete el texto crudo. Así se evita pegar tokens
   parciales, duplicados o texto "Frankenstein" y se conserva la fluidez del streaming ASR.
-- **Cancelación/lifecycle:** la cancelación es **por propietario** (`PostProcessor.cancelAllFor(owner)`, identidad de la Activity/Service dueña de la llamada; registro en `CallRegistry`): destruir una superficie o cancelar un reconocimiento nunca cancela una petición legítima de otra superficie. `PostProcessor.cancelAll()` (global) queda reservado para eventos realmente globales: toggle PP-off (con broadcast `CANCEL_ACTION` al proceso `:ime`) y muerte del servicio IME. Los validadores de Activity/IME impiden callbacks tardíos sobre componentes destruidos, y el `Response` de OkHttp se cierra siempre, incluidos errores y parseos fallidos.
+- **Cancelación/lifecycle:** la cancelación es **por propietario** (`PostProcessor.cancelAllFor(owner)`, identidad de la Activity/Service dueña de la llamada; registro en `CallRegistry`): destruir una superficie o cancelar un reconocimiento nunca cancela una petición legítima de otra superficie. `PostProcessor.cancelAll()` (global) queda reservado para eventos realmente globales: toggle PP-off (con broadcast `CANCEL_ACTION`, que el IME escucha) y muerte del servicio IME. Los validadores de Activity/IME impiden callbacks tardíos sobre componentes destruidos, y el `Response` de OkHttp se cierra siempre, incluidos errores y parseos fallidos.
 - **Traducción de subtítulos (fork addition, contrato AGENT-ONLY):** el modelo bundled (Nemotron) **no traduce**; la traducción es una etapa Java-side exclusiva de subtítulos sobre segmentos **finalizados** (`LiveSubtitleService` + `OnDeviceSubtitleTranslator` con ML Kit). El destino vive en el marker `subtitle_translation_target` (`auto` = idioma original; locale fijo = traducir) y lo lee el servicio al iniciar sesión — **no** reutilizar `model_translate` (eso es ASR-global y **nunca** debe aplicar a subtítulos: `engine::transcribe_subtitle` fuerza `Task::Transcribe`). Cola FIFO serial (máx. 8), resultados aplicados en orden en main thread, fallback **siempre** al texto original (sin Play Services, sin paquete, error, saturación), generación de sesión para callbacks tardíos, y origen automático resuelto por script del texto (`SourceLanguageResolver`) cuando `model_language` no es fijo.
 
 ### 4.7 Rust: contratos del singleton Engine (no romper)
 
-- **`engine::get_engine()` → `Option<Arc<Mutex<Engine>>>`**: compartido por todos los procesos Java. Garantías: panic-catching, recovery de Mutex poison.
+- **`engine::get_engine()` → `Option<Arc<Mutex<Engine>>>`**: compartido por todos los componentes Java (un único proceso). Garantías: panic-catching, recovery de Mutex poison.
 - **`engine::ensure_loaded*`**: idempotente, multi-thread safe, espera via `Condvar` si otra thread está cargando, reintenta tras `Failed(_)`.
 - **`Engine::transcribe`** divide audio largo en el punto más silencioso (`audio::find_quietest_split`); une los textos con un espacio.
-- **`Engine::run` re-lee `model_language` en CADA llamada** (issue v0.1.20→21). Esto es lo que hace que el cambio de idioma en el spinner de `ModelsActivity` aplique también en el proceso `:ime` sin recarga manual. **No cachear el idioma dentro del Engine** — ese fue el bug original.
+- **`Engine::run` re-lee `model_language` en CADA llamada** (issue v0.1.20→21). Esto es lo que hace que el cambio de idioma en el spinner de `ModelsActivity` aplique al instante en todas las superficies (incluido el IME, que puede estar vivo antes que la Activity) sin recarga manual del modelo. **No cachear el idioma dentro del Engine** — ese fue el bug original.
 
 ### 4.8 Subtítulos: pipeline con coste predecible
 
@@ -283,8 +395,9 @@ No renombrar archivos Rust/Java sin actualizar la entrada JNI (§4.3).**Post-pro
 
 ### 4.9 Java UI: convenciones observables
 
-- **Tema base:** `Theme.Material3.DayNight.NoActionBar` + `DynamicColors.applyToActivitiesIfAvailable(this)` en `App.onCreate` (Material You desde Android 12+).
-- **IME:** `RustInputMethodService` no es `AppCompatActivity` (es `InputMethodService` en proceso `:ime`). Construye su propio contexto theme-aware con `ThemePrefs.wrapForNight` + `DynamicColors.wrapContextIfAvailable` para que la vista coincida con el ajuste de tema de la app principal.
+- **Tema base:** `Theme.Material3.DayNight.NoActionBar` + `DynamicColors.applyToActivitiesIfAvailable(this)` en `App.onCreate` (Material You desde Android 12+). El `AppTheme` **no sobrescribe ningún color**: se usa el esquema tonal de Material 3 tal cual (antes se pisaban sólo `colorPrimary`/`colorOnPrimary`, lo que dejaba el resto de roles en la baseline y producía una paleta a medias). Todas las superficies usan atributos `?attr/color*`; **no añadir literales hex** a layouts ni drawables. Las únicas excepciones documentadas son los tokens semánticos sin rol M3 (`status_ok`) y los scrims de los overlays que se dibujan sobre contenido de terceros (`subs_scrim*`, `overlay_scrim*`), que a propósito mantienen el mismo valor en claro y oscuro.
+- **Targets táctiles:** mínimo **48dp × 48dp** efectivos en todo control interactivo (las teclas del IME, cerrar, cancelar, overlay, subtítulos). El glifo puede seguir a 24dp; el contenedor no. No usar `android:minWidth/minHeight="0dp"` para encoger un botón por debajo del mínimo.
+- **IME:** `RustInputMethodService` no es `AppCompatActivity` (es un `InputMethodService`, en el mismo proceso que el resto de la app). Construye su propio contexto theme-aware con `ThemePrefs.wrapForNight` + `DynamicColors.wrapContextIfAvailable` para que la vista coincida con el ajuste de tema de la app principal.
 - **Pantalla de voz (popup):** `AppTheme.VoicePanel` translúcido — NO pantalla completa — para que la app que invocó la voz conserve su UI detrás.
 - **Estado interno del engine (`"Loading"`, `"Initializing"`, `"Waiting"`) NO se muestra al usuario:** la UI mapea siempre a `Tap to Record`, `Listening...`, `Processing...`, etc. (ver `updateUiState` en `RustInputMethodService`).
 - **Pantallas han de re-pintar en cambios de tema** (ej. IME reconstruye su `inputView` si `ThemePrefs.isNight` cambia desde `onStartInputView`).
@@ -301,7 +414,7 @@ No renombrar archivos Rust/Java sin actualizar la entrada JNI (§4.3).**Post-pro
 
 - **Bumps de versión:** editar `versionCode` **y** `versionName` en `app/build.gradle.kts`. `versionCode` siempre incremental.
 - **Notas de release:** añadir bloque nuevo a `RELEASE_NOTES.md` en la cabecera (no al final). El CI (`android_release.yml`) usa `body_path: RELEASE_NOTES.md` para `softprops/action-gh-release@v2`.
-- **Solo APK:** construir AAB está deshabilitado en CI y en comentarios. Si necesitas AAB para Play Store, recuerda que el `:model_assets` activa `dynamicDelivery` install-time (ver `model_assets/build.gradle.kts`) y el `app/build.gradle.kts` hace fallback añadiendo `model_assets/src/main/assets/` a `assets.srcDirs` solo cuando NO es bundle.
+- **APK y AAB se publican los dos, pero en invocaciones separadas.** El workflow de release construye ambos (`assembleRelease` → `Aura_Transcribe_vX.Y.Z.apk`; `bundleRelease` → `Aura_Transcribe_vX.Y.Z.aab`) y crea un único GitHub Release con los dos ficheros. Lo que **no** puede hacerse es pedirlos en la misma llamada de Gradle: el APK necesita el GGUF en el módulo base y el AAB sólo en el asset pack `:model_assets` (`dynamicDelivery` install-time, ver `model_assets/build.gradle.kts`), así que `app/build.gradle.kts` hace fallback añadiendo `model_assets/src/main/assets/` a `assets.srcDirs` solo cuando NO es bundle, y una invocación ambigua falla al configurar. Ver "Entrega del modelo bundled" en §3.
 
 ---
 
@@ -310,7 +423,7 @@ No renombrar archivos Rust/Java sin actualizar la entrada JNI (§4.3).**Post-pro
 ### 5.1 EVITAR (cosas que romperían el proyecto)
 
 - ❌ **No cambiar la firma de los call-backs JNI** listados en §4.4 sin actualizar cada superficie Java (`RecognizeActivity`, `RustInputMethodService`, `LiveSubtitleService`, `VoiceRecognitionService`).
-- ❌ **No cachear el `model_language`** dentro de `Engine` o entre llamadas. El comportamiento intencional es leer el marker file en cada `Engine::run` para que el cambio aplique también en `:ime`. Ese fue el bug crítico de v0.1.20 → v0.1.21.
+- ❌ **No cachear el `model_language`** dentro de `Engine` o entre llamadas. El comportamiento intencional es leer el marker file en cada `Engine::run`, de modo que cambiar el idioma en `ModelsActivity` aplique de inmediato en todas las superficies (IME, popup, subtítulos, servicio) sin recargar el modelo. Ese fue el bug crítico de v0.1.20 → v0.1.21.
 - ❌ **No eliminar las dos capas de resiliencia** de `transcribe_shared` (`catch_unwind` + recuperación de Mutex envenenado). Si lo haces, un único panic deja el IME bloqueado en "Processing" hasta que muera el proceso.
 - ❌ **No añadir soporte para otras ABIs** (`armeabi-v7a`, `x86`, `x86_64`) sin revisar antes:
   - `check_cpu_features` requiere dotprod+fp16 (ARMv8.2 ~2018+); cualquier dispositivo antiguo fallaría en medio de la inferencia con `SIGILL`.
@@ -324,22 +437,22 @@ No renombrar archivos Rust/Java sin actualizar la entrada JNI (§4.3).**Post-pro
 - ❌ **No reemplazar `transcribe_shared` por código que ignore panics.** El `panic::catch_unwind` documenta un caso real: el modelo puede panic de fondo por allocations grandes, y el efecto sin catch sería un IME congelado.
 - ❌ **No romper el fallback del post-procesado:** si la llamada al LLM falla, siempre se entrega la transcripción cruda (`onError → deliverResult(text)`). Es la garantía de "no perder texto".
 - ❌ **No escribir `pp_default_prompt` (ni ningún `<string>` largo) con saltos de línea literales.** AAPT2 los colapsa a un solo espacio: rompe la UI del prompt y aplana el payload que guía al LLM a refinar. Usa escapes `\n` (ver §4.6).
-- ❌ **No realizar compilaciones manuales de release/debug fuera del pipeline oficial de GitHub Actions** salvo para pruebas puntuales por ADB durante desarrollo local. Las compilaciones de depuración se canalizan vía GitHub Actions enviando el APK al bot de Telegram; las de release se generan automáticamente por GitHub Actions.
+- ❌ **No generar compilaciones de release firmadas fuera del pipeline oficial de GitHub Actions.** Las de depuración llegan al usuario vía GitHub Actions + bot de Telegram, y las firmadas vía `android_release.yml`. **Compilar en local para validar sí está permitido y es lo esperado** en un host de desarrollo real (portátil/escritorio), siempre que no se publique el artefacto ni se firmen releases a mano. Ver "Regla de validación por entorno" en §3.
 - ❌ **No borrar el comentario explicativo en app/build.gradle.kts sobre `assetPacks` + bundle-vs-APK.** Es la trampa que rompió v0.1.x del upstream y se documentó específicamente para evitar.
-- ❌ **No introducir tests automatizados que importen el módulo entero** a través de JNI en CI: no hay emulador arm64 en el runner de GitHub Actions y los tests no-existentes ya dicen que validación = build + smoke test manual.
+- ❌ **No introducir tests automatizados que importen el módulo entero** a través de JNI en CI: no hay emulador arm64 en el runner de GitHub Actions. La validación en CI es build + lint + tests JVM; el smoke test funcional es manual en dispositivo. Los tests de instrumentación (si se añaden) se compilan pero **no** se ejecutan en CI.
 
 ### 5.2 HACER (reglas positivas al añadir código)
 
 - ✅ Si añades un call-back JNI nuevo, documéntalo con la firma exacta en este `AGENTS.md` (§4.4) y añade un stub no-op en Java por defecto para no romper builds en los que aún no has cableado el lado Java.
 - ✅ Cada nuevo ajuste del usuario va como **marker file en `filesDir()`**, sin excepción. La API key usa codificación Base64 para ofuscación mínima; la seguridad real viene del sandbox de Android.
-- ✅ Toda escritura de markers cross-process (main/`:ime`) pasa por `MarkerFileHelper` (temp **único por escritura** + fsync + rename; delete en vacío). Nunca `FileOutputStream` directo sobre el nombre final: writers concurrentes compartiendo el mismo `*.tmp` pueden exponer contenido parcial (cazado por `MarkerAtomicityTest`).
+- ✅ Toda escritura de markers pasa por `MarkerFileHelper` (temp **único por escritura** + fsync + rename; delete en vacío). Nunca `FileOutputStream` directo sobre el nombre final: escritores concurrentes que compartan el mismo `*.tmp` pueden exponer contenido parcial (cazado por `MarkerAtomicityTest`). Hay varios componentes (Activity, IME, servicios) que escriben los mismos ajustes, así que sigue siendo obligatorio aunque todo corra en un solo proceso.
 - ✅ Antes de añadir cadenas visibles, duplicarlas en los 7 locales. Si añades una cadena que **no** quieres traducir, márcala con `translatable="false"`.
 - ✅ Si tocas el `Engine`, lee primero `src/engine.rs` completo (~370 líneas, muy comentado): decisiones sobre warm-up, re-read de idioma, fallback a modelo bundled, warnings de capabilities (`supports_translate`/`variant().contains("turbo")`), Whisper `temperature_inc`, todo está allí por una razón documentada.
 - ✅ Si añades un nuevo surface (Activity/Service), recuerda:
   1. Bloque `static` con `c++_shared` + `android_transcribe_app`.
   2. Método nativo declarado en Java + implementación en Rust con prefijo `Java_dev_notune_transcribe_<ClassName>_`.
   3. Llamadas JNI con `get_java_vm`, `new_global_ref` y release apropiado en `cleanupNative`.
-  4. Si es un servicio con proceso aislado, sincroniza vía marker files (no `SharedPreferences`).
+  4. Los ajustes van por marker files (nunca `SharedPreferences`), porque el motor Rust los lee del *filesystem*. **No** añadas `android:process`: la app es de un solo proceso a propósito (§1).
 - ✅ Si añades un modelo bundled:
   1. Subir el SHA-256 real, **no** inventar uno.
   2. Sumar el `ModelFile` en `modelPackFiles` (`app/build.gradle.kts`).
@@ -387,10 +500,94 @@ Crear un nuevo módulo Rust con JNI → requiere:
        private native void cleanupNative();
    }
    ```
-3. **Manifest**: añadir `<service android:name=".FooService" .../>` (y `android:process=":foo"` si debe ser proceso aislado).
+3. **Manifest**: añadir `<service android:name=".FooService" .../>`. **No** añadas `android:process` — la app es de un solo proceso a propósito (§1). Si el servicio captura audio, declara `android:foregroundServiceType="microphone"` **y** pide `RECORD_AUDIO` antes de llamar a `startForeground`.
 4. **lib.rs**: `pub mod foo;`.
 
 Crear un nuevo ajuste toggle en UI → marker file en `filesDir()` con un nombre `snake_case`; bindearlo con `bindMarkerSwitch(...)` en `MainActivity` (patrón ya existente). Propagar cadena a los 7 locales.
+
+### 5.4 Known limitations (leer antes de "arreglar" o "documentar" estas cosas)
+
+Estado real y verificado, con la evidencia que lo respalda. **No** describas
+ninguno de estos puntos como si funcionara, y no los "arregles" a medias.
+
+1. **El post-procesado on-device (S1-mini) NO está implementado y, además, no
+   es alcanzable desde la UI.** Doble barrera, ambas verificadas:
+   - **No hay motor de inferencia.** El único backend del árbol es
+     `transcribe-cpp 0.1.3`, cuya API pública es *speech recognition*
+     (`Model::load` / `Session::run(pcm: &[f32], RunOptions{ task: Transcribe |
+     Translate, … })`): no existe ningún entry point de generación de texto (ni
+     decode con prompt, ni sampler, ni encoder de tokenizer). S1-mini es un LM
+     causal tipo Qwen y necesitaría llama.cpp (o equivalente) + tokenizer BPE +
+     KV cache, nada de lo cual envía el proyecto. Por eso
+     `src/post_processor.rs::normalize_text_on_device` es un **placeholder**:
+     valida que el GGUF exista, construye el prompt real con
+     `aura_core::normalizer::build_s1_prompt` y lo **descarta**.
+   - **La UI ya no lo ofrece como si funcionara.**
+     `SettingsManager.LOCAL_S1_INFERENCE_AVAILABLE = false` hace que
+     `isProviderAvailable("local_s1")` sea `false`: el provider se muestra como
+     *«unavailable in this build»*, el switch no se puede activar, el botón de
+     descarga se oculta y un marker obsoleto se responde con
+     `PostProcessor.LOCAL_S1_UNAVAILABLE_ERROR` en vez de devolver el texto
+     simulado. `pack_ultralight_desc` se reescribió en los 7 locales para dejar
+     de prometer el refinado con S1-mini.
+   Si algún día se implementa la inferencia, hay que voltear **juntos**
+   `LOCAL_S1_INFERENCE_AVAILABLE`, el doc-comment de `normalize_text_on_device`
+   y este punto. `is_loaded` significa "se vio una ruta válida", no "los pesos
+   están en RAM".
+2. **Con la puerta cerrada (`LOCAL_S1_INFERENCE_AVAILABLE = false`), R8 elimina
+   del release TODA la superficie JNI del provider on-device:**
+   `nativeNormalizeOnDevice`, `nativeSetS1ModelPath`, `nativeUnloadS1` y
+   `nativeIsS1Loaded`. Verificado leyendo la tabla de strings de
+   `app/build/outputs/mapping/release/mapping.txt` y del `classes.dex` del APK
+   de release (2026-10): la constante `static final false` pliega la rama, y R8
+   borra también sus call sites (`processOnDeviceInternal`), así que no queda
+   ninguna llamada viva que pueda lanzar `UnsatisfiedLinkError` — ese
+   emparejamiento (caller y callee fuera a la vez) es la garantía real, no la
+   presencia del símbolo. `nativeTrimMemory` **sí** sobrevive, porque
+   `App.onTrimMemory` lo llama de verdad. Las cuatro funciones Rust siguen
+   existiendo en el cdylib y las declaraciones Java siguen en el código: son la
+   API del ciclo de vida para cuando exista motor de inferencia (punto 1). No las
+   borres por estar "sin usar" en el DEX de release.
+3. **Instrumentación, Macrobenchmark y Baseline Profile NO se han ejecutado**
+   nunca: no hay dispositivo/emulador arm64. El módulo `:benchmark` **compila**
+   (`:benchmark:assembleBenchmark`) pero sus tests son de dispositivo y están
+   fuera de CI a propósito. No presentes una Baseline Profile como generada.
+4. **`assembleRelease` y `bundleRelease` ya no se pueden pedir juntos** (antes
+   producían en silencio un APK de 32 MB sin modelo; ver §3 "Entrega del modelo
+   bundled"): la invocación combinada falla al configurar, y los gates
+   `verifyReleaseApkModel`/`verifyReleaseBundleModel` abren el artefacto real y
+   se niegan (verificado 2026-10 en las cuatro combinaciones: solo APK, solo AAB,
+   combinada y modelo ausente). No lo "arregles" volviendo a un único source set
+   para ambos: entregaría el modelo dos veces en el AAB.
+5. **Los tests Rust `#[cfg(test)]` de `audio`/`corrector` corren sólo en el crate
+   espejo**; el cdylib completo sigue bloqueado por `transcribe-cpp-sys v0.1.3`.
+6. **Resuelto (2026-10): las dos lecturas de disco del arranque de
+   `MainActivity` ya NO están en el hilo principal.** Antes
+   `maybeDownloadDebugModel()` (invocado desde `onCreate`/`onResume`) llamaba a
+   `hasImportedModel()` (marker `active_model`) y a
+   `hasBundledModel()` (`getAssets().list("builtin-model")`) de forma síncrona, y
+   StrictMode en debug lo reportaba. Ahora los dos sondeos viven en
+   `ModelAvailability` (sin `Context`, sin vistas) y corren en un hilo
+   `"model-probe"`; el resultado vuelve por `runOnUiThread` con
+   comprobación de `isFinishing()/isDestroyed()` y de una **generación**
+   (`modelProbeGeneration`), de modo que un resultado obsoleto no puede
+   sobrescribir el estado nuevo, y un flag `modelProbeInFlight` evita repetir el
+   sondeo en el par `onCreate`+`onResume` del arranque en frío. Mientras corre,
+   el `TextView` de estado muestra `status_checking` ("Checking assets…", que ya
+   era su valor por defecto en el layout) y el motor lo sobrescribe con "Ready"
+   al terminar `initNative`. Cobertura: `ModelAvailabilityTest` (10 tests JVM,
+   incluidos marker vacío, nombre apuntando a un fichero inexistente y nombre en
+   el directorio equivocado). El comportamiento de detección es el mismo que
+   antes (`exists()`, no `isFile()`); lo único que cambió es el hilo desde el que
+   se ejecuta. **No** volver a llamar a los sondeos directamente desde el hilo
+   principal.
+7. **Orden obligatorio del FGS `mediaProjection`** (Android 14+): el Activity
+   llama a `createScreenCaptureIntent()` y el usuario concede → el servicio llama
+   a `startForeground(..., FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)` → **sólo
+   después** `MediaProjectionManager.getMediaProjection()`. Al revés lanza
+   `SecurityException` ("Media projections require a foreground service of type
+   …") y `LiveSubtitleService` lo convertía en un `stopSelf()` silencioso.
+   Documentado en `developer.android.com/about/versions/14/changes/fgs-types-required`.
 
 ---
 
@@ -411,6 +608,10 @@ Crear un nuevo ajuste toggle en UI → marker file en `filesDir()` con un nombre
 - Post-procesado: opcional, *safe-fallback* obligatorio al texto crudo.
 - Idioma se re-lee en cada `Engine::run` (no cachear en memoria dentro del engine).
 - Subtítulos usan un modelo de partial/final con lag-policies calibradas; subir esos números rompe el contrato.
-- Bug histórico a evitar: v0.1.20 → v0.1.21 (idioma cacheado en `:ime`). La regla "re-read on every run" está escrita en muchos comentarios a propósito.
-- Antes de PR: `./gradlew assembleDebug` debe pasar limpio sin warnings nuevos y las cadenas nuevas deben estar en los 7 locales.
-- **Validar builds por entorno (2026-08-06):** en un host tipo dispositivo móvil/embebido NUNCA compiles localmente — `git push` a `main` y lee el workflow debug de GitHub Actions con `gh run list`/`gh run view`. En un equipo físico (portátil/ordenador) sí puedes compilar local.
+- Bug histórico a evitar: v0.1.20 → v0.1.21 (idioma cacheado en el engine). La regla "re-read on every run" está escrita en muchos comentarios a propósito.
+- **La app es de UN SOLO PROCESO.** No hay `android:process` y no debe haberlo (§1): el IME y el popup comparten un mismo `cpal::Stream` y el engine global.
+- **Android 17 es API 37** (Android 15 es API 35). `compileSdk`/`targetSdk` = 37, AGP 9.4.1, Gradle 9.8.0, NDK 28.2.13676358. No describas API 35 como "Android 17".
+- Release con R8 + resource shrinking activos; si tocas reflexión, JNI o nombres invocados por cadena, actualiza `app/proguard-rules.pro`.
+- Targets táctiles ≥ 48dp y colores siempre vía `?attr/color*` (sin literales hex en layouts/drawables).
+- Antes de PR: `./gradlew :app:testDebugUnitTest`, `python3 scripts/check_translations.py` y `./gradlew :app:assembleDebug` deben pasar limpios, y las cadenas nuevas deben estar en los 7 locales.
+- **Validar builds por entorno (2026-08-06, actualizado 2026-10):** en un host tipo dispositivo móvil/embebido NUNCA compiles localmente — `git push` a `main` y lee el workflow debug de GitHub Actions con `gh run list`/`gh run view`. En un equipo físico real (portátil/escritorio con SDK, NDK, Rust y red) **sí debes compilar en local**; es la vía de validación preferida.

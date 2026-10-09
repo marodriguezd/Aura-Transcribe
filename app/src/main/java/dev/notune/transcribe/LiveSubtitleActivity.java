@@ -55,11 +55,7 @@ public class LiveSubtitleActivity extends AppCompatActivity {
                 serviceIntent.putExtra("code", result.getResultCode());
                 serviceIntent.putExtra("data", result.getData());
 
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    startForegroundService(serviceIntent);
-                } else {
-                    startService(serviceIntent);
-                }
+                startForegroundService(serviceIntent);
                 finish();
             });
 

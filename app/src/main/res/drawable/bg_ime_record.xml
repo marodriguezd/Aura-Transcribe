@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Circular record button surface. Solid white so it can be recolored at runtime
-     via backgroundTint (primaryContainer idle, errorContainer while recording). -->
+<!-- Circular record button surface. Theme-aware idle colour (primaryContainer);
+     RustInputMethodService / FloatingOverlayService still apply a
+     backgroundTint (errorContainer) while recording, which fully replaces this
+     solid. It used to be hard-coded white, which stayed pure white in dark mode
+     whenever the tint had not been applied yet. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="oval">
-    <solid android:color="@android:color/white" />
+    <solid android:color="?attr/colorPrimaryContainer" />
 </shape>

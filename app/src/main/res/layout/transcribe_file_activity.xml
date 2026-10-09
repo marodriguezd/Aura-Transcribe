@@ -10,8 +10,8 @@
     <!-- Close button -->
     <ImageButton
         android:id="@+id/btn_close"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
+        android:layout_width="@dimen/min_touch_target"
+        android:layout_height="@dimen/min_touch_target"
         android:layout_gravity="top|end"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="@string/action_close"
@@ -69,7 +69,6 @@
             android:visibility="gone"
             android:layout_marginBottom="16dp"
             android:background="@drawable/bg_result"
-            android:clipToOutline="true"
             android:padding="16dp">
 
             <TextView

@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="welcome_title">Spracheingabe &amp; Untertitel</string>
     <string name="welcome_subtitle">Vollständig offline, privat und schnell.</string>
 
     <string name="section_ime">Alternative: Sprach-Tastatur</string>
@@ -16,11 +15,8 @@
     <string name="subs_advanced_copy">Befehl kopieren</string>
     <string name="subs_advanced_copied">Befehl kopiert</string>
 
-    <string name="status_label">Status:</string>
-    <string name="status_checking">Prüfe Modelldaten...</string>
+    <string name="status_checking">Prüfe Modelldaten…</string>
     <string name="status_ready">Bereit</string>
-    <string name="status_error">Fehler</string>
-
     <string name="section_settings">Einstellungen</string>
     <string name="setting_auto_record">Aufnahme automatisch starten</string>
     <string name="setting_auto_record_desc">Aufnahme automatisch beginnen, wenn die Tastatur geöffnet wird</string>
@@ -66,7 +62,7 @@
     <string name="model_desc_whisper_turbo">99 Sprachen, am genauesten in dieser Liste; kann nicht übersetzen</string>
     <string name="model_desc_browse">Alle transcribe.cpp-Modelle durchstöbern</string>
     <string name="pack_ultralight_title">⚡ Ultraleichtes Offline-Paket (&lt;500 MB)</string>
-    <string name="pack_ultralight_desc">Canary 180M / Parakeet 110M + SuperWhisper S1-mini für ultraschnelle, speicherschonende 100% Offline-Transkription und Bereinigung.</string>
+    <string name="pack_ultralight_desc" formatted="false">Canary 180M / Parakeet 110M für ultraschnelle, speicherschonende 100% Offline-Transkription.</string>
     <string name="pack_pro_title">🏆 Pro Integriertes Paket (Empfohlen)</string>
     <string name="pack_pro_desc">Nemotron 3.5 ASR 0.6B (integriert) + AI Fix Cloud für maximale Präzision, technische Begriffe und intelligente Formatierung.</string>
     <string name="pack_multilingual_title">🚀 Whisper Erweitertes Paket</string>
@@ -101,11 +97,9 @@
     <string name="models_stream_latency_fast">Schnell (560 ms)</string>
     <string name="models_stream_latency_faster">Schneller (160 ms)</string>
     <string name="models_stream_latency_lowest">Minimal (80 ms)</string>
-    <string name="models_backend_section">Hardwarebeschleunigung</string>
-    <string name="models_backend_desc">Rechen-Engine für die Inferenz. CPU (ARM NEON mit dotprod + fp16) ist standardmäßig optimiert für mobile Geräte. NPU- und GPU-Optionen können gewählt werden, falls unterstützt.</string>
-    <string name="models_backend_cpu">CPU (ARM NEON + dotprod + fp16 - Empfohlen)</string>
-    <string name="models_backend_npu">NPU (Neuronale Verarbeitungseinheit / NNAPI)</string>
-    <string name="models_backend_gpu">GPU (Vulkan-Beschleunigung)</string>
+    <string name="models_backend_section">Inferenz-Backend</string>
+    <string name="models_backend_desc">Die Inferenz läuft auf der CPU, mit ARM NEON, Dot-Product- und fp16-Beschleunigung. Das ist das einzige Backend, das die Engine implementiert, deshalb wird hier nur dieses angeboten. NPU- (NNAPI) und GPU-Beschleunigung (Vulkan) sind nicht implementiert.</string>
+    <string name="models_backend_cpu">CPU (ARM NEON + dotprod + fp16)</string>
 
     <string name="section_benchmark">Benchmark</string>
     <string name="desc_benchmark">Misst, wie schnell das aktive Modell auf diesem Gerät transkribiert, anhand einer integrierten englischen Testaufnahme (11 s).</string>
@@ -159,6 +153,7 @@
     <string name="pp_local_model_title">Lokal: S1-mini (0.6B GGUF — Englisch)</string>
     <string name="pp_local_model_installed">Modell installiert (%1$s) — 100%% offline bereit (Englisch)</string>
     <string name="pp_local_model_not_installed">Optionaler englischer Textbereiniger (~380 MB Download erforderlich)</string>
+    <string name="pp_local_unavailable">Die KI-Nachbearbeitung auf dem Gerät ist in diesem Build nicht verfügbar: Sie würde eine Textgenerierungs-Engine erfordern, die die App noch nicht enthält. Wähle einen Cloud-Anbieter oder deaktiviere die KI-Korrektur.</string>
     <string name="pp_download_s1">S1-mini GGUF herunterladen</string>
     <string name="pp_downloading_s1">S1-mini GGUF wird heruntergeladen…</string>
     <string name="pp_download_s1_done">S1-mini GGUF erfolgreich heruntergeladen</string>
@@ -189,14 +184,13 @@
     <string name="debug_model_cancelled">Modell-Download abgebrochen</string>
     <string name="debug_model_notification_denied">Benachrichtigungen verweigert; der Download wird ohne Fortschrittsbenachrichtigung fortgesetzt.</string>
     <string name="debug_model_no_space">Nicht genug freier Speicherplatz zum Herunterladen des Modells</string>
-    <string name="debug_model_size" translatable="false">751 MB</string>
 
     <!-- P2.4 (2026-08-03): aus Java/Layouts migrierte UI-Strings -->
     <string name="ime_tap_to_record">Tippen zum Aufnehmen</string>
     <string name="ime_tap_to_stop">Tippen zum Beenden</string>
-    <string name="ime_listening">Höre zu...</string>
-    <string name="ime_processing">Verarbeite...</string>
-    <string name="ime_refining">Verfeinere...</string>
+    <string name="ime_listening">Höre zu…</string>
+    <string name="ime_processing">Verarbeite…</string>
+    <string name="ime_refining">Verfeinere…</string>
     <string name="ime_ai_fix_toggle">AI Fix</string>
     <string name="ime_no_mic_permission">Kein Mikrofonzugriff – in der App erlauben</string>
     <string name="ime_open_app_for_permission">Öffne die App, um die Berechtigung zu erteilen</string>
@@ -207,32 +201,30 @@
     <string name="ime_cd_backspace">Rücktaste</string>
     <string name="rec_mic_permission_required">Mikrofonberechtigung erforderlich.\nErteile sie in der Haupt-App.</string>
     <string name="rec_listening_tap_stop">Höre zu… (tippen zum Beenden)</string>
-    <string name="rec_processing">Verarbeite...</string>
-    <string name="rec_refining">Verbessere...</string>
-    <string name="file_preparing">Vorbereiten...</string>
-    <string name="file_loading_model">Modell wird geladen...</string>
-    <string name="file_decoding_audio">Audio wird dekodiert...</string>
-    <string name="file_transcribing">Transkribiere...</string>
-    <string name="file_refining">Verbessere...</string>
+    <string name="rec_processing">Verarbeite…</string>
+    <string name="rec_refining">Verbessere…</string>
+    <string name="file_preparing">Vorbereiten…</string>
+    <string name="file_loading_model">Modell wird geladen…</string>
+    <string name="file_decoding_audio">Audio wird dekodiert…</string>
+    <string name="file_transcribing">Transkribiere…</string>
+    <string name="file_refining">Verbessere…</string>
     <string name="file_copied">In die Zwischenablage kopiert</string>
     <string name="file_copy_to_clipboard">In die Zwischenablage kopieren</string>
-    <string name="file_transcription_copied">Transkription in die Zwischenablage kopiert</string>
     <string name="file_error_no_audio_received">Fehler: keine Audiodatei empfangen</string>
     <string name="file_error_no_audio">Fehler: keine Audiodatei</string>
-    <string name="file_error_decode">Fehler: Audiodatei konnte nicht dekodiert werden</string>
+    <string name="file_error_no_speech">Fehler: in der Audiodatei wurde keine Sprache erkannt</string>
     <string name="file_error_format">Fehler: %1$s</string>
     <string name="subs_grant_overlay_permission">Bitte erteile die Berechtigung \'Über anderen Apps anzeigen\'</string>
     <string name="subs_enable_overlay_app_settings">Aktiviere \'Über anderen Apps anzeigen\' in den App-Einstellungen</string>
     <string name="subs_enable_overlay_settings">Bitte aktiviere die Overlay-Berechtigung in den Einstellungen</string>
     <string name="subs_overlay_required">Overlay-Berechtigung für Untertitel erforderlich</string>
     <string name="subs_screen_capture_denied">Bildschirmaufnahme verweigert</string>
-    <string name="subs_waiting_for_audio">Warte auf Audio...</string>
+    <string name="subs_waiting_for_audio">Warte auf Audio…</string>
     <string name="subs_notification_active">Live-Untertitel aktiv</string>
-    <string name="subs_notification_recording">Nimm internes Audio auf...</string>
+    <string name="subs_notification_recording">Nimm internes Audio auf…</string>
     <string name="subs_notification_stop">Stopp</string>
     <string name="action_close">Schließen</string>
     <string name="action_cancel">Abbrechen</string>
-    <string name="rec_cancelled">Transkription abgebrochen</string>
     <string name="ime_cancelled">Transkription abgebrochen</string>
     <string name="file_cancelled">Transkription abgebrochen</string>
     <string name="debug_model_cannot_create_dir">Modellverzeichnis konnte nicht erstellt werden</string>
@@ -246,31 +238,34 @@
     <!-- Floating dictation overlay & Accessibility auto-paste -->
     <string name="floating_bubble_description">Schwebende Sprachdiktat-Blase</string>
     <string name="floating_status_idle">Tippen Sie auf die Blase, um zu sprechen</string>
-    <string name="floating_status_listening">Zuhören...</string>
-    <string name="floating_status_transcribing">Transkribieren...</string>
+    <string name="floating_status_listening">Zuhören…</string>
+    <string name="floating_status_transcribing">Transkribieren…</string>
     <string name="floating_status_ready">Bereit</string>
-    <string name="floating_status_error">Diktierfehler</string>
     <string name="floating_action_cancel">Abbrechen</string>
     <string name="floating_action_insert">Einfügen</string>
-    <string name="floating_action_paste">Einfügen</string>
     <string name="floating_ai_fix_toggle">KI-Korrektur</string>
-    <string name="floating_toggle_ai_fix">KI-Korrektur</string>
-    <string name="floating_ai_fix_on">KI-Korrektur: AN</string>
-    <string name="floating_ai_fix_off">KI-Korrektur: AUS</string>
     <string name="floating_overlay_permission_title">Überlagerungsberechtigung erforderlich</string>
     <string name="floating_overlay_permission_msg">Bitte erteilen Sie die Berechtigung Über anderen Apps anzeigen, um die schwebende Diktierblase zu verwenden.</string>
-    <string name="floating_accessibility_service_name">Schwebendes Diktat Automatisch Einfügen</string>
-    <string name="floating_accessibility_service_desc">Fügt transkribierten Text automatisch in fokussierte Textfelder ein.</string>
-    <string name="floating_toast_pasted">Text in aktives Feld eingefügt</string>
-    <string name="floating_toast_copied">Text in die Zwischenablage kopiert</string>
     <string name="floating_service_name">Schwebendes Diktat-Overlay</string>
     <string name="floating_service_description">Schwebende Blase für schnelle Spracheingabe und Overlay-Bedienfeld.</string>
     <string name="floating_notification_stop">Beenden</string>
     <string name="floating_stopped">Schwebende Diktatfunktion beendet</string>
     <string name="floating_need_mic_body">Erteile die Mikrofonberechtigung, um die schwebende Diktierblase zu verwenden.</string>
     <string name="floating_start_failed_body">Die schwebende Blase konnte nicht gestartet werden. Prüfe die Überlagerungs- und Mikrofonberechtigungen.</string>
-    <string name="accessibility_service_name">Sprach-Automatischer Einfügedienst</string>
-    <string name="accessibility_service_description">Fügt transkribierten Text automatisch in fokussierte Eingabefelder ein.</string>
+    <string name="accessibility_service_name">Aura Transcribe Diktat-Einfügung</string>
+    <string name="accessibility_service_description">Fügt den gerade diktierten Text in das Feld ein, das du bearbeitet hast. Liest nur dieses Feld, speichert nichts und ist optional: ohne sie wird das Diktat stattdessen in die Zwischenablage kopiert.</string>
+    <string name="a11y_disclosure_title">Diktierten Text automatisch einfügen?</string>
+    <string name="a11y_disclosure_intro">Aura Transcribe kann das Diktierte direkt in das Textfeld schreiben, das du gerade in einer anderen App verwendest. Android erlaubt das nur mit Bedienungshilfen-Zugriff, deshalb entscheidest du: hier steht genau, was das bedeutet, bevor du gefragt wirst.</string>
+    <string name="a11y_disclosure_what_title">Was die App sehen kann</string>
+    <string name="a11y_disclosure_what_body">Solange das aktiv ist, kann der Dienst das Textfeld lesen, in dem gerade dein Cursor steht, um dein Diktat dort einzufügen und den Cursor richtig zu setzen. Er liest keine anderen Bildschirminhalte, durchsucht deine Apps nicht und sammelt oder speichert nicht, was im Feld steht.</string>
+    <string name="a11y_disclosure_why_title">Warum sie optional ist</string>
+    <string name="a11y_disclosure_why_body">Alles andere funktioniert auch ohne. Ist der Bedienungshilfen-Zugriff aus, wird dein Diktat in die Zwischenablage kopiert und du fügst es selbst ein: ein Schritt mehr, keine zusätzliche Berechtigung.</string>
+    <string name="a11y_disclosure_control_title">Du behältst die Kontrolle</string>
+    <string name="a11y_disclosure_control_body">Nichts wird aktiviert, bis du es in den Android-Einstellungen einschaltest, und du kannst es dort jederzeit widerrufen oder indem du die schwebende Blase in Aura Transcribe ausschaltest.</string>
+    <string name="a11y_disclosure_consent">Weiter zu den Bedienungshilfen-Einstellungen</string>
+    <string name="a11y_disclosure_decline">Jetzt nicht</string>
+    <string name="a11y_disclosure_no_settings">Die Android-Einstellungen konnten auf diesem Gerät nicht geöffnet werden.</string>
+    <string name="a11y_copied_to_clipboard">In die Zwischenablage kopiert – füge es dort ein, wo du willst</string>
     <string name="accessibility_paste_failed">Einfügen fehlgeschlagen</string>
     <string name="floating_card_title">Schwebendes Diktat &amp; Barrierefreiheit</string>
     <string name="floating_card_subtitle">Schwebende Blase im Whisperflow-Stil mit automatischer Einfügung.</string>
@@ -291,8 +286,5 @@
     <string name="mic_test_btn_start">Soundtest starten</string>
     <string name="mic_test_btn_stop">Soundtest stoppen</string>
     <string name="mic_test_active_device">Aktives Gerät: %1$s</string>
-    <string name="mic_active_bluetooth">Bluetooth-Headset</string>
     <string name="mic_active_builtin">Internes Mikrofon</string>
-    <string name="mic_active_wired">Kabelgebundenes / USB-Mikrofon</string>
-    <string name="mic_bt_recording_indicator">Bluetooth-Headset aktiv</string>
 </resources>

@@ -4,19 +4,23 @@
     android:layout_width="72dp"
     android:layout_height="72dp">
 
+    <!-- The circle carries the action's accessible label; the glyph inside is
+         purely decorative and is therefore hidden from the accessibility tree
+         so TalkBack does not announce the same target twice. -->
     <View
         android:id="@+id/dismiss_target_circle"
         android:layout_width="60dp"
         android:layout_height="60dp"
         android:layout_gravity="center"
-        android:background="@drawable/bg_dismiss_circle" />
+        android:background="@drawable/bg_dismiss_circle"
+        android:contentDescription="@string/floating_action_cancel" />
 
     <ImageView
         android:id="@+id/dismiss_target_icon"
         android:layout_width="28dp"
         android:layout_height="28dp"
         android:layout_gravity="center"
-        android:contentDescription="@string/floating_action_cancel"
+        android:importantForAccessibility="no"
         android:src="@drawable/ic_close"
-        app:tint="@android:color/white" />
+        app:tint="@color/overlay_scrim_fg" />
 </FrameLayout>

@@ -1,14 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Dark overrides for the keyboard/IME palette. The main app uses Material 3
-         theme attributes (colorSurface/colorOnSurface/…) which adapt to dark mode
-         automatically, so only the IME's explicit colors need night variants. -->
-    <!-- Brighter "ready" green so it reads on dark surfaces. -->
-    <color name="status_ok">#81C784</color>
+    <!-- Night overrides for the two semantic tokens in values/colors.xml.
+         The app's actual surfaces/text/icons come from Material 3 theme
+         attributes (colorSurface / colorOnSurface / …) which already adapt,
+         and the overlay scrims are intentionally identical in both themes
+         because they are drawn over third-party content. -->
 
-    <color name="ime_bg">#1E1E1E</color>
-    <color name="ime_card_bg">#2A2A2A</color>
-    <color name="ime_text">#ECECEC</color>
-    <color name="ime_hint">#9E9E9E</color>
-    <color name="ime_key_bg">#3A3A3A</color>
+    <!-- Brighter green so the "ready" state still reads against a dark surface. -->
+    <color name="status_ok">#81C784</color>
 </resources>

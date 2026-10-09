@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Medium window (tablet portrait, phone landscape, small foldable
+         unfolded). Widen the side margin so a line of body text keeps a
+         comfortable measure instead of running the full width. -->
+    <dimen name="content_horizontal_margin">48dp</dimen>
+</resources>

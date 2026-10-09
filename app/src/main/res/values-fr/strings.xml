@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="welcome_title">Saisie vocale &amp; sous-titres</string>
     <string name="welcome_subtitle">Entièrement hors ligne, privé et rapide.</string>
 
     <string name="section_ime">Alternative : clavier vocal</string>
@@ -16,11 +15,8 @@
     <string name="subs_advanced_copy">Copier la commande</string>
     <string name="subs_advanced_copied">Commande copiée</string>
 
-    <string name="status_label">État :</string>
     <string name="status_checking">Vérification des données…</string>
     <string name="status_ready">Prêt</string>
-    <string name="status_error">Erreur</string>
-
     <string name="section_settings">Paramètres</string>
     <string name="setting_auto_record">Démarrage automatique de l\'enregistrement</string>
     <string name="setting_auto_record_desc">Commencer automatiquement l\'enregistrement à l\'ouverture du clavier</string>
@@ -66,7 +62,7 @@
     <string name="model_desc_whisper_turbo">99 langues, le plus précis de cette liste ; ne traduit pas</string>
     <string name="model_desc_browse">Parcourir tous les modèles transcribe.cpp</string>
     <string name="pack_ultralight_title">⚡ Pack Ultraléger Hors Ligne (&lt;500 MB)</string>
-    <string name="pack_ultralight_desc">Canary 180M / Parakeet 110M + SuperWhisper S1-mini pour une transcription et un nettoyage 100% hors ligne ultra-rapides et économes.</string>
+    <string name="pack_ultralight_desc" formatted="false">Canary 180M / Parakeet 110M pour une transcription 100% hors ligne ultra-rapide et économe.</string>
     <string name="pack_pro_title">🏆 Pack Pro Intégré (Recommandé)</string>
     <string name="pack_pro_desc">Nemotron 3.5 ASR 0.6B (intégré) + AI Fix Cloud pour une précision maximale, des termes techniques et un formatage intelligent.</string>
     <string name="pack_multilingual_title">🚀 Pack Whisper Étendu</string>
@@ -101,11 +97,9 @@
     <string name="models_stream_latency_fast">Rapide (560 ms)</string>
     <string name="models_stream_latency_faster">Plus rapide (160 ms)</string>
     <string name="models_stream_latency_lowest">Minimale (80 ms)</string>
-    <string name="models_backend_section">Accélération matérielle</string>
-    <string name="models_backend_desc">Moteur de calcul pour l\'inférence. Le CPU (ARM NEON avec dotprod + fp16) est le choix par défaut et le plus performant sur mobile. NPU et GPU peuvent être sélectionnés si pris en charge.</string>
-    <string name="models_backend_cpu">CPU (ARM NEON + dotprod + fp16 - Recommandé)</string>
-    <string name="models_backend_npu">NPU (Unité de traitement neuronal / NNAPI)</string>
-    <string name="models_backend_gpu">GPU (Accélération Vulkan)</string>
+    <string name="models_backend_section">Moteur d\'inférence</string>
+    <string name="models_backend_desc">L\'inférence s\'exécute sur le CPU, avec l\'accélération ARM NEON, dot-product et fp16. C\'est le seul moteur implémenté par l\'application, donc le seul proposé ici. L\'accélération NPU (NNAPI) et GPU (Vulkan) n\'est pas implémentée.</string>
+    <string name="models_backend_cpu">CPU (ARM NEON + dotprod + fp16)</string>
 
     <string name="section_benchmark">Test de performance</string>
     <string name="desc_benchmark">Mesure la vitesse de transcription du modèle actif sur cet appareil à l\'aide d\'un enregistrement de test en anglais intégré (11 s).</string>
@@ -159,6 +153,7 @@
     <string name="pp_local_model_title">En local : S1-mini (0.6B GGUF — Anglais)</string>
     <string name="pp_local_model_installed">Modèle installé (%1$s) — 100%% hors ligne (Anglais)</string>
     <string name="pp_local_model_not_installed">Normalisateur optionnel en anglais (~380 Mo de téléchargement)</string>
+    <string name="pp_local_unavailable">Le nettoyage par IA sur l\'appareil n\'est pas disponible dans cette version : il faudrait un moteur de génération de texte que l\'application n\'intègre pas encore. Choisissez un fournisseur cloud ou désactivez la correction IA.</string>
     <string name="pp_download_s1">Télécharger S1-mini GGUF</string>
     <string name="pp_downloading_s1">Téléchargement de S1-mini GGUF…</string>
     <string name="pp_download_s1_done">S1-mini GGUF téléchargé avec succès</string>
@@ -189,14 +184,13 @@
     <string name="debug_model_cancelled">Téléchargement du modèle annulé</string>
     <string name="debug_model_notification_denied">Autorisation de notification refusée ; le téléchargement continuera sans notification de progression.</string>
     <string name="debug_model_no_space">Espace de stockage insuffisant pour télécharger le modèle</string>
-    <string name="debug_model_size" translatable="false">751 MB</string>
 
     <!-- P2.4 (2026-08-03) : chaînes d'UI migrées depuis Java/layouts -->
     <string name="ime_tap_to_record">Toucher pour enregistrer</string>
     <string name="ime_tap_to_stop">Toucher pour arrêter</string>
-    <string name="ime_listening">Écoute...</string>
-    <string name="ime_processing">Traitement...</string>
-    <string name="ime_refining">Affinage...</string>
+    <string name="ime_listening">Écoute…</string>
+    <string name="ime_processing">Traitement…</string>
+    <string name="ime_refining">Affinage…</string>
     <string name="ime_ai_fix_toggle">AI Fix</string>
     <string name="ime_no_mic_permission">Pas d\'autorisation micro – accordez-la dans l\'app</string>
     <string name="ime_open_app_for_permission">Ouvrez l\'app pour accorder l\'autorisation</string>
@@ -207,32 +201,30 @@
     <string name="ime_cd_backspace">Retour arrière</string>
     <string name="rec_mic_permission_required">Autorisation du micro requise.\nAccordez-la dans l\'app principale.</string>
     <string name="rec_listening_tap_stop">Écoute… (toucher pour arrêter)</string>
-    <string name="rec_processing">Traitement...</string>
-    <string name="rec_refining">Affinage...</string>
-    <string name="file_preparing">Préparation...</string>
-    <string name="file_loading_model">Chargement du modèle...</string>
-    <string name="file_decoding_audio">Décodage de l\'audio...</string>
-    <string name="file_transcribing">Transcription...</string>
-    <string name="file_refining">Affinage...</string>
+    <string name="rec_processing">Traitement…</string>
+    <string name="rec_refining">Affinage…</string>
+    <string name="file_preparing">Préparation…</string>
+    <string name="file_loading_model">Chargement du modèle…</string>
+    <string name="file_decoding_audio">Décodage de l\'audio…</string>
+    <string name="file_transcribing">Transcription…</string>
+    <string name="file_refining">Affinage…</string>
     <string name="file_copied">Copié dans le presse-papiers</string>
     <string name="file_copy_to_clipboard">Copier dans le presse-papiers</string>
-    <string name="file_transcription_copied">Transcription copiée dans le presse-papiers</string>
     <string name="file_error_no_audio_received">Erreur : aucun fichier audio reçu</string>
     <string name="file_error_no_audio">Erreur : aucun fichier audio</string>
-    <string name="file_error_decode">Erreur : impossible de décoder le fichier audio</string>
+    <string name="file_error_no_speech">Erreur : aucune parole détectée dans le fichier audio</string>
     <string name="file_error_format">Erreur : %1$s</string>
     <string name="subs_grant_overlay_permission">Veuillez accorder l\'autorisation « Afficher par-dessus d\'autres apps »</string>
     <string name="subs_enable_overlay_app_settings">Activez « Afficher par-dessus d\'autres apps » dans les réglages de l\'app</string>
     <string name="subs_enable_overlay_settings">Veuillez activer l\'autorisation de superposition dans les réglages</string>
     <string name="subs_overlay_required">Autorisation de superposition requise pour les sous-titres</string>
     <string name="subs_screen_capture_denied">Capture d\'écran refusée</string>
-    <string name="subs_waiting_for_audio">En attente d\'audio...</string>
+    <string name="subs_waiting_for_audio">En attente d\'audio…</string>
     <string name="subs_notification_active">Sous-titres en direct actifs</string>
-    <string name="subs_notification_recording">Enregistrement de l\'audio interne...</string>
+    <string name="subs_notification_recording">Enregistrement de l\'audio interne…</string>
     <string name="subs_notification_stop">Arrêter</string>
     <string name="action_close">Fermer</string>
     <string name="action_cancel">Annuler</string>
-    <string name="rec_cancelled">Transcription annulée</string>
     <string name="ime_cancelled">Transcription annulée</string>
     <string name="file_cancelled">Transcription annulée</string>
     <string name="debug_model_cannot_create_dir">Impossible de créer le dossier des modèles</string>
@@ -246,31 +238,34 @@
     <!-- Floating dictation overlay & Accessibility auto-paste -->
     <string name="floating_bubble_description">Bulle flottante de dictée vocale</string>
     <string name="floating_status_idle">Touchez la bulle pour parler</string>
-    <string name="floating_status_listening">Écoute en cours...</string>
-    <string name="floating_status_transcribing">Transcription en cours...</string>
+    <string name="floating_status_listening">Écoute en cours…</string>
+    <string name="floating_status_transcribing">Transcription en cours…</string>
     <string name="floating_status_ready">Prêt</string>
-    <string name="floating_status_error">Erreur de dictée</string>
     <string name="floating_action_cancel">Annuler</string>
     <string name="floating_action_insert">Insérer</string>
-    <string name="floating_action_paste">Insérer</string>
     <string name="floating_ai_fix_toggle">Correction IA</string>
-    <string name="floating_toggle_ai_fix">Correction IA</string>
-    <string name="floating_ai_fix_on">Correction IA : ACTIVÉE</string>
-    <string name="floating_ai_fix_off">Correction IA : DÉSACTIVÉE</string>
     <string name="floating_overlay_permission_title">Autorisation de superposition requise</string>
     <string name="floating_overlay_permission_msg">Veuillez accorder l\'autorisation Afficher par-dessus d\'autres applications pour utiliser la bulle flottante de dictée.</string>
-    <string name="floating_accessibility_service_name">Collage automatique de dictée flottante</string>
-    <string name="floating_accessibility_service_desc">Insère automatiquement le texte transcrit dans les champs de texte ciblés.</string>
-    <string name="floating_toast_pasted">Texte inséré dans le champ actif</string>
-    <string name="floating_toast_copied">Texte copié dans le presse-papiers</string>
     <string name="floating_service_name">Superposition de dictée flottante</string>
     <string name="floating_service_description">Bulle flottante pour la dictée vocale rapide et panneau de superposition.</string>
     <string name="floating_notification_stop">Arrêter</string>
     <string name="floating_stopped">Dictée flottante arrêtée</string>
     <string name="floating_need_mic_body">Autorisez le microphone pour utiliser la bulle de dictée flottante.</string>
     <string name="floating_start_failed_body">Impossible de démarrer la bulle flottante. Vérifiez les autorisations de superposition et de microphone.</string>
-    <string name="accessibility_service_name">Service de collage automatique vocal</string>
-    <string name="accessibility_service_description">Colle automatiquement le texte transcrit dans les champs de saisie actifs.</string>
+    <string name="accessibility_service_name">Insertion de dictée Aura Transcribe</string>
+    <string name="accessibility_service_description">Insère dans le champ que vous étiez en train de modifier le texte que vous venez de dicter. Ne lit que ce champ, ne conserve rien et reste facultatif : sans lui, la dictée est copiée dans le presse-papiers.</string>
+    <string name="a11y_disclosure_title">Insérer automatiquement le texte dicté ?</string>
+    <string name="a11y_disclosure_intro">Aura Transcribe peut écrire ce que vous dictez directement dans le champ de texte que vous utilisez dans une autre application. Android ne l\'autorise qu\'avec l\'accès Accessibilité, c\'est donc vous qui décidez : voici exactement ce que cela implique avant qu\'on vous le demande.</string>
+    <string name="a11y_disclosure_what_title">Ce que l\'application peut voir</string>
+    <string name="a11y_disclosure_what_body">Tant que cette option est active, le service peut lire le champ de texte où se trouve votre curseur, afin d\'y insérer votre dictée et de placer correctement le curseur. Il ne lit pas le reste de l\'écran, ne parcourt pas vos applications et ne collecte ni ne conserve le contenu du champ.</string>
+    <string name="a11y_disclosure_why_title">Pourquoi elle est facultative</string>
+    <string name="a11y_disclosure_why_body">Tout le reste fonctionne sans elle. Lorsque l\'accès Accessibilité est désactivé, votre dictée est copiée dans le presse-papiers et vous la collez vous-même : une étape de plus, aucune permission supplémentaire.</string>
+    <string name="a11y_disclosure_control_title">Vous gardez le contrôle</string>
+    <string name="a11y_disclosure_control_body">Rien n\'est activé tant que vous ne l\'activez pas dans les paramètres Android, et vous pouvez le révoquer à tout moment à cet endroit, ou en désactivant la bulle flottante dans Aura Transcribe.</string>
+    <string name="a11y_disclosure_consent">Continuer vers les paramètres d\'accessibilité</string>
+    <string name="a11y_disclosure_decline">Pas maintenant</string>
+    <string name="a11y_disclosure_no_settings">Impossible d\'ouvrir les paramètres Android sur cet appareil.</string>
+    <string name="a11y_copied_to_clipboard">Copié dans le presse-papiers : collez-le où vous voulez</string>
     <string name="accessibility_paste_failed">Échec du collage du texte</string>
     <string name="floating_card_title">Dictée Flottante et Accessibilité</string>
     <string name="floating_card_subtitle">Bulle flottante style Whisperflow avec collage automatique par Accessibilité.</string>
@@ -291,8 +286,5 @@
     <string name="mic_test_btn_start">Démarrer le test audio</string>
     <string name="mic_test_btn_stop">Arrêter le test audio</string>
     <string name="mic_test_active_device">Périphérique actif : %1$s</string>
-    <string name="mic_active_bluetooth">Casque Bluetooth</string>
     <string name="mic_active_builtin">Microphone interne</string>
-    <string name="mic_active_wired">Microphone filaire / USB</string>
-    <string name="mic_bt_recording_indicator">Casque Bluetooth actif</string>
 </resources>

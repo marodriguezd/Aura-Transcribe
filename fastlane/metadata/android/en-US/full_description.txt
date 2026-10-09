@@ -1,33 +1,50 @@
-Offline Voice Input delivers professional-grade speech-to-text that runs entirely on your device. Whether you're writing emails, taking notes, or chatting, your voice never leaves your phone — no internet connection, no account, no tracking.
+Aura Transcribe turns your speech into text on your own device.
+
+Speech recognition runs entirely on your phone, using the bundled Nemotron 3.5 ASR Streaming 0.6B model (Q8_0 GGUF) on the CPU (ARM NEON with dotprod and fp16). No audio is uploaded, no account is needed, and the app works in airplane mode. There are no ads and no analytics SDKs.
 
 VOICE TYPING IN ANY APP
-Tap the microphone on a compatible keyboard — such as Microsoft SwiftKey — or a website's voice-search button, and Offline Voice Input transcribes your speech straight into the text field. It registers as your device's speech-to-text provider.
-Note: some keyboards (such as Gboard) only use Google's own voice typing and can't pass speech to other apps. If yours does, switch to a keyboard like SwiftKey — or simply use the built-in voice keyboard described below, which always works.
+Tap the microphone on a compatible keyboard, such as Microsoft SwiftKey, or a website's voice-search button, and Aura Transcribe transcribes your speech straight into the text field. It also registers as an Android speech-recognition service, so other keyboards and apps can select it as their dictation provider.
+
+Note: some keyboards (such as Gboard) only use Google's own voice typing and cannot pass speech to other apps. The built-in voice keyboard below always works.
+
+BUILT-IN VOICE KEYBOARD
+Prefer voice input as its own keyboard? A dedicated voice keyboard is included. Switch to it whenever you like, speak, and the text is inserted where you are typing. Keys have full-size touch targets and follow your system light or dark theme.
 
 LIVE SUBTITLES
-Get real-time, on-device captions for any audio or video playing on your phone — videos, podcasts, meetings and more.
+Get real-time, on-device captions for audio or video playing on your phone: videos, podcasts, meetings and more. Finished captions can optionally be translated on-device with Google ML Kit, which downloads a small language pack through Google Play Services on first use and then works offline. Translation is optional and starting captions always requires your explicit screen-capture consent.
+
+FLOATING DICTATION BUBBLE
+A draggable bubble floats over other apps. Tap it, speak, and the transcript can be inserted into the text field you were using.
+
+Auto-insert uses an optional Android Accessibility service. It is not required: the bubble works without it, and you can always copy the text to the clipboard and paste it yourself. If you choose to enable it, the service reads only the currently focused text field, only for the purpose of inserting your dictated text, and it does not collect, store or transmit anything else. Enabling it is your explicit choice, made through an in-app explanation and Android's own settings, and you can turn it off at any time under Android Settings, Accessibility.
 
 TRANSCRIBE AUDIO FILES
-Share an audio file to Offline Voice Input (or open it with the app) to turn the recording into text.
+Share an audio file to Aura Transcribe, or open one with it, to turn a recording into text. Long recordings are processed in bounded streaming chunks rather than loaded entirely into memory.
 
-OPTIONAL VOICE KEYBOARD
-Prefer voice input as its own keyboard? A dedicated voice keyboard is included — switch to it whenever you like.
+CUSTOM WORDS
+Add the names, brands or technical terms you use often. Words that sound like your terms are corrected to the spelling you chose, fully on-device and with any model.
 
-WHY YOU'LL LOVE IT
-• 100% offline — even works in airplane mode, nothing is ever uploaded
-• Private by design — audio is processed on-device and never stored or sent
-• Fast and accurate, powered by NVIDIA's Parakeet model
-• 25 languages, including English, German, French, Spanish, Italian, Portuguese, Dutch, Polish, Russian and Ukrainian
-• Free and open source (MIT License)
+OPTIONAL AI POST-PROCESSING, OFF BY DEFAULT
+Aura Transcribe can optionally tidy punctuation and wording with an AI model. This is off by default and you must configure it yourself.
 
-The app downloads the speech model (~670 MB) once on first launch; afterwards everything runs locally on your device.
+You can point it at a model running on the same device, for example Ollama on localhost, and the text stays on your phone. If you instead configure a remote OpenAI-compatible provider of your choice, the recognised text, never the audio, is sent to that provider using the API key you entered. If you never enable this feature, no text is sent anywhere.
 
-POWERED BY OPEN SOURCE
-We believe in transparency and the power of the community. Offline Voice Input is built with cutting-edge open-source technology:
-• NVIDIA Parakeet TDT 0.6B — high-performance on-device speech recognition (INT8 ONNX, quantized by istupakov)
-• transcribe-rs — the Rust transcription engine by CJ Pais
-• ONNX Runtime — efficient on-device model inference
-• A native Android interface with a Rust core for speed and safety
+WHAT YOU GET
+- Fully on-device speech recognition with the bundled Nemotron 3.5 ASR Streaming 0.6B model
+- 33 selectable languages with automatic language detection
+- Streaming dictation with live partial results as you speak
+- Six ways to use it: keyboard microphone popup, recognition service, built-in voice keyboard, live subtitles, floating bubble, and audio-file transcription
+- Optional on-device subtitle translation
+- Optional custom-words corrector
+- Microphone diagnostics with a live level meter and active-device indicator
+- Choose between Bluetooth headset, USB or wired, and built-in microphones
+- Light, dark and Material You dynamic colour
+- Free and open source under the MIT License
+
+REQUIREMENTS
+- Android 8.0 (API 26) or newer; built and tested against Android 17 (API 37)
+- A 64-bit ARM device (arm64-v8a). 32-bit ARM and x86 devices are not supported.
+- The speech model is bundled with the release build. Builds that do not bundle it download the model once on first launch, so an initial connection and free storage are needed in that case.
 
 Source code, issues and contributions:
-https://github.com/notune/android_transcribe_app
+https://github.com/marodriguezd/android_transcribe_app

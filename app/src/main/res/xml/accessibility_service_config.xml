@@ -1,8 +1,50 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Accessibility service configuration for the floating-dictation auto-insert.
+
+  Narrow by design (Google Play "Use of AccessibilityService APIs" and data
+  minimisation): the service exists only to put already-recognised text into the
+  text field the user is currently focused on.
+
+  Compared with the previous configuration:
+    * typeViewClicked and typeViewTextSelectionChanged were removed. The service
+      only needs to know which editable node has input focus
+      (typeViewFocused) and to drop a remembered node when the window changes
+      (typeWindowStateChanged). Selection changes are read from the focused node
+      at insert time, not subscribed to.
+    * flagRetrieveInteractiveWindows was removed. The service never enumerates
+      windows — it reads getRootInActiveWindow() for the single focused field —
+      so requesting visibility of every interactive window was more access than
+      the feature uses.
+    * android:label and android:description were both pointing at the app name;
+      they now describe what the service does, because that text is what the
+      user reads in Android Settings when granting or revoking access.
+
+  canRetrieveWindowContent stays true: reading the focused field's text and
+  selection is the entire purpose. Nothing is persisted between uses — see
+  FloatingDictationAccessibilityService, which holds at most one node reference
+  and releases it on window change, unbind and destroy.
+
+  android:isAccessibilityTool="false" is declared explicitly, and that is the
+  honest value: this is a dictation convenience, not a service whose primary
+  purpose is to help people with disabilities use their device, so the app is
+  not eligible to claim the accessibility-tool exemption. Platform behaviour is
+  unchanged by writing it out — AccessibilityServiceInfo parses the attribute
+  with a default of false (frameworks/base, AccessibilityServiceInfo.java:
+  `asAttributes.getBoolean(R.styleable.AccessibilityService_isAccessibilityTool,
+  false)`) — but stating it removes any ambiguity during Play review, where the
+  attribute decides whether the prominent-disclosure requirement applies.
+  Because the service is not an accessibility tool, the app ships the separate
+  in-context disclosure required by Play's "Use of the AccessibilityService API"
+  policy: AccessibilityDisclosureActivity, reachable only by the user asking for
+  the feature, with explicit Continue/Not now consent before Android's own
+  Accessibility settings are opened.
+-->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:accessibilityEventTypes="typeViewFocused|typeViewClicked|typeViewTextSelectionChanged|typeWindowStateChanged"
+    android:accessibilityEventTypes="typeViewFocused|typeWindowStateChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows"
+    android:accessibilityFlags="flagDefault"
     android:canRetrieveWindowContent="true"
-    android:description="@string/app_name"
+    android:isAccessibilityTool="false"
+    android:description="@string/accessibility_service_description"
     android:notificationTimeout="100" />

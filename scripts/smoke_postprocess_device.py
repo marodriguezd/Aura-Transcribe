@@ -32,7 +32,18 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 
+# The runtime package an `am`/`pm` command targets is the *applicationId*.
+# Components, on the other hand, are named by their Java class, which lives in
+# the `dev.notune.transcribe` namespace. Both appear in the lines below and they
+# are deliberately different strings.
 PACKAGE = "com.auratranscribe.app"
+
+# Resource ids are resolved by the runtime package too, NOT by the Java
+# namespace: `dev.notune.transcribe:id/...` never matches anything on a device
+# because the app is installed as com.auratranscribe.app. Every resource lookup
+# below is built from this prefix so the two can never drift apart again.
+RID_PREFIX = f"{PACKAGE}:id/"
+
 MAIN_ACTIVITY = f"{PACKAGE}/dev.notune.transcribe.MainActivity"
 TRANSCRIBE_ACTIVITY = f"{PACKAGE}/dev.notune.transcribe.TranscribeFileActivity"
 REMOTE_AUDIO = f"/sdcard/Android/data/{PACKAGE}/files/freebuff-qa-bench.wav"
@@ -249,7 +260,7 @@ def visible_text(adb: Adb, resource_id: str) -> str:
 
 
 def choose_provider(adb: Adb, provider_label: str) -> None:
-    tap_resource(adb, "dev.notune.transcribe:id/dropdown_provider")
+    tap_resource(adb, RID_PREFIX + "dropdown_provider")
     # AutoCompleteTextView renders its popup into the UI hierarchy. Selecting
     # the exact row avoids the previous failure where typing "Groq" left the
     # field on the previously selected OpenRouter item.
@@ -261,7 +272,7 @@ def choose_provider(adb: Adb, provider_label: str) -> None:
             if (
                 node.attrib.get("clickable") == "true"
                 and node.attrib.get("resource-id")
-                != "dev.notune.transcribe:id/dropdown_provider"
+                != RID_PREFIX + "dropdown_provider"
                 and node.attrib.get("class") != "android.widget.AutoCompleteTextView"
             ):
                 return node
@@ -269,21 +280,21 @@ def choose_provider(adb: Adb, provider_label: str) -> None:
 
     row = wait_until(adb, find_row, f"provider row {provider_label}", 10, 0.5)
     adb.tap(Ui.bounds(row))
-    actual = visible_text(adb, "dev.notune.transcribe:id/dropdown_provider")
+    actual = visible_text(adb, RID_PREFIX + "dropdown_provider")
     if actual != provider_label:
         raise SmokeError(f"provider selection did not stick (got {actual!r})")
 
 
 def set_model(adb: Adb, model: str) -> None:
-    clear_field(adb, "dev.notune.transcribe:id/edit_model")
+    clear_field(adb, RID_PREFIX + "edit_model")
     adb.input_text(model)
-    actual = visible_text(adb, "dev.notune.transcribe:id/edit_model")
+    actual = visible_text(adb, RID_PREFIX + "edit_model")
     if actual != model:
         raise SmokeError("model field did not contain the requested model")
 
 
 def set_api_key(adb: Adb, key: str) -> None:
-    clear_field(adb, "dev.notune.transcribe:id/edit_api_key")
+    clear_field(adb, RID_PREFIX + "edit_api_key")
     adb.input_text(key)
     # Password fields are legitimately redacted by some UIAutomator/OEM
     # implementations. Do not inspect or compare the secret in the hierarchy;
@@ -293,22 +304,22 @@ def set_api_key(adb: Adb, key: str) -> None:
 def set_qa_prompt(adb: Adb) -> None:
     # The prompt is deterministic and includes ${output}; this lets the final
     # assertion distinguish a real provider response from raw-text fallback.
-    clear_field(adb, "dev.notune.transcribe:id/edit_prompt")
+    clear_field(adb, RID_PREFIX + "edit_prompt")
     adb.input_text(QA_PROMPT)
-    actual = visible_text(adb, "dev.notune.transcribe:id/edit_prompt")
+    actual = visible_text(adb, RID_PREFIX + "edit_prompt")
     if "QA_POSTPROCESS_OK" not in actual or "${output}" not in actual:
         raise SmokeError("QA prompt was not entered completely")
 
 
 def enable_postprocessing(adb: Adb) -> None:
-    node = scroll_until(adb, "dev.notune.transcribe:id/switch_pp_enabled")
+    node = scroll_until(adb, RID_PREFIX + "switch_pp_enabled")
     if node.attrib.get("checked") != "true":
         adb.tap(Ui.bounds(node))
     # Always re-dump after tapping. MaterialSwitch does not expose its checked
     # state through text, and retaining the pre-tap XML was the source of a
     # false negative in the first device automation attempt.
     node = Ui(adb.dump_ui()).first(
-        resource_id="dev.notune.transcribe:id/switch_pp_enabled"
+        resource_id=RID_PREFIX + "switch_pp_enabled"
     )
     if node is None or node.attrib.get("checked") != "true":
         raise SmokeError("post-processing switch did not become enabled")
@@ -318,8 +329,8 @@ def save_settings(adb: Adb, provider_label: str, model: str) -> None:
     # Validate the values again immediately before saving. This catches a
     # provider popup tap that visually looked successful but did not trigger
     # AutoCompleteTextView's item-click callback.
-    actual_provider = visible_text(adb, "dev.notune.transcribe:id/dropdown_provider")
-    actual_model = visible_text(adb, "dev.notune.transcribe:id/edit_model")
+    actual_provider = visible_text(adb, RID_PREFIX + "dropdown_provider")
+    actual_model = visible_text(adb, RID_PREFIX + "edit_model")
     if actual_provider != provider_label:
         raise SmokeError(f"provider changed before save (got {actual_provider!r})")
     if actual_model != model:
@@ -330,7 +341,7 @@ def save_settings(adb: Adb, provider_label: str, model: str) -> None:
     # hidden, BACK would close the private settings Activity instead of merely
     # dismissing the IME, which caused an intermittent save failure in manual
     # automation.
-    tap_resource(adb, "dev.notune.transcribe:id/btn_save")
+    tap_resource(adb, RID_PREFIX + "btn_save")
     wait_until(
         adb,
         lambda: "MainActivity" in adb.activity(),
@@ -396,12 +407,12 @@ def run_file_transcription(adb: Adb, timeout: float) -> tuple[bool, bool]:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         ui = Ui(adb.dump_ui())
-        status = ui.first(resource_id="dev.notune.transcribe:id/txt_status")
+        status = ui.first(resource_id=RID_PREFIX + "txt_status")
         status_text = status.attrib.get("text", "") if status is not None else ""
         if "Refin" in status_text:
             refining_seen = True
-        result_area = ui.first(resource_id="dev.notune.transcribe:id/result_area")
-        result = ui.first(resource_id="dev.notune.transcribe:id/txt_result")
+        result_area = ui.first(resource_id=RID_PREFIX + "result_area")
+        result = ui.first(resource_id=RID_PREFIX + "txt_result")
         result_text = result.attrib.get("text", "") if result is not None else ""
         result_visible = (
             result_area is not None
@@ -487,7 +498,7 @@ def main() -> int:
         print("[2/7] Waiting for the speech engine")
         wait_for_model_ready(adb, args.model_timeout)
         print("[3/7] Opening post-processing settings through MainActivity")
-        tap_resource(adb, "dev.notune.transcribe:id/btn_post_process")
+        tap_resource(adb, RID_PREFIX + "btn_post_process")
         print("[4/7] Configuring provider/model/key through resource IDs")
         choose_provider(adb, args.provider)
         set_model(adb, args.model)

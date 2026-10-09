@@ -11,6 +11,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
+import android.graphics.Insets;
 import android.graphics.PixelFormat;
 import android.graphics.Point;
 import android.os.Build;
@@ -25,6 +26,7 @@ import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
+import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.ImageView;
@@ -159,17 +161,20 @@ public class FloatingOverlayService extends Service {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
             Log.w(TAG, "RECORD_AUDIO not granted; refusing to start floating service");
-            notifySetupError(getString(R.string.floating_need_mic_body));
+            notifySetupError(
+                    getString(R.string.floating_service_name),
+                    getString(R.string.floating_need_mic_body));
             stopSelf();
             return;
         }
 
         // addView() on a TYPE_APPLICATION_OVERLAY window throws
         // BadTokenException/SecurityException without the overlay permission.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
-                && !Settings.canDrawOverlays(this)) {
+        if (!Settings.canDrawOverlays(this)) {
             Log.w(TAG, "Overlay permission missing; refusing to start floating service");
-            notifySetupError(getString(R.string.floating_overlay_permission_msg));
+            notifySetupError(
+                    getString(R.string.floating_overlay_permission_title),
+                    getString(R.string.floating_overlay_permission_msg));
             stopSelf();
             return;
         }
@@ -181,14 +186,21 @@ public class FloatingOverlayService extends Service {
             // UnsatisfiedLinkError mid-use. Fail fast and gracefully instead of
             // running a service that can only crash later.
             Log.e(TAG, "Error in initNative", t);
-            notifySetupError(getString(R.string.floating_start_failed_body));
+            notifySetupError(
+                    getString(R.string.floating_service_name),
+                    getString(R.string.floating_start_failed_body));
             stopSelf();
             return;
         }
 
         try {
             createNotificationChannel();
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE only exists from API 30
+            // (R): on API 26-29 the two-arg startForeground() is the correct call
+            // (the microphone FGS type is not defined on those releases). Passing
+            // the type bit to an API-29 platform would not match the manifest's
+            // declared type mask and can throw IllegalArgumentException.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
             } else {
                 startForeground(NOTIFICATION_ID, buildNotification());
@@ -197,7 +209,9 @@ public class FloatingOverlayService extends Service {
             // SecurityException (FGS type enforcement), MissingForegroundServiceTypeException,
             // or any other unexpected failure must never crash the process into a restart loop.
             Log.e(TAG, "Failed to start foreground service", t);
-            notifySetupError(getString(R.string.floating_start_failed_body));
+            notifySetupError(
+                    getString(R.string.floating_service_name),
+                    getString(R.string.floating_start_failed_body));
             stopSelf();
             return;
         }
@@ -211,23 +225,23 @@ public class FloatingOverlayService extends Service {
             // WindowManager.addView() failing (e.g. permission revoked between the check and
             // the add) is a setup failure, not a crash.
             Log.e(TAG, "Failed to attach overlay view", t);
-            notifySetupError(getString(R.string.floating_start_failed_body));
+            notifySetupError(
+                    getString(R.string.floating_service_name),
+                    getString(R.string.floating_start_failed_body));
             stopSelf();
         }
     }
 
     private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(
-                    CHANNEL_ID,
-                    getString(R.string.floating_service_name),
-                    NotificationManager.IMPORTANCE_LOW
-            );
-            channel.setDescription(getString(R.string.floating_service_description));
-            NotificationManager nm = getSystemService(NotificationManager.class);
-            if (nm != null) {
-                nm.createNotificationChannel(channel);
-            }
+        NotificationChannel channel = new NotificationChannel(
+                CHANNEL_ID,
+                getString(R.string.floating_service_name),
+                NotificationManager.IMPORTANCE_LOW
+        );
+        channel.setDescription(getString(R.string.floating_service_description));
+        NotificationManager nm = getSystemService(NotificationManager.class);
+        if (nm != null) {
+            nm.createNotificationChannel(channel);
         }
     }
 
@@ -247,7 +261,11 @@ public class FloatingOverlayService extends Service {
                 .setSmallIcon(R.drawable.ic_mic)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setOngoing(true)
-                .addAction(android.R.drawable.ic_menu_close_clear_cancel,
+                // App-owned glyph instead of a framework drawable: Android's
+                // framework icons are not themed, are not guaranteed to exist
+                // across OEM builds, and make the notification look like a
+                // system message rather than a product one.
+                .addAction(R.drawable.ic_close,
                         getString(R.string.floating_notification_stop), stopPi)
                 .build();
     }
@@ -257,7 +275,14 @@ public class FloatingOverlayService extends Service {
      * (missing permission, overlay attach failure). Tapping it reopens the main
      * activity so the user can grant what is missing. Never throws.
      */
-    private void notifySetupError(String body) {
+    /**
+     * Posts the "this service could not start" notification.
+     *
+     * <p>The title is passed in rather than hard-coded to the service name: the
+     * overlay-permission failure is a case where the *reason* is the actionable
+     * part, and a bare service name gives the user nothing to act on.
+     */
+    private void notifySetupError(String title, String body) {
         try {
             createNotificationChannel();
             Intent contentIntent = new Intent(this, MainActivity.class);
@@ -267,7 +292,7 @@ public class FloatingOverlayService extends Service {
                     contentIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             Notification n = new NotificationCompat.Builder(this, CHANNEL_ID)
-                    .setContentTitle(getString(R.string.floating_service_name))
+                    .setContentTitle(title)
                     .setContentText(body)
                     .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
                     .setSmallIcon(R.drawable.ic_mic)
@@ -288,6 +313,10 @@ public class FloatingOverlayService extends Service {
         Context night = ThemePrefs.wrapForNight(this, ThemePrefs.getMode(this));
         mViewIsNight = ThemePrefs.isNight(night);
         Context themed = new android.view.ContextThemeWrapper(night, R.style.AppTheme);
+        // Root = null on purpose (lint's InflateParams suggestion does not apply):
+        // this view is attached by WindowManager, which is not a ViewGroup. Its
+        // WindowManager.LayoutParams are built explicitly below, so the root
+        // layout's own layout_* attributes are intentionally ignored.
         mOverlayView = LayoutInflater.from(themed).inflate(R.layout.overlay_floating_dictation, null);
 
         mBubbleRoot = mOverlayView.findViewById(R.id.floating_bubble_root);
@@ -311,9 +340,7 @@ public class FloatingOverlayService extends Service {
         mInsertButton = mOverlayView.findViewById(R.id.floating_insert_button);
         mHintText = mOverlayView.findViewById(R.id.floating_hint);
 
-        int layoutFlag = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                : WindowManager.LayoutParams.TYPE_PHONE;
+        int layoutFlag = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
 
         mParams = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
@@ -385,6 +412,11 @@ public class FloatingOverlayService extends Service {
                         updateDismissTargetHover(event.getRawX(), event.getRawY());
                         return true;
                     case MotionEvent.ACTION_UP:
+                        // Report the tap as a click: this custom onTouch handler
+                        // replaces the framework's click dispatch, so without
+                        // this an accessibility service receives no click event
+                        // from the bubble (ClickableViewAccessibility).
+                        v.performClick();
                         boolean dismissRequested = mIsHoveringDismiss;
                         hideDismissTarget();
                         if (dismissRequested) {
@@ -453,13 +485,12 @@ public class FloatingOverlayService extends Service {
     private void setupDismissTargetView() {
         Context night = ThemePrefs.wrapForNight(this, ThemePrefs.getMode(this));
         Context themed = new android.view.ContextThemeWrapper(night, R.style.AppTheme);
+        // Root = null on purpose; see setupOverlayView().
         mDismissTargetView = LayoutInflater.from(themed).inflate(R.layout.overlay_dismiss_target, null);
         mDismissCircle = mDismissTargetView.findViewById(R.id.dismiss_target_circle);
 
         float density = getResources().getDisplayMetrics().density;
-        int layoutFlag = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                : WindowManager.LayoutParams.TYPE_PHONE;
+        int layoutFlag = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
 
         mDismissParams = new WindowManager.LayoutParams(
                 (int) (72 * density),
@@ -471,9 +502,7 @@ public class FloatingOverlayService extends Service {
                 PixelFormat.TRANSLUCENT
         );
         mDismissParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
-        int navResId = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
-        int navBar = navResId > 0 ? getResources().getDimensionPixelSize(navResId) : 0;
-        mDismissParams.y = navBar + (int) (36 * density);
+        mDismissParams.y = systemBarInsets()[1] + (int) (36 * density);
     }
 
     private void showDismissTarget() {
@@ -609,10 +638,9 @@ public class FloatingOverlayService extends Service {
                 float density = getResources().getDisplayMetrics().density;
                 int screenWidth = getResources().getDisplayMetrics().widthPixels;
                 int margin = (int) (16 * density);
-                int resId = getResources().getIdentifier("status_bar_height", "dimen", "android");
-                int statusBar = resId > 0 ? getResources().getDimensionPixelSize(resId) : 0;
-                int navResId = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
-                int navBar = navResId > 0 ? getResources().getDimensionPixelSize(navResId) : 0;
+                int[] bars = systemBarInsets();
+                int statusBar = bars[0];
+                int navBar = bars[1];
 
                 int panelWidth = screenWidth - margin * 2;
                 int panelHeight = measurePanelHeight(panelWidth);
@@ -707,6 +735,54 @@ public class FloatingOverlayService extends Service {
 
     private void saveBubblePosition() {
         MarkerFileHelper.writeString(this, BUBBLE_POS_MARKER, mBubbleX + "," + mBubbleY);
+    }
+
+    /**
+     * The status-bar (index 0) and navigation-bar (index 1) insets, in overlay
+     * coordinates.
+     *
+     * <p>These come from real window insets, not from the platform's internal
+     * {@code @android:dimen/status_bar_height} and
+     * {@code @android:dimen/navigation_bar_height}. That approach was wrong in
+     * three ways: those ids are not public API (absent on some OEM builds, which
+     * is why the old code carried a {@code > 0} guard), resolving them is a
+     * resource-reflection lookup that neither resource shrinking nor R8 can
+     * verify, and on gesture navigation the reported navigation-bar height does
+     * not match the inset the gesture area actually reserves — so the bubble and
+     * the dismiss target could sit under the gesture pill on Android 11+.
+     *
+     * <p>API 30+ uses {@link WindowManager#getCurrentWindowMetrics()}, which is
+     * the supported source and is already how this class resolves the real
+     * screen size. API 26-29 reads the insets of the window the overlay is
+     * attached to. Returning {@code {0, 0}} is the safe degradation: the overlay
+     * then simply ignores the system bars, which is the pre-existing behaviour
+     * when the internal resource was missing.
+     */
+    private int[] systemBarInsets() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && mWindowManager != null) {
+            try {
+                WindowInsets insets = mWindowManager.getCurrentWindowMetrics().getWindowInsets();
+                Insets bars = insets.getInsetsIgnoringVisibility(
+                        WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
+                return new int[]{bars.top, bars.bottom};
+            } catch (Throwable t) {
+                Log.w(TAG, "WindowMetrics insets unavailable; falling back", t);
+            }
+        }
+        try {
+            View anchor = mOverlayView != null ? mOverlayView : mDismissTargetView;
+            if (anchor != null) {
+                WindowInsets insets = anchor.getRootWindowInsets();
+                if (insets != null) {
+                    return new int[]{
+                            insets.getSystemWindowInsetTop(),
+                            insets.getSystemWindowInsetBottom()};
+                }
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "Root window insets unavailable", t);
+        }
+        return new int[]{0, 0};
     }
 
     /**
@@ -944,6 +1020,7 @@ public class FloatingOverlayService extends Service {
         Context night = ThemePrefs.wrapForNight(this, ThemePrefs.getMode(this));
         mViewIsNight = ThemePrefs.isNight(night);
         Context themed = new android.view.ContextThemeWrapper(night, R.style.AppTheme);
+        // Root = null on purpose; see setupOverlayView().
         mOverlayView = LayoutInflater.from(themed).inflate(R.layout.overlay_floating_dictation, null);
 
         mBubbleRoot = mOverlayView.findViewById(R.id.floating_bubble_root);
@@ -1137,8 +1214,7 @@ public class FloatingOverlayService extends Service {
 
         int screenWidth = getRealScreenWidth();
         int screenHeight = getRealScreenHeight();
-        int resId = getResources().getIdentifier("status_bar_height", "dimen", "android");
-        int statusBar = resId > 0 ? getResources().getDimensionPixelSize(resId) : 0;
+        int statusBar = systemBarInsets()[0];
 
         int startX = mParams.x;
         int targetX = calculateNearestEdgeX(startX, bubbleWidth, screenWidth);

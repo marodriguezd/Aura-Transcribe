@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Backup rules for Android 11 and below (the predecessor of
+  data_extraction_rules.xml). Together with android:allowBackup="false" this
+  keeps the API key, the custom-words dictionary and every marker file out of
+  Auto Backup.
+-->
+<full-backup-content>
+    <exclude domain="root" />
+    <exclude domain="file" />
+    <exclude domain="database" />
+    <exclude domain="sharedpref" />
+    <exclude domain="external" />
+</full-backup-content>

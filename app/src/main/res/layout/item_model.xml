@@ -43,8 +43,8 @@
 
     <ImageButton
         android:id="@+id/btn_model_delete"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
+        android:layout_width="@dimen/min_touch_target"
+        android:layout_height="@dimen/min_touch_target"
         android:src="@drawable/ic_delete"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="@string/models_delete"/>

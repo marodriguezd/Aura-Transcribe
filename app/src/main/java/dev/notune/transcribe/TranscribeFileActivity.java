@@ -23,6 +23,7 @@ import android.widget.Toast;
 
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.IntentCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -35,8 +36,12 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.ShortBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -44,15 +49,26 @@ public class TranscribeFileActivity extends AppCompatActivity {
 
     private static final String TAG = "OfflineVoiceInput";
     private static final int TARGET_SAMPLE_RATE = 16000;
-    // Hard cap on decoded audio (30 min = 28.8M samples, ~115 MB as float[]):
-    // the full decode is held in RAM (a Java float[] plus a native copy in
-    // transcribeAudio), so an unbounded file would OOM. 30 min was chosen over
-    // 60 min (57.6M samples ≈ 230 MB) so the cap is actually reachable on
-    // devices with a ~192–256 MB default heap — at 60 min the process could
-    // OOM before the check ever fired. This Activity is exported (SEND/VIEW
-    // audio/*), so any app can hand us an arbitrarily long file — the cap
-    // keeps a hostile/buggy input from exhausting memory.
-    private static final int MAX_DECODE_SAMPLES = 30 * 60 * TARGET_SAMPLE_RATE;
+    // Bounded-memory streaming decode: the file is converted to 16 kHz mono one
+    // chunk at a time and handed to the native engine immediately, so the
+    // decoded source never exists in memory as a whole. 30 s caps a single
+    // chunk at ~1.9 MB of float data (plus a same-sized resampled copy) no
+    // matter how long the input is; the previous implementation accumulated the
+    // entire decode in a `List<float[]>`, merged it into one `float[]`, then
+    // allocated a third `float[]` for the resampled output, and finally the
+    // native side copied it again — roughly four full copies of the audio.
+    private static final int CHUNK_SECONDS = 30;
+    // Upper bound on the *duration* of an incoming file. This Activity is
+    // exported for audio/* (SEND/VIEW), so any app can hand it an arbitrarily
+    // long file: the limit stops a hostile or buggy input from pinning the CPU
+    // for an unbounded time. It is expressed in seconds rather than a raw
+    // sample count so it means the same thing at every input sample rate, and
+    // it is now a policy cap on duration — memory is bounded by CHUNK_SECONDS
+    // independently of this value.
+    private static final int MAX_DURATION_SECONDS = 30 * 60;
+    // A single chunk is short relative to this, so hitting it means the native
+    // side stalled rather than the file being long.
+    private static final long CHUNK_RESULT_TIMEOUT_MS = 10 * 60 * 1000L;
 
     static {
         try {
@@ -80,6 +96,12 @@ public class TranscribeFileActivity extends AppCompatActivity {
     private volatile int currentOpId = 0;
     private final AtomicBoolean cancelRequested = new AtomicBoolean(false);
 
+    // Transcript pieces of the chunks already transcribed, in order. Filled from
+    // the main thread (onTextTranscribed) and drained by the decode thread.
+    private final List<String> chunkTexts = Collections.synchronizedList(new ArrayList<>());
+    // Signalled by onTextTranscribed when the chunk currently in flight is done.
+    private volatile CountDownLatch pendingChunk;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         EdgeToEdge.enable(this);
@@ -103,6 +125,16 @@ public class TranscribeFileActivity extends AppCompatActivity {
         resultArea = findViewById(R.id.result_area);
         resultText = findViewById(R.id.txt_result);
         copyButton = findViewById(R.id.btn_copy);
+
+        // bg_result is a rounded card, so its children must be clipped to the
+        // rounded outline or the selectable result text paints over the corners.
+        // The XML attribute android:clipToOutline only exists from API 31, so on
+        // API 26-30 the attribute was silently ignored and the clipping never
+        // happened; View.setClipToOutline() has been available since API 21, so
+        // the behaviour now works on every supported release.
+        if (resultArea != null) {
+            resultArea.setClipToOutline(true);
+        }
 
         findViewById(R.id.btn_close).setOnClickListener(v -> cancelAndClose());
         findViewById(R.id.btn_cancel).setOnClickListener(v -> cancelCurrentOperation());
@@ -162,13 +194,25 @@ public class TranscribeFileActivity extends AppCompatActivity {
         try { cleanupNative(); } catch (Throwable t) { /* ignore */ }
     }
 
+    /**
+     * Resolves the audio URI this Activity was launched with.
+     *
+     * <p>Both entries are supplied by OTHER apps ({@code SEND}/{@code VIEW} for
+     * {@code audio/*} are exported), so the Intent is untrusted input.
+     * {@link IntentCompat#getParcelableExtra} is used instead of the deprecated
+     * {@code Intent.getParcelableExtra(String)}: the deprecated overload performs
+     * an unchecked cast at the call site, so a hostile caller that puts a
+     * non-Uri Parcelable (for example a Bundle) in {@code EXTRA_STREAM} would
+     * crash the receiver with a {@link ClassCastException}. The typed overload
+     * returns null for anything that is not a {@link Uri}.
+     */
     private Uri getAudioUri() {
         Intent intent = getIntent();
         if (intent == null) return null;
 
         String action = intent.getAction();
         if (Intent.ACTION_SEND.equals(action)) {
-            return intent.getParcelableExtra(Intent.EXTRA_STREAM);
+            return IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri.class);
         } else if (Intent.ACTION_VIEW.equals(action)) {
             return intent.getData();
         }
@@ -191,45 +235,23 @@ public class TranscribeFileActivity extends AppCompatActivity {
         });
     }
 
-    // Called from Rust with the transcription result of a specific decode
-    // operation. The opId guard (P1.1) drops callbacks from a worker that
-    // finishes after this Activity was destroyed or a new decode started.
+    // Called from Rust for every transcribed chunk of the current operation.
+    // The opId guard (P1.1) drops callbacks from a worker that finishes after
+    // this Activity was destroyed or a new decode started.
     public void onTextTranscribed(String text, int opId) {
+        // Read from a native worker thread: reject a superseded operation before
+        // touching any state, so a late chunk can never land in a new transcript
+        // (or release the new operation's latch).
+        if (opId != currentOpId) return;
         runOnUiThread(() -> {
-            if (opId != currentOpId || isFinishing() || isDestroyed()) return;
-            SettingsManager settings = new SettingsManager(this);
-            if (settings.isPostProcessEnabled()) {
-                statusText.setText(getString(R.string.file_refining));
-                // Owned by this Activity so its teardown only cancels its own
-                // in-flight call, never another surface's (P0.1).
-                new PostProcessor(settings, new Handler(Looper.getMainLooper()),
-                        () -> !isFinishing() && !isDestroyed(), this)
-                        .process(text, new PostProcessor.PostProcessCallback() {
-                    @Override
-                    public void onSuccess(String refinedText) {
-                        if (opId != currentOpId || cancelRequested.get()
-                                || isFinishing() || isDestroyed()) return;
-                        String out = (refinedText != null && !refinedText.trim().isEmpty())
-                                ? refinedText : text;
-                        showResult(out);
-                    }
-
-                    @Override
-                    public void onError(String error) {
-                        if (opId != currentOpId || cancelRequested.get()
-                                || isFinishing() || isDestroyed()) return;
-                        // Privacy (v0.1.24): the error string can carry
-                        // provider details; the transcript itself is never
-                        // logged in release builds.
-                        if (BuildConfig.DEBUG) {
-                            Log.w(TAG, "Post-process failed, showing raw text: " + error);
-                        }
-                        showResult(text);
-                    }
-                });
-            } else {
-                showResult(text);
+            if (opId != currentOpId) return;
+            if (text != null && !text.trim().isEmpty() && !isFinishing() && !isDestroyed()) {
+                chunkTexts.add(text.trim());
             }
+            // Always release the decode thread, even on teardown, so it cannot
+            // sit in its await loop.
+            CountDownLatch latch = pendingChunk;
+            if (latch != null) latch.countDown();
         });
     }
 
@@ -255,18 +277,12 @@ public class TranscribeFileActivity extends AppCompatActivity {
         final int opId = NEXT_OP.incrementAndGet();
         currentOpId = opId;
         cancelRequested.set(false);
+        chunkTexts.clear();
 
         new Thread(() -> {
             try {
-                float[] samples = decodeAudioToSamples(audioUri);
-                if (cancelRequested.get() || opId != currentOpId) return;
-                if (samples == null || samples.length == 0) {
-                    showError(getString(R.string.file_error_decode));
-                    return;
-                }
-
                 runOnUiThread(() -> statusText.setText(getString(R.string.file_transcribing)));
-                transcribeAudio(samples, samples.length, opId);
+                decodeAndTranscribeStreaming(audioUri, opId);
 
             } catch (CancellationException e) {
                 // User explicitly cancelled; do not surface an error or result.
@@ -275,7 +291,7 @@ public class TranscribeFileActivity extends AppCompatActivity {
                 Log.e(TAG, "Error decoding audio", e);
                 showError(getString(R.string.file_error_format, e.getMessage()));
             }
-        }).start();
+        }, "file-decode").start();
     }
 
     private void showError(String message) {
@@ -286,11 +302,17 @@ public class TranscribeFileActivity extends AppCompatActivity {
     }
 
     /**
-     * Decode audio from a Uri to 16kHz mono float samples using MediaExtractor/MediaCodec.
+     * Decode audio from a Uri and transcribe it in fixed-size chunks.
+     *
+     * <p>Memory stays bounded: audio is converted to 16 kHz mono one chunk at a
+     * time, handed to the native engine, then dropped. The file is never held in
+     * memory as a whole, so a long recording costs the same heap as a short one.
+     * Processed chunks are discarded, and the transcript is accumulated as text.
      */
-    private float[] decodeAudioToSamples(Uri uri) throws IOException {
+    private void decodeAndTranscribeStreaming(Uri uri, int opId) throws IOException {
         MediaExtractor extractor = new MediaExtractor();
         File tempAudioFile = null;
+        MediaCodec codec = null;
         try {
             boolean dataSourceSet = false;
             // 1. Try opening via ContentResolver asset file descriptor
@@ -323,101 +345,100 @@ public class TranscribeFileActivity extends AppCompatActivity {
             if (!dataSourceSet) {
                 extractor.setDataSource(this, uri, null);
             }
-        } catch (IOException | RuntimeException e) {
-            extractor.release();
-            if (tempAudioFile != null) {
-                tempAudioFile.delete();
-            }
-            throw e;
-        }
 
-        // Find audio track
-        int audioTrackIndex = -1;
-        MediaFormat inputFormat = null;
-        try {
+            // Find audio track
+            int audioTrackIndex = -1;
+            MediaFormat inputFormat = null;
             for (int i = 0; i < extractor.getTrackCount(); i++) {
                 MediaFormat format = extractor.getTrackFormat(i);
-                String mime = format.getString(MediaFormat.KEY_MIME);
-                if (mime != null && mime.startsWith("audio/")) {
+                String trackMime = format.getString(MediaFormat.KEY_MIME);
+                if (trackMime != null && trackMime.startsWith("audio/")) {
                     audioTrackIndex = i;
                     inputFormat = format;
                     break;
                 }
             }
             if (audioTrackIndex < 0 || inputFormat == null) {
+                // Report it. Returning quietly used to leave the screen on
+                // "Transcribing…" with a spinning progress bar forever, because
+                // the caller only reacts to an exception or to a delivered
+                // transcript — and a file with no audio track produces neither.
                 Log.e(TAG, "No audio track found");
-                extractor.release();
-                return null;
+                showError(getString(R.string.file_error_no_audio));
+                return;
             }
-
             extractor.selectTrack(audioTrackIndex);
-        } catch (RuntimeException e) {
-            extractor.release();
-            throw e;
-        }
-        String mime;
-        int sampleRate;
-        int channelCount;
-        try {
-            mime = inputFormat.getString(MediaFormat.KEY_MIME);
-            sampleRate = inputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE);
-            channelCount = inputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
-        } catch (RuntimeException e) {
-            extractor.release();
-            throw e;
-        }
 
-        Log.i(TAG, "Audio: mime=" + mime + " rate=" + sampleRate + " channels=" + channelCount);
+            String mime = inputFormat.getString(MediaFormat.KEY_MIME);
+            int sampleRate = inputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+            int channelCount = inputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
+            if (channelCount < 1) channelCount = 1;
+            if (sampleRate <= 0) {
+                throw new IOException("Input declares an invalid sample rate: " + sampleRate);
+            }
+            Log.i(TAG, "Audio: mime=" + mime + " rate=" + sampleRate + " channels=" + channelCount);
 
-        MediaCodec codec;
-        try {
             codec = MediaCodec.createDecoderByType(mime);
-        } catch (IOException | RuntimeException e) {
-            extractor.release();
-            throw e;
-        }
-        try {
             codec.configure(inputFormat, null, null, 0);
             codec.start();
-        } catch (RuntimeException e) {
-            codec.release();
-            extractor.release();
-            throw e;
-        }
 
-        List<float[]> allChunks = new ArrayList<>();
-        int totalSamples = 0;
+            MediaCodec.BufferInfo bufferInfo = new MediaCodec.BufferInfo();
+            boolean inputDone = false;
+            boolean outputDone = false;
+            long timeoutUs = 10000;
 
-        MediaCodec.BufferInfo bufferInfo = new MediaCodec.BufferInfo();
-        boolean inputDone = false;
-        boolean outputDone = false;
-        long timeoutUs = 10000;
+            float[] chunk = new float[CHUNK_SECONDS * sampleRate];
+            int filled = 0;
+            long totalSourceFrames = 0;
 
-        try {
             while (!outputDone) {
                 if (cancelRequested.get()) throw new CancellationException();
-            // Feed input
-            if (!inputDone) {
-                int inputBufferIndex = codec.dequeueInputBuffer(timeoutUs);
-                if (inputBufferIndex >= 0) {
-                    ByteBuffer inputBuffer = codec.getInputBuffer(inputBufferIndex);
-                    int bytesRead = extractor.readSampleData(inputBuffer, 0);
-                    if (bytesRead < 0) {
-                        codec.queueInputBuffer(inputBufferIndex, 0, 0, 0,
-                                MediaCodec.BUFFER_FLAG_END_OF_STREAM);
-                        inputDone = true;
-                    } else {
-                        long presentationTimeUs = extractor.getSampleTime();
-                        codec.queueInputBuffer(inputBufferIndex, 0, bytesRead,
-                                presentationTimeUs, 0);
-                        extractor.advance();
+
+                // Feed input
+                if (!inputDone) {
+                    int inputBufferIndex = codec.dequeueInputBuffer(timeoutUs);
+                    if (inputBufferIndex >= 0) {
+                        ByteBuffer inputBuffer = codec.getInputBuffer(inputBufferIndex);
+                        int bytesRead = extractor.readSampleData(inputBuffer, 0);
+                        if (bytesRead < 0) {
+                            codec.queueInputBuffer(inputBufferIndex, 0, 0, 0,
+                                    MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                            inputDone = true;
+                        } else {
+                            long presentationTimeUs = extractor.getSampleTime();
+                            codec.queueInputBuffer(inputBufferIndex, 0, bytesRead,
+                                    presentationTimeUs, 0);
+                            extractor.advance();
+                        }
                     }
                 }
-            }
 
-            // Drain output
-            int outputBufferIndex = codec.dequeueOutputBuffer(bufferInfo, timeoutUs);
-            if (outputBufferIndex >= 0) {
+                // Drain output
+                int outputBufferIndex = codec.dequeueOutputBuffer(bufferInfo, timeoutUs);
+
+                if (outputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    // The decoder is authoritative about the PCM it emits: the
+                    // container's header can disagree (unusual rates, HE-AAC
+                    // upsampling). Re-read the format, and start a new chunk so
+                    // two different rates are never spliced into one buffer.
+                    MediaFormat outFormat = codec.getOutputFormat();
+                    int outRate = intOr(outFormat, MediaFormat.KEY_SAMPLE_RATE, sampleRate);
+                    int outChannels = intOr(outFormat, MediaFormat.KEY_CHANNEL_COUNT, channelCount);
+                    if (outRate > 0 && outRate != sampleRate) {
+                        if (filled > 0) {
+                            transcribeChunk(chunk, filled, sampleRate, opId);
+                            filled = 0;
+                        }
+                        sampleRate = outRate;
+                        chunk = new float[CHUNK_SECONDS * sampleRate];
+                        Log.i(TAG, "Decoder output sample rate changed to " + sampleRate);
+                    }
+                    if (outChannels > 0) channelCount = outChannels;
+                    continue;
+                }
+
+                if (outputBufferIndex < 0) continue;
+
                 if ((bufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
                     outputDone = true;
                 }
@@ -429,85 +450,159 @@ public class TranscribeFileActivity extends AppCompatActivity {
 
                     // Decoded PCM is 16-bit signed. Convert to mono float.
                     ShortBuffer shortBuf = outputBuffer.order(ByteOrder.LITTLE_ENDIAN).asShortBuffer();
-                    int shortCount = shortBuf.remaining();
-                    int monoCount = shortCount / channelCount;
-
-                    float[] chunk = new float[monoCount];
-                    for (int i = 0; i < monoCount; i++) {
+                    int frameCount = shortBuf.remaining() / channelCount;
+                    totalSourceFrames += frameCount;
+                    if (FileAudioChunks.exceedsDurationCap(
+                            totalSourceFrames, sampleRate, MAX_DURATION_SECONDS)) {
+                        throw new IOException(getString(R.string.file_error_too_long));
+                    }
+                    for (int i = 0; i < frameCount; i++) {
                         if (channelCount == 1) {
-                            chunk[i] = shortBuf.get() / 32768.0f;
+                            chunk[filled++] = shortBuf.get() / 32768.0f;
                         } else {
                             // Mix channels to mono
-                            float sum = 0;
+                            float sum = 0f;
                             for (int c = 0; c < channelCount; c++) {
                                 sum += shortBuf.get() / 32768.0f;
                             }
-                            chunk[i] = sum / channelCount;
+                            chunk[filled++] = sum / channelCount;
                         }
-                    }
-
-                    allChunks.add(chunk);
-                    totalSamples += monoCount;
-                    if (totalSamples > MAX_DECODE_SAMPLES) {
-                        throw new IOException(getString(R.string.file_error_too_long));
+                        if (filled == chunk.length) {
+                            transcribeChunk(chunk, filled, sampleRate, opId);
+                            filled = 0;
+                        }
                     }
                 }
 
                 codec.releaseOutputBuffer(outputBufferIndex, false);
             }
+
+            if (filled > 0) {
+                transcribeChunk(chunk, filled, sampleRate, opId);
             }
         } finally {
-            try { codec.stop(); } catch (Exception ignored) { }
-            codec.release();
+            if (codec != null) {
+                try { codec.stop(); } catch (Exception ignored) { }
+                codec.release();
+            }
             extractor.release();
             if (tempAudioFile != null) {
                 tempAudioFile.delete();
             }
         }
 
-        // Resample to 16kHz if needed
-        float[] monoSamples = mergeChunks(allChunks, totalSamples);
-
-        if (sampleRate != TARGET_SAMPLE_RATE) {
-            Log.i(TAG, "Resampling from " + sampleRate + " to " + TARGET_SAMPLE_RATE);
-            monoSamples = resample(monoSamples, sampleRate, TARGET_SAMPLE_RATE);
-        }
-
-        Log.i(TAG, "Decoded " + monoSamples.length + " samples at 16kHz");
-        return monoSamples;
+        deliverAccumulated(opId);
     }
 
-    private float[] mergeChunks(List<float[]> chunks, int totalSamples) {
-        float[] result = new float[totalSamples];
-        int offset = 0;
-        for (float[] chunk : chunks) {
-            System.arraycopy(chunk, 0, result, offset, chunk.length);
-            offset += chunk.length;
+    /** Reads an int from a MediaFormat, returning [fallback] when absent. */
+    private static int intOr(MediaFormat format, String key, int fallback) {
+        try {
+            Integer value = format.getInteger(key);
+            return value != null ? value : fallback;
+        } catch (RuntimeException e) {
+            return fallback;
         }
-        return result;
     }
 
     /**
-     * Simple linear interpolation resampling.
+     * Resamples one chunk to 16 kHz and hands it to the native engine, then
+     * waits for its result.
+     *
+     * <p>Chunks are strictly serialised on purpose: the native state keeps a
+     * single cancel token for the file-transcription surface, so issuing a
+     * second call while the first is in flight would cancel it. Waiting here
+     * (on the decode thread) is what keeps the peak memory to one chunk.
      */
-    private float[] resample(float[] input, int fromRate, int toRate) {
-        double ratio = (double) fromRate / toRate;
-        int outputLength = (int) (input.length / ratio);
-        float[] output = new float[outputLength];
+    private void transcribeChunk(float[] source, int length, int sampleRate, int opId)
+            throws IOException {
+        float[] pcm = (sampleRate == TARGET_SAMPLE_RATE)
+                ? Arrays.copyOf(source, length)
+                : FileAudioChunks.resample(source, length, sampleRate, TARGET_SAMPLE_RATE);
+        if (pcm.length == 0) return;
 
-        for (int i = 0; i < outputLength; i++) {
-            double srcIndex = i * ratio;
-            int idx = (int) srcIndex;
-            double frac = srcIndex - idx;
+        CountDownLatch latch = new CountDownLatch(1);
+        pendingChunk = latch;
+        try {
+            transcribeAudio(pcm, pcm.length, opId);
 
-            if (idx + 1 < input.length) {
-                output[i] = (float) (input[idx] * (1.0 - frac) + input[idx + 1] * frac);
-            } else if (idx < input.length) {
-                output[i] = input[idx];
+            long deadline = System.currentTimeMillis() + CHUNK_RESULT_TIMEOUT_MS;
+            while (true) {
+                // Cancellation is polled rather than awaited indefinitely: a
+                // cancelled native call reports nothing back, so a plain await
+                // would block until the timeout.
+                if (cancelRequested.get() || opId != currentOpId) throw new CancellationException();
+                try {
+                    if (latch.await(200, TimeUnit.MILLISECONDS)) return;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new CancellationException();
+                }
+                if (System.currentTimeMillis() > deadline) {
+                    throw new IOException("Timed out waiting for a transcription chunk");
+                }
             }
+        } finally {
+            pendingChunk = null;
         }
+    }
 
-        return output;
+    /** Joins the per-chunk transcripts and hands the finished text to the UI. */
+    private void deliverAccumulated(int opId) {
+        String text;
+        synchronized (chunkTexts) {
+            text = FileAudioChunks.joinTranscripts(chunkTexts);
+        }
+        if (cancelRequested.get() || opId != currentOpId) return;
+        if (text.isEmpty()) {
+            // The decode itself succeeded; there was simply nothing the engine
+            // recognised as speech (silence, music, an empty track). Reporting
+            // "could not decode" for that sent the user hunting for a format
+            // problem that does not exist.
+            showError(getString(R.string.file_error_no_speech));
+            return;
+        }
+        runOnUiThread(() -> deliverTranscript(text, opId));
+    }
+
+    /**
+     * Shows the finished transcript, refining it first when AI post-processing
+     * is enabled. Always invoked on the main thread.
+     */
+    private void deliverTranscript(String text, int opId) {
+        if (opId != currentOpId || cancelRequested.get() || isFinishing() || isDestroyed()) return;
+        SettingsManager settings = new SettingsManager(this);
+        if (settings.isPostProcessEnabled()) {
+            statusText.setText(getString(R.string.file_refining));
+            // Owned by this Activity so its teardown only cancels its own
+            // in-flight call, never another surface's (P0.1).
+            new PostProcessor(settings, new Handler(Looper.getMainLooper()),
+                    () -> !isFinishing() && !isDestroyed(), this)
+                    .process(text, new PostProcessor.PostProcessCallback() {
+                @Override
+                public void onSuccess(String refinedText) {
+                    if (opId != currentOpId || cancelRequested.get()
+                            || isFinishing() || isDestroyed()) return;
+                    String out = (refinedText != null && !refinedText.trim().isEmpty())
+                            ? refinedText : text;
+                    showResult(out);
+                }
+
+                @Override
+                public void onError(String error) {
+                    if (opId != currentOpId || cancelRequested.get()
+                            || isFinishing() || isDestroyed()) return;
+                    // Privacy (v0.1.24): the error string can carry
+                    // provider details; the transcript itself is never
+                    // logged in release builds.
+                    if (BuildConfig.DEBUG) {
+                        Log.w(TAG, "Post-process failed, showing raw text: " + error);
+                    }
+                    showResult(text);
+                }
+            });
+        } else {
+            showResult(text);
+        }
     }
 
     // Decode-scoped status ("Transcribing...", decode errors). Ignored when

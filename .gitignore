@@ -32,6 +32,10 @@ app/src/main/jniLibs/
 # Model files (downloaded at build time)
 *.gguf
 
+# Python bytecode (created when a scripts/*.py self-test imports its module)
+__pycache__/
+*.pyc
+
 # Build outputs
 *.apk
 *.aab

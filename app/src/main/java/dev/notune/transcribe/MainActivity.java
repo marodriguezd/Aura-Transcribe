@@ -9,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.content.res.AssetManager;
 import android.content.res.ColorStateList;
 import android.net.Uri;
 import android.os.Build;
@@ -42,17 +43,14 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.snackbar.Snackbar;
 
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -109,7 +107,14 @@ public class MainActivity extends AppCompatActivity {
             registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), result -> {
                 if (pendingDebugModelDownload) {
                     pendingDebugModelDownload = false;
-                    Boolean granted = result.get(android.Manifest.permission.POST_NOTIFICATIONS);
+                    // The launcher is only ever started from
+                    // requestNotificationPermissionThenStartDownload(), which is
+                    // gated on TIRAMISU. Keeping the SDK check here as well makes
+                    // that assumption explicit (and keeps the API-33-only
+                    // permission constant out of the pre-33 bytecode path).
+                    Boolean granted = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                            ? result.get(android.Manifest.permission.POST_NOTIFICATIONS)
+                            : null;
                     if (Boolean.FALSE.equals(granted)) {
                         snackbar(getString(R.string.debug_model_notification_denied));
                     }
@@ -146,7 +151,24 @@ public class MainActivity extends AppCompatActivity {
     // "Downloading model…" forever. Resolving the live instance at completion
     // lets us notify the Activity that is actually on screen, regardless of
     // which one started the download.
-    private static volatile MainActivity sActiveInstance = null;
+    // Held weakly on purpose: a strong static Activity reference would keep the
+    // Activity (and its whole view tree) alive until the process died
+    // (StaticFieldLeak). The reference only exists to notify whichever
+    // instance is on screen, so losing it to GC is harmless - the download
+    // itself is owned by a static worker and finishes regardless.
+    private static volatile java.lang.ref.WeakReference<MainActivity> sActiveInstance =
+            new java.lang.ref.WeakReference<>(null);
+
+    // Model availability is probed on a background thread (see
+    // maybeDownloadDebugModel): the check walks the asset database and reads the
+    // active_model marker from disk, and running it during onCreate/onResume
+    // tripped StrictMode on the main thread. These two fields are main-thread
+    // state, touched only from onCreate/onResume and the posted result: the
+    // counter is the staleness guard (a result from a superseded probe is
+    // dropped instead of overwriting newer state) and the flag coalesces the
+    // onCreate/onResume pair so a cold start walks the assets only once.
+    private final AtomicInteger modelProbeGeneration = new AtomicInteger();
+    private boolean modelProbeInFlight;
 
     static {
         try {
@@ -216,19 +238,22 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btn_post_process).setOnClickListener(v ->
                 startActivity(new Intent(this, PostProcessSettingsActivity.class)));
 
-        findViewById(R.id.btn_custom_words).setOnClickListener(v -> {
-            UserDictionaryHelper.syncSystemUserDictionaryAsync(this);
-            UserDictionaryHelper.openSystemUserDictionarySettings(this);
-        });
+        // Opens Android's Personal Dictionary. The previous implementation also
+        // tried to import those words programmatically, which required a
+        // permission the public SDK does not expose — see UserDictionaryHelper.
+        findViewById(R.id.btn_custom_words).setOnClickListener(v ->
+                UserDictionaryHelper.openSystemUserDictionarySettings(this));
 
         benchButton = findViewById(R.id.btn_benchmark);
         benchResultText = findViewById(R.id.text_bench_result);
         benchButton.setOnClickListener(v -> runBenchmark());
 
-        // Settings stored as marker files in filesDir (readable from the :ime
-        // process and native code without a content provider).
+        // Settings stored as marker files in filesDir: the native engine reads them
+        // straight from the filesystem, with no ContentProvider involved.
         bindMarkerSwitch(R.id.switch_auto_record, "auto_record", false);
         bindMarkerSwitch(R.id.switch_select_transcription, "select_transcription", false);
+        // "Pause audio" is the opt-in for taking audio focus at all; with it off
+        // the app never requests focus and never interrupts playback.
         bindMarkerSwitch(R.id.switch_pause_audio, "pause_audio", false);
         // Record-in-background defaults to ON; its marker file is the opt-out.
         bindMarkerSwitch(R.id.switch_record_background, "stop_on_hide", true);
@@ -318,7 +343,7 @@ public class MainActivity extends AppCompatActivity {
         // screen — including one started by an Activity that has since been
         // destroyed by a config change mid-download — can post its UI update
         // and initNative here. Read by startDebugModelDownload() on completion.
-        sActiveInstance = this;
+        sActiveInstance = new java.lang.ref.WeakReference<>(this);
         // Re-check on return from the keyboard chooser, settings, or a test run.
         updateVoiceInputStatus();
         setupFloatingModeControls();
@@ -326,8 +351,6 @@ public class MainActivity extends AppCompatActivity {
         // Re-check the debug model state after a configuration change or when
         // returning from another screen.
         maybeDownloadDebugModel();
-        // Sync Android system user dictionary words (FUTO Keyboard style)
-        UserDictionaryHelper.syncSystemUserDictionaryAsync(this);
     }
 
     private void setupFloatingModeControls() {
@@ -339,37 +362,38 @@ public class MainActivity extends AppCompatActivity {
 
         if (btnOverlayPerm != null) {
             btnOverlayPerm.setOnClickListener(v -> {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    try {
-                        Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                Uri.parse("package:" + getPackageName()));
-                        startActivity(intent);
-                    } catch (Throwable t) {
-                        Log.e(TAG, "Error opening overlay permission settings", t);
-                    }
+                try {
+                    Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:" + getPackageName()));
+                    startActivity(intent);
+                } catch (Throwable t) {
+                    Log.e(TAG, "Error opening overlay permission settings", t);
                 }
             });
         }
 
         if (btnAccessibilityPerm != null) {
             btnAccessibilityPerm.setOnClickListener(v -> {
+                // Route through the prominent in-app disclosure FIRST. The user
+                // must be told in context what an Accessibility service can read
+                // and that it is optional before being sent to Android's
+                // settings; the disclosure screen is the only path there.
                 try {
-                    Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
-                    startActivity(intent);
-                } catch (Throwable t) {
-                    Log.e(TAG, "Error opening accessibility settings", t);
+                    startActivity(new Intent(this, AccessibilityDisclosureActivity.class));
+                } catch (RuntimeException t) {
+                    Log.e(TAG, "Error opening the accessibility disclosure", t);
                 }
             });
         }
 
         switchFloating.setOnCheckedChangeListener(null);
-        boolean canOverlay = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this);
+        boolean canOverlay = Settings.canDrawOverlays(this);
         boolean isFloatingEnabled = canOverlay && isServiceRunning(FloatingOverlayService.class);
         switchFloating.setChecked(isFloatingEnabled);
 
         switchFloating.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (isChecked) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+                if (!Settings.canDrawOverlays(this)) {
                     Toast.makeText(this, R.string.floating_overlay_permission_msg, Toast.LENGTH_LONG).show();
                     try {
                         Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
@@ -555,11 +579,11 @@ public class MainActivity extends AppCompatActivity {
         // Drop the foreground slot while we are not in the foreground. A
         // download finishing while no Activity is foregrounded will resolve
         // sActiveInstance to null and skip the UI update, leaving the next
-        // onResume() to detect hasImportedModel(true) and call initNative
-        // there. This avoids posting runnables into a paused/destroyed
+        // onResume() to detect the imported model (ModelAvailability) and call
+        // initNative there. This avoids posting runnables into a paused/destroyed
         // Activity that would silently drop them.
-        if (sActiveInstance == this) {
-            sActiveInstance = null;
+        if (sActiveInstance.get() == this) {
+            sActiveInstance = new java.lang.ref.WeakReference<>(null);
         }
     }
 
@@ -613,9 +637,13 @@ public class MainActivity extends AppCompatActivity {
         voiceStatusIcon.setImageResource(ready ? R.drawable.ic_check_circle : R.drawable.ic_error);
         int tint = ready
                 ? ContextCompat.getColor(this, R.color.status_ok)
-                : themeColor(com.google.android.material.R.attr.colorError);
+                : themeColor(androidx.appcompat.R.attr.colorError);
         ImageViewCompat.setImageTintList(voiceStatusIcon, ColorStateList.valueOf(tint));
-        voiceStatusIcon.setContentDescription(message);
+        // The icon is a decorative state indicator: the adjacent
+        // voiceStatusText already announces the same message, so giving the icon
+        // its own description made TalkBack read the status twice. Hiding it
+        // from the accessibility tree keeps a single, ordered announcement.
+        voiceStatusIcon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
     }
 
     private int themeColor(int attrRes) {
@@ -810,17 +838,49 @@ public class MainActivity extends AppCompatActivity {
      * Hugging Face and treat it as an imported model.
      */
     private void maybeDownloadDebugModel() {
-        if (hasBundledModel() || hasImportedModel()) {
-            initNative(this);
-            return;
-        }
-
         if (isDownloadingDebugModel.get()) {
             statusText.setText(R.string.debug_model_downloading);
             benchButton.setEnabled(false);
             return;
         }
 
+        // A probe started a moment ago will report; re-running it here (a cold
+        // start calls this from onCreate() and then again from onResume()) would
+        // only repeat the same asset and marker walk.
+        if (modelProbeInFlight) return;
+        modelProbeInFlight = true;
+
+        // "Checking assets…" is also the layout default for this TextView, so the
+        // user sees one continuous state instead of a blank line until the
+        // engine reports "Ready" (or the download dialog takes over).
+        statusText.setText(R.string.status_checking);
+
+        final int generation = modelProbeGeneration.incrementAndGet();
+        final AssetManager assets = getAssets();
+        final File filesDir = getFilesDir();
+
+        new Thread(() -> {
+            final boolean ready = ModelAvailability.isModelReady(assets, filesDir);
+            runOnUiThread(() -> {
+                modelProbeInFlight = false;
+                // Liveness first: a probe that outlives its Activity must not
+                // touch the views. isFinishing()/isDestroyed() are checked on the
+                // UI thread, atomic with the work below.
+                if (isFinishing() || isDestroyed()) return;
+                // Staleness: a newer probe (or a newer Activity instance) has
+                // already answered, so this result is obsolete.
+                if (generation != modelProbeGeneration.get()) return;
+                if (ready) {
+                    initNative(this);
+                } else {
+                    showDebugModelDownloadDialog();
+                }
+            });
+        }, "model-probe").start();
+    }
+
+    /** Offered when no model is available: the debug download dialog. */
+    private void showDebugModelDownloadDialog() {
         new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.debug_model_title)
                 .setMessage(getString(R.string.debug_model_body,
@@ -831,29 +891,6 @@ public class MainActivity extends AppCompatActivity {
                 .setNegativeButton(R.string.debug_model_cancel,
                         (d, w) -> statusText.setText(R.string.debug_model_cancelled))
                 .show();
-    }
-
-    private boolean hasBundledModel() {
-        try {
-            String[] list = getAssets().list("builtin-model");
-            return list != null && list.length > 0;
-        } catch (IOException e) {
-            return false;
-        }
-    }
-
-    private boolean hasImportedModel() {
-        File marker = new File(getFilesDir(), "active_model");
-        if (!marker.exists()) return false;
-        try (BufferedReader br = new BufferedReader(
-                new InputStreamReader(new FileInputStream(marker), StandardCharsets.UTF_8))) {
-            String name = br.readLine();
-            if (name == null) return false;
-            name = name.trim();
-            return !name.isEmpty() && new File(new File(getFilesDir(), "models"), name).exists();
-        } catch (IOException e) {
-            return false;
-        }
     }
 
     private void requestNotificationPermissionThenStartDownload() {
@@ -888,7 +925,7 @@ public class MainActivity extends AppCompatActivity {
             try {
             File modelsDir = new File(appContext.getFilesDir(), "models");
             if (!modelsDir.exists() && !modelsDir.mkdirs()) {
-                final MainActivity ui = sActiveInstance;
+                final MainActivity ui = sActiveInstance.get();
                 if (ui != null) {
                     ui.runOnUiThread(() -> {
                         if (ui.isFinishing() || ui.isDestroyed()) return;
@@ -901,8 +938,8 @@ public class MainActivity extends AppCompatActivity {
 
             // Rough sanity check: the model is ~751 MB; leave extra headroom.
             long requiredBytes = 800L * 1024 * 1024;
-            if (appContext.getFilesDir().getUsableSpace() < requiredBytes) {
-                final MainActivity ui = sActiveInstance;
+            if (DeviceStorage.availableBytes(appContext, appContext.getFilesDir()) < requiredBytes) {
+                final MainActivity ui = sActiveInstance.get();
                 if (ui != null) {
                     ui.runOnUiThread(() -> {
                         if (ui.isFinishing() || ui.isDestroyed()) return;
@@ -1007,10 +1044,10 @@ public class MainActivity extends AppCompatActivity {
                 // Reading sActiveInstance at completion lets us post directly
                 // to whichever Activity is actually on screen (B, after a
                 // rotation). If no Activity is foregrounded right now, the
-                // next instance picks it up in onResume() through
-                // hasImportedModel() → initNative(); the UI text catches up
-                // on the next onStatusUpdate from Rust.
-                final MainActivity ui = sActiveInstance;
+                // next instance picks it up in onResume() through the
+                // background model probe → initNative(); the UI text catches
+                // up on the next onStatusUpdate from Rust.
+                final MainActivity ui = sActiveInstance.get();
                 if (ui != null) {
                     // Move the liveness check INSIDE the runOnUiThread body: the
                     // outer check is on a background thread and there is a small
@@ -1027,7 +1064,7 @@ public class MainActivity extends AppCompatActivity {
                 }
             } catch (java.util.concurrent.CancellationException e) {
                 tmp.delete();
-                final MainActivity ui = sActiveInstance;
+                final MainActivity ui = sActiveInstance.get();
                 if (ui != null) {
                     ui.runOnUiThread(() -> {
                         if (ui.isFinishing() || ui.isDestroyed()) return;
@@ -1050,7 +1087,7 @@ public class MainActivity extends AppCompatActivity {
                 // than a silent loss of the failure reason for one cycle.
                 final String reason = e.getMessage() != null ? e.getMessage()
                         : appContext.getString(R.string.debug_model_unknown_reason);
-                final MainActivity ui = sActiveInstance;
+                final MainActivity ui = sActiveInstance.get();
                 if (ui != null) {
                     // Symmetric with the success path: liveness is checked on
                     // the UI thread, atomic with the work below.
@@ -1084,12 +1121,10 @@ public class MainActivity extends AppCompatActivity {
         NotificationManager manager = (NotificationManager)
                 context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager == null) return;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(DEBUG_DOWNLOAD_CHANNEL_ID,
-                    context.getString(R.string.app_name), NotificationManager.IMPORTANCE_LOW);
-            channel.setDescription(context.getString(R.string.debug_model_downloading));
-            manager.createNotificationChannel(channel);
-        }
+        NotificationChannel channel = new NotificationChannel(DEBUG_DOWNLOAD_CHANNEL_ID,
+                context.getString(R.string.app_name), NotificationManager.IMPORTANCE_LOW);
+        channel.setDescription(context.getString(R.string.debug_model_downloading));
+        manager.createNotificationChannel(channel);
 
         Intent cancelIntent = new Intent(context, MainActivity.class);
         cancelIntent.setAction(ACTION_CANCEL_DEBUG_DOWNLOAD);

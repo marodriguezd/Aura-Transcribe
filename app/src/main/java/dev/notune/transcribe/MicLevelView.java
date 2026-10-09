@@ -31,7 +31,7 @@ public class MicLevelView extends View {
         paint.setStyle(Paint.Style.FILL);
         // Resolve the theme's primary color from the (Material-themed) context.
         baseColor = MaterialColors.getColor(this,
-                com.google.android.material.R.attr.colorPrimary, Color.WHITE);
+                androidx.appcompat.R.attr.colorPrimary, Color.WHITE);
         paint.setColor(baseColor);
     }
 

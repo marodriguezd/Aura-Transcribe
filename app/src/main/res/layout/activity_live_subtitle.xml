@@ -7,9 +7,9 @@
     android:id="@+id/live_subtitle_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:layout_marginStart="@dimen/content_horizontal_margin"
+    android:layout_marginEnd="@dimen/content_horizontal_margin"
     android:clipToPadding="false"
-    android:paddingStart="16dp"
-    android:paddingEnd="16dp"
     android:paddingTop="16dp"
     android:paddingBottom="16dp">
 
@@ -64,7 +64,7 @@
                     android:id="@+id/spinner_subtitle_translation"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:minHeight="48dp"
+                    android:minHeight="@dimen/min_touch_target"
                     android:layout_marginTop="8dp"/>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>

@@ -1,7 +1,6 @@
 package dev.notune.transcribe;
 
 import android.annotation.SuppressLint;
-import android.annotation.TargetApi;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -31,6 +30,8 @@ import android.widget.Button;
 import android.widget.TextView;
 import android.widget.LinearLayout;
 import android.widget.Toast;
+
+import androidx.core.content.IntentCompat;
 
 import java.util.ArrayDeque;
 
@@ -76,8 +77,35 @@ public class LiveSubtitleService extends Service {
         if (intent == null) return START_NOT_STICKY;
 
         if (ACTION_START.equals(intent.getAction())) {
-            Notification notification = createNotification();
+            int code = intent.getIntExtra("code", 0);
+            Intent data = IntentCompat.getParcelableExtra(intent, "data", Intent.class);
+
+            if (code == 0 || data == null) {
+                Log.e(TAG, "Missing or invalid extras for media projection");
+                stopSelf();
+                return START_NOT_STICKY;
+            }
+
+            // ORDER MATTERS (Android 14 / API 34+). The documented contract is:
+            //
+            //   1. the Activity calls MediaProjectionManager.createScreenCaptureIntent()
+            //      and the user grants the projection (done in LiveSubtitleActivity);
+            //   2. the service starts its foreground service with the
+            //      `mediaProjection` type;
+            //   3. only then may MediaProjectionManager.getMediaProjection() be
+            //      called.
+            //
+            // See "Media projection" on
+            // developer.android.com/about/versions/14/changes/fgs-types-required:
+            // "After you have created the foreground service, you can call
+            // MediaProjectionManager.getMediaProjection()." Calling
+            // getMediaProjection() while no mediaProjection foreground service is
+            // running throws SecurityException("Media projections require a
+            // foreground service of type
+            // ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION"), which is the
+            // exact failure the previous ordering produced.
             try {
+                Notification notification = createNotification();
                 if (Build.VERSION.SDK_INT >= 29) {
                     startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
                 } else {
@@ -89,17 +117,20 @@ public class LiveSubtitleService extends Service {
                 return START_NOT_STICKY;
             }
 
-            int code = intent.getIntExtra("code", 0);
-            Intent data = intent.getParcelableExtra("data");
-            
-            Log.d(TAG, "Received start command. Code: " + code + ", Data: " + data);
-            
-            if (code != 0 && data != null) {
-                startSubtitleSession(code, data);
-            } else {
-                Log.e(TAG, "Missing or invalid extras for media projection. Code: " + code + ", Data: " + data);
+            if (!obtainMediaProjection(code, data)) {
+                // The foreground service is already running, so take it down
+                // explicitly instead of leaving its notification behind.
+                try {
+                    stopForeground(STOP_FOREGROUND_REMOVE);
+                } catch (RuntimeException e) {
+                    Log.w(TAG, "Could not stop the foreground service", e);
+                }
+                releaseProjection();
                 stopSelf();
+                return START_NOT_STICKY;
             }
+
+            startSubtitleSession();
         } else if (ACTION_STOP.equals(intent.getAction())) {
             stopSubtitleSession();
             stopSelf();
@@ -108,17 +139,40 @@ public class LiveSubtitleService extends Service {
         return START_NOT_STICKY;
     }
 
-    private void startSubtitleSession(int code, Intent data) {
-        if (isRecording) return;
+    /**
+     * Obtains the {@link MediaProjection} from the user's consent result.
+     *
+     * <p>Must run <em>after</em> {@link #startForeground(int, Notification, int)}
+     * with {@code FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION}: the documented
+     * contract for the {@code mediaProjection} foreground-service type is
+     * consent (see {@code createScreenCaptureIntent()}) → start the foreground
+     * service → {@code getMediaProjection()}. Calling it earlier throws
+     * {@code SecurityException} because no {@code mediaProjection} foreground
+     * service is running yet.
+     *
+     * @return true when a usable projection is held.
+     */
+    private boolean obtainMediaProjection(int code, Intent data) {
+        if (mMediaProjection != null) return true;
 
-        mMediaProjection = mProjectionManager.getMediaProjection(code, data);
-        if (mMediaProjection == null) {
-            stopSelf();
-            return;
+        MediaProjection projection;
+        try {
+            projection = mProjectionManager.getMediaProjection(code, data);
+        } catch (SecurityException e) {
+            // The consent token was already consumed or rejected.
+            Log.e(TAG, "MediaProjection consent rejected", e);
+            return false;
+        } catch (RuntimeException e) {
+            Log.e(TAG, "Could not obtain MediaProjection", e);
+            return false;
         }
+        if (projection == null) {
+            Log.e(TAG, "MediaProjection was null");
+            return false;
+        }
+        mMediaProjection = projection;
 
-        // Stop cleanly if the user revokes the projection from the status bar
-        // (also required on Android 14+ before starting capture).
+        // Stop cleanly if the user revokes the projection from the status bar.
         mMediaProjection.registerCallback(new MediaProjection.Callback() {
             @Override
             public void onStop() {
@@ -128,6 +182,28 @@ public class LiveSubtitleService extends Service {
                 });
             }
         }, mMainHandler);
+        return true;
+    }
+
+    /**
+     * Releases a projection obtained by {@link #obtainMediaProjection} when the
+     * session never reached the point of a full {@link #stopSubtitleSession()}
+     * teardown (e.g. the projection could not be obtained, or startSubtitleSession
+     * bailed out). Never throws.
+     */
+    private void releaseProjection() {
+        if (mMediaProjection != null) {
+            try {
+                mMediaProjection.stop();
+            } catch (RuntimeException e) {
+                Log.w(TAG, "Could not stop MediaProjection", e);
+            }
+            mMediaProjection = null;
+        }
+    }
+
+    private void startSubtitleSession() {
+        if (isRecording) return;
 
         initNative(this);
         setupOverlay();
@@ -198,6 +274,10 @@ public class LiveSubtitleService extends Service {
         mWindowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
 
         LayoutInflater inflater = LayoutInflater.from(this);
+        // Root = null on purpose (lint's InflateParams suggestion does not apply):
+        // the subtitle bar is attached by WindowManager, not by a ViewGroup, and
+        // its WindowManager.LayoutParams are constructed in removeOverlay()'s
+        // counterpart below.
         mOverlayView = inflater.inflate(R.layout.service_subtitle, null);
 
         mMaxLines = SubtitlePrefs.getMaxLines(this);
@@ -232,12 +312,7 @@ public class LiveSubtitleService extends Service {
             startService(stopIntent);
         });
         
-        int layoutFlag;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            layoutFlag = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
-        } else {
-            layoutFlag = WindowManager.LayoutParams.TYPE_PHONE;
-        }
+        int layoutFlag = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
 
         WindowManager.LayoutParams params = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
@@ -285,6 +360,13 @@ public class LiveSubtitleService extends Service {
                         return true;
                     }
                     case android.view.MotionEvent.ACTION_UP:
+                        // Ends a drag, but is also a plain tap on the overlay.
+                        // Surface it as a click so accessibility services get
+                        // the event a standard click would have produced
+                        // (ClickableViewAccessibility).
+                        v.performClick();
+                        SubtitlePrefs.setOverlayY(LiveSubtitleService.this, params.y);
+                        return true;
                     case android.view.MotionEvent.ACTION_CANCEL:
                         SubtitlePrefs.setOverlayY(LiveSubtitleService.this, params.y);
                         return true;
@@ -315,7 +397,7 @@ public class LiveSubtitleService extends Service {
      * ROM that enforces RECORD_AUDIO anyway surfaces as a logged error instead
      * of a crash.
      */
-    @TargetApi(Build.VERSION_CODES.Q)
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.Q)
     @SuppressLint("MissingPermission")
     private void startAudioCapture() {
         Log.d(TAG, "Starting audio capture. MediaProjection: " + mMediaProjection);
@@ -674,13 +756,11 @@ public class LiveSubtitleService extends Service {
     }
 
     private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(CHANNEL_ID,
-                    getString(R.string.section_subs), NotificationManager.IMPORTANCE_LOW);
-            NotificationManager manager = getSystemService(NotificationManager.class);
-            if (manager != null) {
-                manager.createNotificationChannel(channel);
-            }
+        NotificationChannel channel = new NotificationChannel(CHANNEL_ID,
+                getString(R.string.section_subs), NotificationManager.IMPORTANCE_LOW);
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager != null) {
+            manager.createNotificationChannel(channel);
         }
     }
 

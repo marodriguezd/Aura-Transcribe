@@ -105,7 +105,12 @@ public class ModelsActivity extends AppCompatActivity {
                     "https://huggingface.co/handy-computer/parakeet-tdt-0.6b-v3-gguf/resolve/main/parakeet-tdt-0.6b-v3-Q8_0.gguf"),
             new ModelLink("Whisper Large-v3-Turbo", R.string.model_desc_whisper_turbo, "845 MB",
                     "https://huggingface.co/handy-computer/whisper-large-v3-turbo-gguf/resolve/main/whisper-large-v3-turbo-Q8_0.gguf"),
-            new ModelLink("SuperWhisper S1-mini 0.6B (Text Normalizer)", R.string.pp_local_model_title, "380 MB",
+            // Marked, not removed: the GGUF is real, the download/import plumbing
+            // works and the JNI surface is in place, but nothing in this build can
+            // run a text-generation model, so this entry must not read like a
+            // working feature (SettingsManager.LOCAL_S1_INFERENCE_AVAILABLE).
+            new ModelLink("SuperWhisper S1-mini 0.6B (text normalizer - not usable yet)",
+                    R.string.pp_local_model_title, "380 MB",
                     "https://huggingface.co/superwhisper/s1-mini-GGUF/resolve/main/s1-mini-q4_k_m.gguf"),
             new ModelLink("huggingface.co/handy-computer", R.string.model_desc_browse, "",
                     "https://huggingface.co/handy-computer"),
@@ -381,45 +386,42 @@ public class ModelsActivity extends AppCompatActivity {
     // --- Hardware acceleration backend --------------------------------------
 
     /**
-     * Hardware acceleration backend for inference, stored in {@code hardware_backend}.
-     * Options: "cpu" (default / recommended), "npu" (NNAPI/QNN), "gpu" (Vulkan).
+     * Inference backend, stored in {@code hardware_backend}.
+     *
+     * <p>Honesty fix (Android 17 pass): this screen used to offer "NPU (NNAPI)"
+     * and "GPU (Vulkan)" next to "CPU". Those options never did anything —
+     * {@code src/engine.rs} reads the {@code hardware_backend} marker and only
+     * logs it; there is no NNAPI or Vulkan code path anywhere in the native
+     * engine, so selecting them silently ran on the CPU while telling the user
+     * the opposite. A control that does not correspond to real behaviour is
+     * worse than no control, so the selector is now a read-only statement of the
+     * one backend that exists (ARM NEON + dotprod + fp16, pinned in
+     * app/build.gradle.kts via GGML_CPU_ARM_ARCH).
+     *
+     * <p>Any previously stored {@code npu}/{@code gpu} value left over from an
+     * older build is normalised to {@code cpu} so the marker can never keep
+     * advertising an unimplemented backend.
      */
     private void setupBackendSpinner() {
         Spinner spinner = findViewById(R.id.spinner_backend);
-        String stored = readConfig("hardware_backend");
-        if (stored.isEmpty()) stored = "cpu";
+        if (spinner == null) return;
 
-        List<String> values = new ArrayList<>(Arrays.asList("cpu", "npu", "gpu"));
-        int[] labelRes = {
-                R.string.models_backend_cpu,
-                R.string.models_backend_npu,
-                R.string.models_backend_gpu,
-        };
-
-        List<String> labels = new ArrayList<>(values.size());
-        for (int resId : labelRes) {
-            labels.add(getString(resId));
+        if (!"cpu".equals(readConfig("hardware_backend"))) {
+            writeConfig("hardware_backend", "cpu");
         }
+
+        List<String> labels = new ArrayList<>(1);
+        labels.add(getString(R.string.models_backend_cpu));
 
         ArrayAdapter<String> adapter = new ArrayAdapter<>(
                 this, android.R.layout.simple_spinner_item, labels);
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinner.setAdapter(adapter);
-        spinner.setSelection(Math.max(0, values.indexOf(stored)), false);
-        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                String value = values.get(position);
-                if (value.equals(readConfig("hardware_backend"))) return;
-                writeConfig("hardware_backend", value);
-                statusText.setText(getString(R.string.models_loading));
-                reloadModelNative(ModelsActivity.this);
-            }
-
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {
-            }
-        });
+        spinner.setSelection(0, false);
+        // Read-only: no OnItemSelectedListener, so there is no path that can
+        // write a backend the engine does not implement.
+        spinner.setEnabled(false);
+        spinner.setAlpha(1f);
     }
 
     // --- Model list -------------------------------------------------------
@@ -437,7 +439,7 @@ public class ModelsActivity extends AppCompatActivity {
     /**
      * Every model-setting marker is written through {@link MarkerFileHelper}
      * (temp file + fsync + rename, delete on empty) so the main process and
-     * the ":ime" process never observe a partially-written value (P1.2).
+     * a concurrent reader never observes a partially-written value (P1.2).
      */
     private void writeConfig(String name, String value) {
         MarkerFileHelper.writeString(this, name, value);
@@ -604,7 +606,7 @@ public class ModelsActivity extends AppCompatActivity {
                     .show();
             return;
         }
-        if (size > 0 && getFilesDir().getUsableSpace() < size + FREE_SPACE_MARGIN) {
+        if (size > 0 && DeviceStorage.availableBytes(this, getFilesDir()) < size + FREE_SPACE_MARGIN) {
             snackbar(getString(R.string.models_import_no_space));
             return;
         }

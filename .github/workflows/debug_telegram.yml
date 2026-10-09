@@ -1,15 +1,31 @@
 name: Debug APK → Telegram
 
+# Pull requests run the exact same gates as a push — the whole point is that a PR
+# cannot land with failing tests, lint, alignment or packaging-decision checks —
+# but they do not distribute anything: the Telegram steps are skipped on PRs
+# (their secrets are unavailable to fork builds anyway) and the debug APK stays a
+# workflow artifact.
 on:
   push:
     branches:
       - main
       - 'feat/**'
+  pull_request:
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+# Least privilege. This workflow only checks out the repository, runs Gradle and
+# Python, and uploads build artifacts (which use the runner's runtime token, not
+# GITHUB_TOKEN); the Telegram steps authenticate with repository secrets. Without
+# this block the job inherits the repository default, which can be a
+# write-capable token on every push *and* every pull request. Also declared in
+# android_release.yml, which raises it to `contents: write` only for the job that
+# creates the GitHub Release.
+permissions:
+  contents: read
 
 jobs:
   validate:
@@ -38,6 +54,13 @@ jobs:
     - name: Test Telegram helper
       run: python3 scripts/test_send_telegram.py
 
+    # Pure Python, no Android SDK: proves the release-artifact verifier still
+    # rejects a missing, duplicated, misplaced, truncated or corrupted bundled
+    # model. Same gate the release workflow runs, so a regression is caught on
+    # the pull request instead of on the release tag.
+    - name: Test the release-artifact verifier (hard gate)
+      run: python3 scripts/test_verify_release_artifact.py
+
     - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
@@ -52,14 +75,23 @@ jobs:
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v4
 
+    # `set -o pipefail` is load-bearing: without it the step's exit status is
+    # `tee`'s, so a failing test run reported success and the "hard gate" gated
+    # nothing.
     - name: Run unit tests (hard gate)
-      run: ./gradlew testDebugUnitTest --stacktrace 2>&1 | tee gradle_test.log
+      run: |
+        set -e -o pipefail
+        ./gradlew testDebugUnitTest --stacktrace 2>&1 | tee gradle_test.log
 
-    - name: Run performance & latency benchmarks (optimization gate)
+    # These are reference-algorithm micro-benchmarks on stand-in data: they prove
+    # the fast paths still agree with the naive implementations, and they assert
+    # those equivalences rather than reporting a made-up speed-up. They are NOT a
+    # measurement of on-device inference performance.
+    - name: Reference-algorithm micro-benchmarks (correctness gate)
       run: python3 scripts/bench_performance.py
 
     - name: Alert Validation Failure to Telegram
-      if: failure()
+      if: failure() && github.event_name != 'pull_request'
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -104,9 +136,9 @@ jobs:
         fi
         echo "Using sdkmanager at: $SDKM"
         yes | "$SDKM" --licenses || true
-        "$SDKM" --install "ndk;28.0.13004108"
+        "$SDKM" --install "ndk;28.2.13676358"
         
-        NDK_PATH="$ANDROID_HOME/ndk/28.0.13004108"
+        NDK_PATH="$ANDROID_HOME/ndk/28.2.13676358"
         echo "ANDROID_NDK_HOME=$NDK_PATH" >> $GITHUB_ENV
         echo "ANDROID_NDK_ROOT=$NDK_PATH" >> $GITHUB_ENV
         echo "ANDROID_NDK=$NDK_PATH" >> $GITHUB_ENV
@@ -149,6 +181,32 @@ jobs:
     - name: Verify bundled model hash (checkModels gate)
       run: ./gradlew checkModels
 
+    # 16 KB page-size alignment of every shipped native library (Android 17).
+    # Reuses the .so files assembleDebug just merged; this gate never ran in CI
+    # before, so a misaligned dependency could only fail a local build.
+    - name: Verify native alignment (hard gate)
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        set -e -o pipefail
+        ./gradlew :app:checkNativeAlignment 2>&1 | tee gradle_alignment.log
+
+    # Drives the real APK/AAB packaging decision and the real bundled-model
+    # verifier against synthetic archives: no model download, no extra native
+    # build, and it fails if either guarantee regresses.
+    - name: Verify packaging decision and model gates (hard gate)
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        set -e -o pipefail
+        ./gradlew :app:verifyPackagingDecision 2>&1 | tee gradle_packaging_gate.log
+
+    # Compiles the Macrobenchmark/Baseline-Profile module. Compiling is all a
+    # device-less runner can do — it is NOT a performance measurement.
+    - name: Compile Macrobenchmark module
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        set -e -o pipefail
+        ./gradlew :benchmark:assembleBenchmark --stacktrace 2>&1 | tee gradle_benchmark.log
+
     - name: Extract Version Name
       id: version
       run: |
@@ -173,7 +231,11 @@ jobs:
         name: Aura-Transcribe-v${{ env.VERSION_NAME }}-debug
         path: Aura_Transcribe_v${{ env.VERSION_NAME }}-debug.apk
 
+    # Distribution only. A pull request gets the gates and the artifact, never a
+    # Telegram notification (the secrets do not exist on fork builds, and PR
+    # authors should not be able to trigger chat messages).
     - name: Send APK to Telegram
+      if: github.event_name != 'pull_request'
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -196,6 +258,12 @@ jobs:
         cat gradle_build.log || true
         echo "=================== GRADLE LINT LOG ==================="
         cat gradle_lint.log || true
+        echo "=================== NATIVE ALIGNMENT LOG ==================="
+        cat gradle_alignment.log || true
+        echo "=================== PACKAGING GATE LOG ==================="
+        cat gradle_packaging_gate.log || true
+        echo "=================== BENCHMARK COMPILE LOG ==================="
+        cat gradle_benchmark.log || true
 
     - name: Upload Build Logs on Failure
       if: failure()
@@ -207,7 +275,7 @@ jobs:
           app/build/reports/
 
     - name: Alert Build Failure to Telegram
-      if: failure()
+      if: failure() && github.event_name != 'pull_request'
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

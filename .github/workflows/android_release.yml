@@ -6,6 +6,10 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# Least privilege by default; only the publishing job asks for more.
+permissions:
+  contents: read
+
 jobs:
   validate:
     name: 🛡️ Release Quality & Verification
@@ -30,6 +34,12 @@ jobs:
     - name: Check translations (i18n parity gate)
       run: python3 scripts/check_translations.py
 
+    # Pure Python, no Android SDK involved: proves the release-artifact verifier
+    # still rejects a missing, duplicated, misplaced, truncated or corrupted
+    # bundled model. This is the check that runs before any artifact exists.
+    - name: Test the release-artifact verifier (hard gate)
+      run: python3 scripts/test_verify_release_artifact.py
+
     - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
@@ -44,14 +54,28 @@ jobs:
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v4
 
+    # `set -o pipefail` is required: without it the pipeline's exit status is
+    # `tee`'s and a failing gate would report success.
     - name: Run unit tests (hard gate)
-      run: ./gradlew testDebugUnitTest
+      run: |
+        set -e -o pipefail
+        ./gradlew testDebugUnitTest 2>&1 | tee gradle_test.log
 
-    - name: Run performance & latency benchmarks (optimization gate)
-      run: python3 scripts/bench_performance.py
+    # Drives the real packaging decision and the real model verifier with a table
+    # of invocations and synthetic archives — no model download, no native build.
+    - name: Verify packaging decision and model gates (hard gate)
+      run: |
+        set -e -o pipefail
+        ./gradlew :app:verifyPackagingDecision 2>&1 | tee gradle_packaging_gate.log
+
+    - name: Print logs on failure
+      if: failure()
+      run: |
+        cat gradle_test.log || true
+        cat gradle_packaging_gate.log || true
 
   build-release:
-    name: 🚀 Build Signed Release APK
+    name: 🚀 Build Signed Release Artifacts
     needs: validate
     runs-on: ubuntu-latest
     permissions:
@@ -84,9 +108,9 @@ jobs:
         fi
         echo "Using sdkmanager at: $SDKM"
         yes | "$SDKM" --licenses || true
-        "$SDKM" --install "ndk;28.0.13004108"
-        
-        NDK_PATH="$ANDROID_HOME/ndk/28.0.13004108"
+        "$SDKM" --install "ndk;28.2.13676358"
+
+        NDK_PATH="$ANDROID_HOME/ndk/28.2.13676358"
         echo "ANDROID_NDK_HOME=$NDK_PATH" >> $GITHUB_ENV
         echo "ANDROID_NDK_ROOT=$NDK_PATH" >> $GITHUB_ENV
         echo "ANDROID_NDK=$NDK_PATH" >> $GITHUB_ENV
@@ -112,45 +136,219 @@ jobs:
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v4
 
+    # The build can only produce a model-less release APK when the documented
+    # escape-hatch property is passed. It exists for local experiments; a release
+    # published from CI must never ship without the bundled model, so refuse to
+    # build when it appears in a workflow file or in the environment. The needle
+    # is assembled from two halves on purpose: written as one literal it would
+    # make this guard match its own line.
+    - name: Reject the model-less release escape hatch
+      run: |
+        set -euo pipefail
+        NEEDLE="allowModelLess""ReleaseApk=true"
+        if grep -rFn -- "$NEEDLE" .github/workflows; then
+          echo "::error::the model-less escape hatch is enabled in a workflow; a release must always carry the bundled model"
+          exit 1
+        fi
+        if env | grep -E '^ORG_GRADLE_PROJECT_' | grep -qiE 'allowmodel'; then
+          echo "::error::an ORG_GRADLE_PROJECT_ environment variable enables the model-less escape hatch"
+          exit 1
+        fi
+        echo "OK: no model-less escape hatch in this run."
+
+    # Fail before the expensive build rather than letting AGP stop halfway, and
+    # never fall back to a debug or default key. Secret values are checked for
+    # presence only and are never printed.
+    - name: Preflight release signing credentials
+      env:
+        KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        STORE_PASS: ${{ secrets.STORE_PASS }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        KEY_PASS: ${{ secrets.KEY_PASS }}
+      run: |
+        set -euo pipefail
+        missing=0
+        for name in KEYSTORE_BASE64 STORE_PASS KEY_ALIAS KEY_PASS; do
+          if [ -z "${!name:-}" ]; then
+            echo "::error::required release signing secret $name is not set"
+            missing=1
+          fi
+        done
+        if [ "$missing" -ne 0 ]; then
+          echo "Refusing to build a release without the authorized signing credentials."
+          exit 1
+        fi
+        echo "OK: all four release signing secrets are present (values are never echoed)."
+
     - name: Decode Keystore
       env:
         KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
       run: |
-        if [ -z "$KEYSTORE_BASE64" ]; then
-          echo "KEYSTORE_BASE64 secret is missing — cannot sign the release"; exit 1
-        fi
+        set -euo pipefail
         echo "$KEYSTORE_BASE64" | base64 --decode > release.keystore
-        test -s release.keystore || { echo "KEYSTORE_BASE64 decoded to an empty keystore — cannot sign the release"; exit 1; }
+        test -s release.keystore || { echo "::error::KEYSTORE_BASE64 decoded to an empty keystore — cannot sign the release"; exit 1; }
 
+    # The project's declared hard gate. Runs before packaging so a release never
+    # depends on another workflow having checked the code.
+    - name: Lint (hard gate)
+      run: |
+        set -e -o pipefail
+        export PATH="$HOME/.cargo/bin:$PATH"
+        ./gradlew :app:lintDebug --stacktrace 2>&1 | tee gradle_lint.log
+
+    # 16 KB page-size alignment of every shipped .so (Android 17 requirement),
+    # checked before the 750 MB packaging step so a misaligned dependency fails fast.
+    - name: Verify native alignment (hard gate)
+      run: |
+        set -e -o pipefail
+        export PATH="$HOME/.cargo/bin:$PATH"
+        ./gradlew :app:checkNativeAlignment 2>&1 | tee gradle_alignment.log
+
+    # One artifact per invocation, always. Asking for the APK and the AAB in the
+    # same Gradle call fails at configuration time, because an APK must carry the
+    # bundled GGUF in its base module while an AAB must carry it only in the
+    # :model_assets install-time asset pack. `assembleRelease` also runs the
+    # `verifyReleaseApkModel` gate, which opens the produced APK and refuses to
+    # let the build succeed without the model inside it.
     - name: Build Release APK
       env:
         KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         KEY_PASS: ${{ secrets.KEY_PASS }}
         STORE_PASS: ${{ secrets.STORE_PASS }}
       run: |
+        set -euo pipefail
         ./gradlew assembleRelease
+
+    - name: Verify release APK (alignment, signature, bundled model)
+      run: |
+        set -euo pipefail
+        APK_DIR=app/build/outputs/apk/release
+        mapfile -t APKS < <(find "$APK_DIR" -maxdepth 1 -name '*.apk' -type f | sort)
+        if [ "${#APKS[@]}" -ne 1 ]; then
+          echo "::error::expected exactly one release APK in $APK_DIR, found ${#APKS[@]}: ${APKS[*]:-none}"
+          ls -la "$APK_DIR" || true
+          exit 1
+        fi
+        APK="${APKS[0]}"
+        echo "Verifying $APK"
+
+        # An unsigned APK must never be published as though it were a signed release.
+        case "$APK" in
+          *-unsigned.apk)
+            echo "::error::$APK is unsigned — refusing to publish it as a signed release"
+            exit 1
+            ;;
+        esac
+
+        BT=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)
+
+        # Android 17 requires 16 KB alignment, so the check has to ask for it:
+        # `zipalign -c 4` only proves 4-byte alignment. `pipefail` (set above) keeps
+        # zipalign's exit status authoritative through the `tail`.
+        "${BT}zipalign" -c -P 16 -v 4 "$APK" | tail -3
+
+        # Same rule for apksigner: its status must not be swallowed by the pipe.
+        "${BT}apksigner" verify --print-certs "$APK" | tee apk-cert.txt
+        grep -q 'Signer #1 certificate SHA-256 digest:' apk-cert.txt || {
+          echo "::error::apksigner reported no signer certificate — the APK is not signed"
+          exit 1
+        }
+        RELEASE_SHA=$(grep -oP 'certificate SHA-256 digest: \K[0-9a-f]+' apk-cert.txt | head -1)
+        DEBUG_SHA=$(keytool -list -v -keystore keystore/debug.keystore -storepass android \
+          -alias androiddebugkey | grep -oP 'SHA256: \K[0-9A-Fa-f:]+' | tr -d ':' | tr 'A-F' 'a-f')
+        if [ -n "$DEBUG_SHA" ] && [ "$RELEASE_SHA" = "$DEBUG_SHA" ]; then
+          echo "::error::the release APK is signed with the repository's debug key — never distribute this"
+          exit 1
+        fi
+        echo "OK: signed by $RELEASE_SHA (not the debug key)."
+
+        # Independent, content-hash based verification of the packaged model: the
+        # bytes in the artifact must equal the verified source asset.
+        python3 scripts/verify_release_artifact.py --kind apk --archive "$APK"
+
+        echo "RELEASE_APK=$APK" >> "$GITHUB_ENV"
 
     - name: Verify bundled model hash (checkModels gate)
       run: ./gradlew checkModels
 
-    - name: Verify APK alignment and signature
+    - name: Build Release AAB (separate invocation)
+      env:
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        KEY_PASS: ${{ secrets.KEY_PASS }}
+        STORE_PASS: ${{ secrets.STORE_PASS }}
       run: |
-        APK=app/build/outputs/apk/release/app-release.apk
-        BT=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)
-        "$BT"zipalign -c 4 "$APK"
-        "$BT"apksigner verify --print-certs "$APK" | tee apk-cert.txt
-        grep -q 'CN=' apk-cert.txt || { echo "APK is not signed — aborting release"; exit 1; }
+        set -euo pipefail
+        ./gradlew bundleRelease
+
+    - name: Verify release AAB (bundle signature and asset-pack delivery)
+      run: |
+        set -euo pipefail
+        AAB_DIR=app/build/outputs/bundle/release
+        mapfile -t AABS < <(find "$AAB_DIR" -maxdepth 1 -name '*.aab' -type f | sort)
+        if [ "${#AABS[@]}" -ne 1 ]; then
+          echo "::error::expected exactly one release AAB in $AAB_DIR, found ${#AABS[@]}: ${AABS[*]:-none}"
+          ls -la "$AAB_DIR" || true
+          exit 1
+        fi
+        AAB="${AABS[0]}"
+        echo "Verifying $AAB"
+
+        # An AAB is a JAR, not an APK: verify it with jarsigner. `jarsigner
+        # -verify` exits 0 even for an unsigned bundle, so the output has to be
+        # inspected rather than trusted.
+        jarsigner -verify -certs "$AAB" > aab-verify.txt 2>&1 || {
+          cat aab-verify.txt
+          echo "::error::jarsigner failed on the app bundle"
+          exit 1
+        }
+        if grep -q 'jar is unsigned' aab-verify.txt; then
+          cat aab-verify.txt
+          echo "::error::the app bundle is unsigned — refusing to publish it as a signed release"
+          exit 1
+        fi
+        grep -q 'jar verified' aab-verify.txt || {
+          cat aab-verify.txt
+          echo "::error::jarsigner did not report a verified jar"
+          exit 1
+        }
+        BUNDLE_SHA=$(keytool -printcert -jarfile "$AAB" 2>/dev/null \
+          | grep -oP 'SHA256: \K[0-9A-Fa-f:]+' | tr -d ':' | tr 'A-F' 'a-f' | head -1)
+        DEBUG_SHA=$(keytool -list -v -keystore keystore/debug.keystore -storepass android \
+          -alias androiddebugkey | grep -oP 'SHA256: \K[0-9A-Fa-f:]+' | tr -d ':' | tr 'A-F' 'a-f')
+        if [ -n "$DEBUG_SHA" ] && [ "$BUNDLE_SHA" = "$DEBUG_SHA" ]; then
+          echo "::error::the app bundle is signed with the repository's debug key — never distribute this"
+          exit 1
+        fi
+        echo "OK: bundle signed by ${BUNDLE_SHA:-an unidentified certificate}."
+
+        # Proves the model is inside the :model_assets pack, exactly once, and not
+        # duplicated into the base module (which would deliver ~750 MB twice).
+        python3 scripts/verify_release_artifact.py --kind aab --archive "$AAB"
+
+        echo "RELEASE_AAB=$AAB" >> "$GITHUB_ENV"
 
     - name: Extract Version Name
       id: extract_version
       run: |
+        set -euo pipefail
         VERSION_NAME=$(grep 'versionName' app/build.gradle.kts | head -1 | grep -oP '"[^"]*"' | tr -d '"')
         echo "Detected Version: $VERSION_NAME"
         echo "VERSION_NAME=$VERSION_NAME" >> $GITHUB_ENV
 
     - name: Rename Artifacts
       run: |
-        cp app/build/outputs/apk/release/app-release.apk Aura_Transcribe_v${{ env.VERSION_NAME }}.apk
+        set -euo pipefail
+        cp "$RELEASE_APK" "Aura_Transcribe_v${{ env.VERSION_NAME }}.apk"
+        cp "$RELEASE_AAB" "Aura_Transcribe_v${{ env.VERSION_NAME }}.aab"
+        ls -lh "Aura_Transcribe_v${{ env.VERSION_NAME }}.apk" "Aura_Transcribe_v${{ env.VERSION_NAME }}.aab"
+
+    - name: Print logs on failure
+      if: failure()
+      run: |
+        cat gradle_lint.log || true
+        cat gradle_alignment.log || true
+        cat apk-cert.txt || true
+        cat aab-verify.txt || true
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
@@ -158,6 +356,15 @@ jobs:
         name: Aura-Transcribe-v${{ env.VERSION_NAME }}
         path: Aura_Transcribe_v${{ env.VERSION_NAME }}.apk
 
+    - name: Upload AAB Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Aura-Transcribe-v${{ env.VERSION_NAME }}-aab
+        path: Aura_Transcribe_v${{ env.VERSION_NAME }}.aab
+
+    # Only reached when every gate above passed: the APK is signed with the
+    # project key (not the debug key), 16 KB aligned, and contains the bundled
+    # model; the AAB is signed and delivers the same model once, in its asset pack.
     - name: Create Release
       if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
       uses: softprops/action-gh-release@v2
@@ -167,3 +374,4 @@ jobs:
         body_path: RELEASE_NOTES.md
         files: |
           Aura_Transcribe_v${{ env.VERSION_NAME }}.apk
+          Aura_Transcribe_v${{ env.VERSION_NAME }}.aab

@@ -30,7 +30,7 @@ import java.nio.file.Files;
  * The file's presence and non-emptiness is the opt-in: no separate toggle.
  * Deleting all content disables correction (the corrector no-ops on an empty
  * dictionary). This follows the project's marker-file convention
- * (AGENTS.md §4.5) so the {@code :ime} process sees the same file.
+ * (AGENTS.md §4.5); the native corrector reads it from the filesystem.
  */
 public class CustomWordsActivity extends AppCompatActivity {
 
@@ -63,9 +63,14 @@ public class CustomWordsActivity extends AppCompatActivity {
 
         Button save = findViewById(R.id.btn_save);
         save.setOnClickListener(v -> {
-            saveWords(edit.getText().toString());
-            Toast.makeText(this, R.string.cw_saved, Toast.LENGTH_SHORT).show();
-            finish();
+            boolean saved = saveWords(edit.getText().toString());
+            Toast.makeText(this, saved ? R.string.cw_saved : R.string.cw_save_error,
+                    Toast.LENGTH_SHORT).show();
+            // Stay on the screen when the write did not take, so the user can
+            // retry instead of losing their edits to a silent failure.
+            if (saved) {
+                finish();
+            }
         });
     }
 
@@ -73,12 +78,25 @@ public class CustomWordsActivity extends AppCompatActivity {
         return MarkerFileHelper.readString(this, "custom_words", "");
     }
 
-    private void saveWords(String content) {
+    /**
+     * Writes the dictionary marker and verifies that it landed.
+     *
+     * <p>{@link MarkerFileHelper} has a void API and can only report a
+     * best-effort write, so the value is read back and compared — the same
+     * verification {@code SettingsManager} performs for its one-time API-key
+     * migration. Without it this screen showed "Saved" even when the write had
+     * failed, and the phonetic corrector kept using the previous word list with
+     * no indication that anything was wrong.
+     *
+     * @return true only when the marker on disk matches what the user typed.
+     */
+    private boolean saveWords(String content) {
         String trimmed = content.trim();
         if (trimmed.isEmpty()) {
             MarkerFileHelper.delete(this, "custom_words");
-        } else {
-            MarkerFileHelper.writeString(this, "custom_words", trimmed);
+            return MarkerFileHelper.readString(this, "custom_words", "").isEmpty();
         }
+        MarkerFileHelper.writeString(this, "custom_words", trimmed);
+        return trimmed.equals(MarkerFileHelper.readString(this, "custom_words", null));
     }
 }

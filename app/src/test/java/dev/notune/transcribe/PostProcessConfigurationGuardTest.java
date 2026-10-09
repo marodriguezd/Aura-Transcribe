@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -83,15 +84,174 @@ public class PostProcessConfigurationGuardTest {
         assertTrue("Cloud provider with valid API key must be configured", settings.isPostProcessConfigured());
     }
 
+    /**
+     * The on-device provider is not "configured" just because its GGUF is on
+     * disk: there is no inference engine behind it (see
+     * {@link SettingsManager#LOCAL_S1_INFERENCE_AVAILABLE}), so treating it as
+     * configured is what previously let a user enable AI cleanup that returned
+     * the transcript unchanged. The assertion is written against the flag rather
+     * than hard-coded, so it stays correct the day inference is implemented.
+     */
     @Test
-    public void testLocalProviderRequiresModelInstalled() {
+    public void testLocalProviderIsNotConfiguredWithoutInferenceEngine() {
         TestSettings settings = new TestSettings();
         settings.provider = SettingsManager.PROVIDER_LOCAL_S1;
         settings.localModelInstalled = false;
         assertFalse("Local provider without model installed must not be configured", settings.isPostProcessConfigured());
 
         settings.localModelInstalled = true;
-        assertTrue("Local provider with model installed must be configured", settings.isPostProcessConfigured());
+        if (SettingsManager.LOCAL_S1_INFERENCE_AVAILABLE) {
+            assertTrue("Local provider with a model and an inference engine must be configured",
+                    settings.isPostProcessConfigured());
+        } else {
+            assertFalse("Local provider must not be configured while it has no inference engine",
+                    settings.isPostProcessConfigured());
+        }
+    }
+
+    @Test
+    public void testLocalProviderIsReportedUnavailableWhileCloudProvidersAreAvailable() {
+        assertFalse("The on-device provider must report itself unavailable",
+                SettingsManager.isProviderAvailable(SettingsManager.PROVIDER_LOCAL_S1));
+        assertTrue("Cloud providers must stay available",
+                SettingsManager.isProviderAvailable("groq"));
+        assertTrue("Cloud providers must stay available",
+                SettingsManager.isProviderAvailable("openai"));
+    }
+
+    /**
+     * A marker left by an older build (or by a user who selected the provider
+     * before it was marked unavailable) must not make the app claim it refined
+     * anything. Because the provider is not "configured", the normal path skips
+     * post-processing entirely and hands the raw transcript straight through —
+     * no error toast, and above all no fabricated "refined" text.
+     */
+    /**
+     * The switch state is not what decides whether post-processing runs — the
+     * {@code pp_enabled} marker is, and every surface reads it. So the rule that
+     * converts a switch state into a persisted value has to refuse the on-device
+     * provider on its own, independently of whatever the settings screen happens
+     * to be showing (a restored switch, a marker written by an older build, a
+     * caller that forgets to check availability).
+     */
+    @Test
+    public void testUnavailableProviderCannotBePersistedAsEnabled() {
+        assertFalse("the on-device provider must never be persisted as enabled",
+                SettingsManager.resolveEnabledOnSave(SettingsManager.PROVIDER_LOCAL_S1, true));
+        assertFalse("... and stays off when the switch is already off",
+                SettingsManager.resolveEnabledOnSave(SettingsManager.PROVIDER_LOCAL_S1, false));
+        assertTrue("an available provider keeps the requested state",
+                SettingsManager.resolveEnabledOnSave("groq", true));
+        assertFalse("... and an available provider switched off stays off",
+                SettingsManager.resolveEnabledOnSave("groq", false));
+        if (SettingsManager.LOCAL_S1_INFERENCE_AVAILABLE) {
+            assertTrue("with an inference engine the on-device provider may be enabled",
+                    SettingsManager.resolveEnabledOnSave(
+                            SettingsManager.PROVIDER_LOCAL_S1, true));
+        }
+    }
+
+    /**
+     * Guards the user-visible half of the contract: the provider catalogue is what
+     * the dropdown renders, and a label that reads like a working feature is what
+     * made the placeholder believable. Also pins that every *other* catalogue entry
+     * stays available, so an edit cannot silently disable cloud providers, and that
+     * the on-device entry itself is still listed (its download plumbing and JNI
+     * surface are intentionally kept for whenever the engine lands).
+     *
+     * <p>Whether the download button is visible is driven by the same
+     * {@link SettingsManager#isProviderAvailable(String)} predicate asserted here,
+     * in {@code PostProcessSettingsActivity.updateLocalModelCard()}; a JVM test
+     * cannot inspect that view without Robolectric, so the predicate is the
+     * contract and the binding is verified by inspection.
+     */
+    @Test
+    public void testProviderCatalogueIsConsistentWithAvailability() {
+        boolean sawLocalProvider = false;
+        for (SettingsManager.Provider provider : SettingsManager.PROVIDERS) {
+            if (SettingsManager.PROVIDER_LOCAL_S1.equals(provider.id)) {
+                sawLocalProvider = true;
+                if (!SettingsManager.LOCAL_S1_INFERENCE_AVAILABLE) {
+                    assertTrue(
+                            "the on-device entry must be labelled unavailable so the dropdown "
+                                    + "cannot present it as a working option (label: "
+                                    + provider.label + ")",
+                            provider.label.toLowerCase(java.util.Locale.ROOT)
+                                    .contains("unavailable"));
+                }
+            } else {
+                assertTrue("every other provider must stay available: " + provider.id,
+                        SettingsManager.isProviderAvailable(provider.id));
+                assertFalse("every provider needs a non-empty label: " + provider.id,
+                        provider.label.trim().isEmpty());
+            }
+        }
+        assertTrue("the on-device provider must stay listed (its plumbing is kept on purpose)",
+                sawLocalProvider);
+    }
+
+    @Test
+    public void testStaleLocalProviderDeliversRawTextWithoutPretendingToRefine() {
+        TestSettings settings = new TestSettings();
+        settings.enabled = true;
+        settings.provider = SettingsManager.PROVIDER_LOCAL_S1;
+        settings.localModelInstalled = true;
+
+        PostProcessor processor = new PostProcessor(settings, null, null, null);
+        AtomicReference<String> resultRef = new AtomicReference<>();
+        AtomicBoolean errorCalled = new AtomicBoolean(false);
+
+        processor.process("texto crudo sin refinar", new PostProcessor.PostProcessCallback() {
+            @Override
+            public void onSuccess(String refinedText) {
+                resultRef.set(refinedText);
+            }
+
+            @Override
+            public void onError(String error) {
+                errorCalled.set(true);
+            }
+        });
+
+        assertFalse("an unconfigured provider must not raise an error", errorCalled.get());
+        assertEquals("the raw transcript must be delivered unchanged",
+                "texto crudo sin refinar", resultRef.get());
+    }
+
+    /**
+     * The forced path (the settings screen's "Test connection" button, and any
+     * caller that bypasses the enabled marker) must report the missing inference
+     * engine instead of answering with the unchanged diagnostic sentence as if it
+     * were a successful refinement.
+     */
+    @Test
+    public void testForcedLocalProviderRunReportsUnavailableInsteadOfEchoingInput() {
+        TestSettings settings = new TestSettings();
+        settings.enabled = true;
+        settings.provider = SettingsManager.PROVIDER_LOCAL_S1;
+        settings.localModelInstalled = true;
+
+        PostProcessor processor = new PostProcessor(settings, null, null, null);
+        AtomicReference<String> resultRef = new AtomicReference<>();
+        AtomicReference<String> errorRef = new AtomicReference<>();
+
+        processor.testConnection(new PostProcessor.PostProcessCallback() {
+            @Override
+            public void onSuccess(String refinedText) {
+                resultRef.set(refinedText);
+            }
+
+            @Override
+            public void onError(String error) {
+                errorRef.set(error);
+            }
+        });
+
+        assertEquals("the placeholder must fail loudly instead of succeeding",
+                PostProcessor.LOCAL_S1_UNAVAILABLE_ERROR, errorRef.get());
+        assertNull("the unchanged input must never be delivered as a refined result", resultRef.get());
+        assertTrue("the error must name the provider so the UI can explain it",
+                PostProcessor.LOCAL_S1_UNAVAILABLE_ERROR.contains("S1-mini"));
     }
 
     @Test

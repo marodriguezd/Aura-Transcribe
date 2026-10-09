@@ -2,7 +2,14 @@
 <!-- Compact voice-input panel anchored to the bottom of a transparent window.
      The calling app stays visible behind it (the activity is translucent), so
      the target text field keeps its state while the user speaks. Tapping
-     anywhere stops & inserts; the X discards. -->
+     anywhere stops & inserts; the X discards.
+
+     Do NOT fold this root FrameLayout into a <merge>, and do NOT move the
+     child's background up onto it (lint's MergeRootFrame / UselessParent
+     suggestions). The FrameLayout is the full-screen transparent tap target:
+     RecognizeActivity listens on R.id.root to stop and insert, and applies the
+     window insets to it. A <merge> would delete that tap target, and an opaque
+     background here would fill the whole transparent voice-panel window. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/root"
@@ -63,11 +70,13 @@
             android:textColor="?attr/colorOnSurface"
             android:textAppearance="?attr/textAppearanceTitleSmall" />
 
-        <!-- Close (discard) -->
+        <!-- Close (discard). 48dp x 48dp so the touch target meets the minimum
+             size; the glyph stays visually 24dp because the vector is drawn
+             centred inside the 48dp box. -->
         <ImageButton
             android:id="@+id/btn_close"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="@dimen/min_touch_target"
+            android:layout_height="@dimen/min_touch_target"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/action_close"
             android:src="@drawable/ic_close"

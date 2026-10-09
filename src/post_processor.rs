@@ -72,6 +72,44 @@ impl S1Manager {
 }
 
 /// Normalizes transcript text using on-device heuristics & S1 prompt normalization.
+///
+/// # Status: PLACEHOLDER — no inference is performed here
+///
+/// This function does NOT run the S1-mini GGUF. It validates that the model file
+/// the user downloaded still exists, builds the real S1 prompt and **discards
+/// it** (`_formatted_prompt`), flips `is_loaded` and returns the trimmed input
+/// text.
+///
+/// ## Why it cannot be completed here
+///
+/// The only inference backend in this dependency graph is `transcribe-cpp
+/// 0.1.3`, whose public API is speech recognition:
+/// `Session::run(pcm: &[f32], &RunOptions)` with `Task::Transcribe |
+/// Task::Translate`. It exposes no text-generation entry point — no prompt
+/// decode, no sampler, no completion, and no tokenizer encode path for a
+/// Qwen-family model (its `Feature::InitialPrompt` is a Whisper decode hint, not
+/// generation). SuperWhisper S1-mini is a Qwen-based causal LM, so running it
+/// requires a text-generation engine (llama.cpp or equivalent) plus a BPE
+/// tokenizer, KV cache and sampler, none of which this project ships.
+/// `crates/aura-core` is pure text processing (phonetic corrector, bigram
+/// cosine, prompt construction) and contains no inference either.
+///
+/// Every layer *around* inference is real — the model download, the on-disk path
+/// resolution, `aura_core::normalizer::build_s1_prompt`, the 60-second
+/// inactivity unload and the `onTrimMemory` hook — so completing the path is
+/// additive rather than a rewrite.
+///
+/// ## What the rest of the app does about it
+///
+/// `SettingsManager.LOCAL_S1_INFERENCE_AVAILABLE` is `false`, which keeps the
+/// provider out of reach: it cannot be enabled in the settings screen, an
+/// already-enabled marker is refused and reported instead of being answered with
+/// the unchanged transcript, and the model download control is disabled. That
+/// flag, this comment and AGENTS.md §5.4 item 1 must be flipped together with a
+/// real implementation — never separately.
+///
+/// `is_loaded` therefore records "a usable model path was seen", not "weights are
+/// resident", so `unload()` releases no memory.
 pub fn normalize_text_on_device(
     raw_text: &str,
     preset: &str,

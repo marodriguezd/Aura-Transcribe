@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Adaptive content-width scale.
+
+      Material 3 guidance is that a text-heavy screen should not stretch a line
+      of text across a 12" tablet, and that compact cards must not be blown up to
+      full window width. The app expresses that as a horizontal content margin
+      that grows with the available width, so content keeps a comfortable reading
+      measure and, on very wide windows, stays centred instead of becoming one
+      enormous card. The breakpoints mirror the Window Size Class buckets:
+      compact (< 600dp), medium (600–839dp) and expanded (840dp+).
+    -->
+    <dimen name="content_horizontal_margin">16dp</dimen>
+    <!-- Minimum interactive size (Material 3 / WCAG 2.5.5 touch target). -->
+    <dimen name="min_touch_target">48dp</dimen>
+</resources>

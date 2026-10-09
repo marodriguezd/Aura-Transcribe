@@ -60,6 +60,14 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
     private String selectedProviderId;
     private String selectedPreset;
 
+    /**
+     * Suppresses the enable-check listener while the screen sets the switch
+     * programmatically (initial load, switching to a provider that cannot be
+     * enabled). Without it the guard below would fire a toast for a change the
+     * user did not make.
+     */
+    private boolean suppressEnableChecks;
+
     private static final String[] PRESET_IDS = new String[] {
             SettingsManager.PRESET_CLEAN,
             SettingsManager.PRESET_FORMAL,
@@ -102,13 +110,12 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
             });
         }
 
-        // Wait for the one-time legacy→marker migration before reading AND
-        // writing settings: otherwise, right after an upgrade, the migration
-        // thread could overwrite settings the user just changed with stale
-        // legacy values (race found in review, 2026-08-06). The wait is
-        // bounded (3 s) and typically returns in <10 ms; after the first
-        // launch the latch is already open, so this is a no-op.
-        App.awaitPostProcessMigration();
+        // No waiting on the legacy→marker migration is needed: the migration
+        // can no longer overwrite an existing marker (see
+        // SettingsManager.writeMarkerIfAbsent), so the race this screen used to
+        // guard against by blocking the UI thread is now impossible by
+        // construction. This used to be App.awaitPostProcessMigration(), a
+        // bounded main-thread wait.
 
         settings = new SettingsManager(this);
 
@@ -178,10 +185,18 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
 
         switchEnabled.setChecked(settings.isPostProcessEnabled());
         switchEnabled.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (suppressEnableChecks) return;
             if (isChecked) {
                 boolean isLocalMode = SettingsManager.PROVIDER_LOCAL_S1.equals(selectedProviderId);
                 String currentKey = editApiKey.getText().toString().trim();
-                if (isLocalMode && !settings.isLocalS1ModelInstalled()) {
+                if (!SettingsManager.isProviderAvailable(selectedProviderId)) {
+                    // The provider is listed (so the limitation is visible) but
+                    // cannot refine text in this build — there is no inference
+                    // engine behind it. Letting the switch stay on would promise
+                    // AI cleanup that returns the transcript unchanged.
+                    buttonView.setChecked(false);
+                    Toast.makeText(this, R.string.pp_local_unavailable, Toast.LENGTH_LONG).show();
+                } else if (isLocalMode && !settings.isLocalS1ModelInstalled()) {
                     buttonView.setChecked(false);
                     Toast.makeText(this, R.string.pp_local_model_not_installed, Toast.LENGTH_LONG).show();
                 } else if (!isLocalMode && currentKey.isEmpty()) {
@@ -211,6 +226,13 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
     }
 
     private void updateLocalModelCard() {
+        if (!SettingsManager.isProviderAvailable(SettingsManager.PROVIDER_LOCAL_S1)) {
+            // Say why instead of offering a 380 MB download for a model nothing
+            // in the app can run (see SettingsManager.LOCAL_S1_INFERENCE_AVAILABLE).
+            txtS1Status.setText(getString(R.string.pp_local_unavailable));
+            btnDownloadS1.setVisibility(android.view.View.GONE);
+            return;
+        }
         if (settings.isLocalS1ModelInstalled()) {
             txtS1Status.setText(getString(R.string.pp_local_model_installed, "380 MB"));
             btnDownloadS1.setVisibility(android.view.View.GONE);
@@ -221,6 +243,12 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
     }
 
     private void downloadS1Model() {
+        // Defensive: the button is hidden for an unavailable provider, but the
+        // path must not be reachable by any other means either.
+        if (!SettingsManager.isProviderAvailable(SettingsManager.PROVIDER_LOCAL_S1)) {
+            Toast.makeText(this, R.string.pp_local_unavailable, Toast.LENGTH_LONG).show();
+            return;
+        }
         btnDownloadS1.setEnabled(false);
         progressS1.setVisibility(android.view.View.VISIBLE);
         progressS1.setIndeterminate(true);
@@ -301,6 +329,23 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
         if (isLocal) {
             updateLocalModelCard();
             layoutApiKey.setError(null);
+        }
+
+        // A provider that cannot work must not be switchable on, and a switch
+        // already on must not stay on when the user selects one. The switch is
+        // re-enabled as soon as a functional provider is selected.
+        boolean providerAvailable = SettingsManager.isProviderAvailable(p.id);
+        suppressEnableChecks = true;
+        try {
+            switchEnabled.setEnabled(providerAvailable);
+            if (!providerAvailable && switchEnabled.isChecked()) {
+                switchEnabled.setChecked(false);
+            }
+        } finally {
+            suppressEnableChecks = false;
+        }
+        if (!providerAvailable) {
+            Toast.makeText(this, R.string.pp_local_unavailable, Toast.LENGTH_LONG).show();
         }
         layoutApiUrl.setVisibility(isCustom ? android.view.View.VISIBLE : android.view.View.GONE);
 
@@ -393,9 +438,26 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
 
     private void save(boolean closeAfter) {
         boolean wasEnabled = settings.isPostProcessEnabled();
-        boolean nowEnabled = switchEnabled.isChecked();
+        // Never persist "AI fix is on" for a provider that cannot run. This is
+        // the last line of defence: the switch is disabled in the UI, but the
+        // marker file is what every surface actually consults, so the decision
+        // lives in SettingsManager rather than in this screen's view state.
+        boolean nowEnabled = SettingsManager.resolveEnabledOnSave(
+                selectedProviderId, switchEnabled.isChecked());
         boolean isLocal = SettingsManager.PROVIDER_LOCAL_S1.equals(selectedProviderId);
         String apiKey = editApiKey.getText().toString().trim();
+
+        if (!SettingsManager.isProviderAvailable(selectedProviderId)) {
+            // The value above was already forced to false; what is left is to make
+            // the switch agree with what will actually be stored.
+            suppressEnableChecks = true;
+            try {
+                switchEnabled.setChecked(false);
+            } finally {
+                suppressEnableChecks = false;
+            }
+            Toast.makeText(this, R.string.pp_local_unavailable, Toast.LENGTH_LONG).show();
+        }
 
         if (nowEnabled) {
             if (isLocal && !settings.isLocalS1ModelInstalled()) {
@@ -434,7 +496,7 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
         }
 
         // If the user just disabled post-processing, cancel any in-flight LLM
-        // calls in this process and broadcast to the IME (":ime") process so
+        // calls in this process and broadcast to the IME component so
         // it cancels its own calls immediately instead of waiting for them to
         // time out.
         if (wasEnabled && !nowEnabled) {

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Data extraction rules (Android 12 / API 31+).
+
+  android:allowBackup="false" is not sufficient on its own: device-to-device
+  transfer and cloud backup are governed separately, and the default for D2D is
+  to transfer app data even when backup is disabled. This app stores a
+  post-processing API key and the user's recognised/custom text in filesDir(),
+  none of which should travel to another device or to a cloud backup it was
+  never asked to be part of. Everything is therefore excluded explicitly.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>

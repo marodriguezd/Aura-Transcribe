@@ -95,7 +95,7 @@ pub struct Engine {
     /// translate setting can't do what the user expects with this model.
     ready_status: &'static str,
     /// Path of the `model_language` hint file, re-read on every run so a
-    /// language change applies in any process (e.g. the `:ime` keyboard)
+    /// language change applies to the voice keyboard too,
     /// without a manual model reload.
     lang_file: PathBuf,
 }
@@ -217,7 +217,7 @@ impl Engine {
     /// absent resolves to the model's native language detection when the model
     /// has one (Nemotron), otherwise to the device-locale fallback (Canary —
     /// the old default behavior). Re-read on every run so a language change
-    /// applies immediately in any process (e.g. the `:ime` keyboard) without
+    /// applies immediately to the voice keyboard too, without
     /// a manual model reload.
     fn effective_language(&mut self) -> Option<String> {
         if let Ok(raw) = std::fs::read_to_string(&self.lang_file) {

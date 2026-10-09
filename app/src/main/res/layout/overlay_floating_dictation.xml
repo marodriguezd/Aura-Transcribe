@@ -66,6 +66,7 @@
                 android:layout_weight="1"
                 android:ellipsize="end"
                 android:paddingStart="4dp"
+                android:paddingEnd="4dp"
                 android:singleLine="true"
                 android:text="@string/floating_status_idle"
                 android:textAppearance="?attr/textAppearanceBodyMedium"
@@ -88,26 +89,34 @@
                 android:textAppearance="?attr/textAppearanceLabelMedium"
                 android:textColor="?attr/colorOnSurfaceVariant" />
 
+            <!-- No minWidth/minHeight override: the Material borderless button
+                 already enforces a 48dp touch target, and zeroing it was making
+                 the Cancel action too small to hit reliably.
+
+                 Position is deliberate, so lint's [ButtonOrder] does not apply:
+                 this is the floating panel's header row (status, spinner, AI-fix
+                 switch, Cancel, close), not a dialog's Cancel/OK pair. -->
             <Button
                 android:id="@+id/floating_cancel_button"
                 style="?attr/borderlessButtonStyle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:minWidth="0dp"
-                android:minHeight="0dp"
                 android:paddingStart="8dp"
                 android:paddingEnd="8dp"
                 android:text="@string/floating_action_cancel"
                 android:textColor="?attr/colorError"
                 android:visibility="gone" />
 
+            <!-- 48dp touch target for a 24dp glyph (12dp padding), instead of
+                 the previous 28dp box that was both an undersized target and a
+                 cramped icon. -->
             <ImageView
                 android:id="@+id/floating_close_button"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
+                android:layout_width="@dimen/min_touch_target"
+                android:layout_height="@dimen/min_touch_target"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/action_close"
-                android:padding="4dp"
+                android:padding="12dp"
                 android:src="@drawable/ic_close"
                 app:tint="?attr/colorOnSurfaceVariant" />
         </LinearLayout>

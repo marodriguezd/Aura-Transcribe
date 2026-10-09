@@ -17,13 +17,17 @@
             app:title="@string/app_name" />
     </com.google.android.material.appbar.AppBarLayout>
 
+    <!-- Adaptive content width: content_horizontal_margin grows with the window
+         size class (16dp compact / 48dp at w600dp / 140dp at w840dp) so a line
+         of body text keeps a readable measure on a tablet or unfolded foldable
+         instead of stretching full-bleed. The app bar above stays full width. -->
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
+        android:layout_marginStart="@dimen/content_horizontal_margin"
+        android:layout_marginEnd="@dimen/content_horizontal_margin"
         android:clipToPadding="false"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
         android:paddingTop="8dp"
         android:paddingBottom="16dp">
 
@@ -207,28 +211,15 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
 
-                    <LinearLayout
+                    <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginBottom="8dp">
-
-                        <ImageView
-                            android:layout_width="24dp"
-                            android:layout_height="24dp"
-                            android:src="@drawable/ic_subtitles"
-                            android:contentDescription="@string/section_subs"
-                            app:tint="?attr/colorPrimary"
-                            android:layout_marginEnd="12dp"/>
-
-                        <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="@string/section_subs"
-                            android:textAppearance="?attr/textAppearanceTitleLarge"/>
-                    </LinearLayout>
+                        android:layout_marginBottom="8dp"
+                        app:drawableStartCompat="@drawable/ic_subtitles"
+                        android:drawablePadding="12dp"
+                        app:drawableTint="?attr/colorPrimary"
+                        android:text="@string/section_subs"
+                        android:textAppearance="?attr/textAppearanceTitleLarge"/>
 
                     <TextView
                         android:layout_width="match_parent"
@@ -265,28 +256,15 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
 
-                    <LinearLayout
+                    <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginBottom="8dp">
-
-                        <ImageView
-                            android:layout_width="24dp"
-                            android:layout_height="24dp"
-                            android:src="@drawable/ic_model"
-                            android:contentDescription="@string/models_section"
-                            app:tint="?attr/colorPrimary"
-                            android:layout_marginEnd="12dp"/>
-
-                        <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="@string/models_section"
-                            android:textAppearance="?attr/textAppearanceTitleLarge"/>
-                    </LinearLayout>
+                        android:layout_marginBottom="8dp"
+                        app:drawableStartCompat="@drawable/ic_model"
+                        android:drawablePadding="12dp"
+                        app:drawableTint="?attr/colorPrimary"
+                        android:text="@string/models_section"
+                        android:textAppearance="?attr/textAppearanceTitleLarge"/>
 
                     <TextView
                         android:layout_width="match_parent"
@@ -362,28 +340,15 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
 
-                    <LinearLayout
+                    <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginBottom="8dp">
-
-                        <ImageView
-                            android:layout_width="24dp"
-                            android:layout_height="24dp"
-                            android:src="@drawable/ic_dictionary"
-                            android:contentDescription="@string/cw_card_title"
-                            app:tint="?attr/colorPrimary"
-                            android:layout_marginEnd="12dp"/>
-
-                        <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="@string/cw_card_title"
-                            android:textAppearance="?attr/textAppearanceTitleLarge"/>
-                    </LinearLayout>
+                        android:layout_marginBottom="8dp"
+                        app:drawableStartCompat="@drawable/ic_dictionary"
+                        android:drawablePadding="12dp"
+                        app:drawableTint="?attr/colorPrimary"
+                        android:text="@string/cw_card_title"
+                        android:textAppearance="?attr/textAppearanceTitleLarge"/>
 
                     <TextView
                         android:layout_width="match_parent"
@@ -413,28 +378,15 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
 
-                    <LinearLayout
+                    <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginBottom="8dp">
-
-                        <ImageView
-                            android:layout_width="24dp"
-                            android:layout_height="24dp"
-                            android:src="@drawable/ic_mic"
-                            android:contentDescription="@string/section_audio_input"
-                            app:tint="?attr/colorPrimary"
-                            android:layout_marginEnd="12dp"/>
-
-                        <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="@string/section_audio_input"
-                            android:textAppearance="?attr/textAppearanceTitleLarge"/>
-                    </LinearLayout>
+                        android:layout_marginBottom="8dp"
+                        app:drawableStartCompat="@drawable/ic_mic"
+                        android:drawablePadding="12dp"
+                        app:drawableTint="?attr/colorPrimary"
+                        android:text="@string/section_audio_input"
+                        android:textAppearance="?attr/textAppearanceTitleLarge"/>
 
                     <TextView
                         android:id="@+id/text_connected_mics"
@@ -500,11 +452,16 @@
                         android:textColor="?attr/colorOnSurfaceVariant"
                         android:layout_marginBottom="12dp"/>
 
+                    <!-- baselineAligned=false is intentional: this row asks for
+                         vertical centring, but the default baseline alignment
+                         would align the label to the 56dp level meter's top
+                         instead of centring it. -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
                         android:gravity="center_vertical"
+                        android:baselineAligned="false"
                         android:layout_marginBottom="12dp">
 
                         <FrameLayout
@@ -565,28 +522,15 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
 
-                    <LinearLayout
+                    <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginBottom="8dp">
-
-                        <ImageView
-                            android:layout_width="24dp"
-                            android:layout_height="24dp"
-                            android:src="@drawable/ic_palette"
-                            android:contentDescription="@string/section_appearance"
-                            app:tint="?attr/colorPrimary"
-                            android:layout_marginEnd="12dp"/>
-
-                        <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="@string/section_appearance"
-                            android:textAppearance="?attr/textAppearanceTitleLarge"/>
-                    </LinearLayout>
+                        android:layout_marginBottom="8dp"
+                        app:drawableStartCompat="@drawable/ic_palette"
+                        android:drawablePadding="12dp"
+                        app:drawableTint="?attr/colorPrimary"
+                        android:text="@string/section_appearance"
+                        android:textAppearance="?attr/textAppearanceTitleLarge"/>
 
                     <RadioGroup
                         android:id="@+id/rg_theme"
@@ -634,28 +578,15 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
 
-                    <LinearLayout
+                    <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginBottom="8dp">
-
-                        <ImageView
-                            android:layout_width="24dp"
-                            android:layout_height="24dp"
-                            android:src="@drawable/ic_keyboard_switch"
-                            android:contentDescription="@string/section_ime"
-                            app:tint="?attr/colorPrimary"
-                            android:layout_marginEnd="12dp"/>
-
-                        <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="@string/section_ime"
-                            android:textAppearance="?attr/textAppearanceTitleLarge"/>
-                    </LinearLayout>
+                        android:layout_marginBottom="8dp"
+                        app:drawableStartCompat="@drawable/ic_keyboard_switch"
+                        android:drawablePadding="12dp"
+                        app:drawableTint="?attr/colorPrimary"
+                        android:text="@string/section_ime"
+                        android:textAppearance="?attr/textAppearanceTitleLarge"/>
 
                     <TextView
                         android:layout_width="match_parent"
@@ -686,28 +617,15 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
 
-                    <LinearLayout
+                    <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginBottom="8dp">
-
-                        <ImageView
-                            android:layout_width="24dp"
-                            android:layout_height="24dp"
-                            android:src="@drawable/ic_settings"
-                            android:contentDescription="@string/section_settings"
-                            app:tint="?attr/colorPrimary"
-                            android:layout_marginEnd="12dp"/>
-
-                        <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="@string/section_settings"
-                            android:textAppearance="?attr/textAppearanceTitleLarge"/>
-                    </LinearLayout>
+                        android:layout_marginBottom="8dp"
+                        app:drawableStartCompat="@drawable/ic_settings"
+                        android:drawablePadding="12dp"
+                        app:drawableTint="?attr/colorPrimary"
+                        android:text="@string/section_settings"
+                        android:textAppearance="?attr/textAppearanceTitleLarge"/>
 
                     <!-- Auto-start recording -->
                     <LinearLayout
@@ -954,28 +872,15 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
 
-                    <LinearLayout
+                    <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginBottom="8dp">
-
-                        <ImageView
-                            android:layout_width="24dp"
-                            android:layout_height="24dp"
-                            android:src="@drawable/ic_mic"
-                            android:contentDescription="@string/section_benchmark"
-                            app:tint="?attr/colorPrimary"
-                            android:layout_marginEnd="12dp"/>
-
-                        <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="@string/section_benchmark"
-                            android:textAppearance="?attr/textAppearanceTitleLarge"/>
-                    </LinearLayout>
+                        android:layout_marginBottom="8dp"
+                        app:drawableStartCompat="@drawable/ic_mic"
+                        android:drawablePadding="12dp"
+                        app:drawableTint="?attr/colorPrimary"
+                        android:text="@string/section_benchmark"
+                        android:textAppearance="?attr/textAppearanceTitleLarge"/>
 
                     <TextView
                         android:layout_width="match_parent"

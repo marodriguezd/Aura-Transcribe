@@ -1,7 +1,8 @@
 package dev.notune.transcribe;
 
-import android.annotation.SuppressLint;
+import android.Manifest;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.os.Process;
@@ -17,8 +18,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>Captures 16000 Hz mono 16-bit PCM via standard short[] arrays to avoid HAL driver
  * direct-buffer discrepancies, computes real-time RMS audio levels, and delivers
  * direct ByteBuffers to native JNI engine.</p>
+ *
+ * <p>RECORD_AUDIO is verified at runtime before any capture object is created:
+ * the manifest declaration alone is not enough, and without this check a denied
+ * permission would surface as an opaque HAL failure from startRecording()
+ * rather than an actionable error (and it is what lets lint's MissingPermission
+ * check pass without a class-level suppression).</p>
  */
-@SuppressLint("MissingPermission")
 public class AudioRecordBridge {
     private static final String TAG = "AudioRecordBridge";
 
@@ -42,6 +48,14 @@ public class AudioRecordBridge {
     public synchronized boolean start(Context context, String micPreference, Callback callback) {
         if (isRecording.get()) {
             stop();
+        }
+
+        if (context == null
+                || context.checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                        != PackageManager.PERMISSION_GRANTED) {
+            Log.e(TAG, "RECORD_AUDIO not granted; refusing to start audio capture");
+            if (callback != null) callback.onError("microphone permission not granted");
+            return false;
         }
 
         try {

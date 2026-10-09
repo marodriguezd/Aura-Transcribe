@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="welcome_title">Immissione vocale e sottotitoli</string>
     <string name="welcome_subtitle">Completamente offline, privato e veloce.</string>
 
     <string name="section_ime">Alternativa: tastiera vocale</string>
@@ -16,11 +15,8 @@
     <string name="subs_advanced_copy">Copia comando</string>
     <string name="subs_advanced_copied">Comando copiato</string>
 
-    <string name="status_label">Stato:</string>
     <string name="status_checking">Verifica dei dati…</string>
     <string name="status_ready">Pronto</string>
-    <string name="status_error">Errore</string>
-
     <string name="section_settings">Impostazioni</string>
     <string name="setting_auto_record">Avvia registrazione automaticamente</string>
     <string name="setting_auto_record_desc">Inizia a registrare automaticamente all\'apertura della tastiera</string>
@@ -66,7 +62,7 @@
     <string name="model_desc_whisper_turbo">99 lingue, il più accurato di questa lista; non traduce</string>
     <string name="model_desc_browse">Sfoglia tutti i modelli transcribe.cpp</string>
     <string name="pack_ultralight_title">⚡ Pacchetto Ultraleggero Offline (&lt;500 MB)</string>
-    <string name="pack_ultralight_desc">Canary 180M / Parakeet 110M + SuperWhisper S1-mini per trascrizione e pulizia 100% offline, ultra-veloce e a basso consumo.</string>
+    <string name="pack_ultralight_desc" formatted="false">Canary 180M / Parakeet 110M per trascrizione 100% offline, ultra-veloce e a basso consumo.</string>
     <string name="pack_pro_title">🏆 Pacchetto Pro Integrato (Consigliato)</string>
     <string name="pack_pro_desc">Nemotron 3.5 ASR 0.6B (incluso) + AI Fix Cloud per massima precisione, termini tecnici e formattazione intelligente.</string>
     <string name="pack_multilingual_title">🚀 Pacchetto Whisper Esteso</string>
@@ -101,11 +97,9 @@
     <string name="models_stream_latency_fast">Veloce (560 ms)</string>
     <string name="models_stream_latency_faster">Più veloce (160 ms)</string>
     <string name="models_stream_latency_lowest">Minima (80 ms)</string>
-    <string name="models_backend_section">Accelerazione hardware</string>
-    <string name="models_backend_desc">Motore di calcolo per l\'inferenza. CPU (ARM NEON con dotprod + fp16) è l\'opzione predefinita e più veloce su dispositivi mobili. NPU e GPU possono essere selezionate se supportate.</string>
-    <string name="models_backend_cpu">CPU (ARM NEON + dotprod + fp16 - Consigliato)</string>
-    <string name="models_backend_npu">NPU (Unità di elaborazione neurale / NNAPI)</string>
-    <string name="models_backend_gpu">GPU (Accelerazione Vulkan)</string>
+    <string name="models_backend_section">Motore di inferenza</string>
+    <string name="models_backend_desc">L\'inferenza viene eseguita sulla CPU, con accelerazione ARM NEON, dot-product e fp16. È l\'unico motore implementato dall\'app, quindi è l\'unico disponibile qui. L\'accelerazione NPU (NNAPI) e GPU (Vulkan) non è implementata.</string>
+    <string name="models_backend_cpu">CPU (ARM NEON + dotprod + fp16)</string>
 
     <string name="section_benchmark">Benchmark</string>
     <string name="desc_benchmark">Misura la velocità di trascrizione del modello attivo su questo dispositivo usando una registrazione di prova in inglese integrata (11 s).</string>
@@ -159,6 +153,7 @@
     <string name="pp_local_model_title">In locale: S1-mini (0.6B GGUF — Inglese)</string>
     <string name="pp_local_model_installed">Modello installato (%1$s) — 100%% offline (Inglese)</string>
     <string name="pp_local_model_not_installed">Normalizzatore opzionale in inglese (~380 MB di download)</string>
+    <string name="pp_local_unavailable">La pulizia con IA sul dispositivo non è disponibile in questa build: servirebbe un motore di generazione di testo che l\'app non include ancora. Scegli un provider cloud o disattiva la correzione IA.</string>
     <string name="pp_download_s1">Scarica S1-mini GGUF</string>
     <string name="pp_downloading_s1">Download di S1-mini GGUF in corso…</string>
     <string name="pp_download_s1_done">S1-mini GGUF scaricato con successo</string>
@@ -189,14 +184,13 @@
     <string name="debug_model_cancelled">Download del modello annullato</string>
     <string name="debug_model_notification_denied">Permesso per le notifiche negato; il download continuerà senza notifica di avanzamento.</string>
     <string name="debug_model_no_space">Spazio di archiviazione insufficiente per scaricare il modello</string>
-    <string name="debug_model_size" translatable="false">751 MB</string>
 
     <!-- P2.4 (2026-08-03): stringhe UI migrate da Java/layout -->
     <string name="ime_tap_to_record">Tocca per registrare</string>
     <string name="ime_tap_to_stop">Tocca per fermare</string>
-    <string name="ime_listening">In ascolto...</string>
-    <string name="ime_processing">Elaborazione...</string>
-    <string name="ime_refining">Ottimizzazione...</string>
+    <string name="ime_listening">In ascolto…</string>
+    <string name="ime_processing">Elaborazione…</string>
+    <string name="ime_refining">Ottimizzazione…</string>
     <string name="ime_ai_fix_toggle">AI Fix</string>
     <string name="ime_no_mic_permission">Nessun permesso microfono: concedilo nell\'app</string>
     <string name="ime_open_app_for_permission">Apri l\'app per concedere il permesso</string>
@@ -207,32 +201,30 @@
     <string name="ime_cd_backspace">Backspace</string>
     <string name="rec_mic_permission_required">Permesso microfono richiesto.\nConcedilo nell\'app principale.</string>
     <string name="rec_listening_tap_stop">In ascolto… (tocca per fermare)</string>
-    <string name="rec_processing">Elaborazione...</string>
-    <string name="rec_refining">Ottimizzazione...</string>
-    <string name="file_preparing">Preparazione...</string>
-    <string name="file_loading_model">Caricamento del modello...</string>
-    <string name="file_decoding_audio">Decodifica dell\'audio...</string>
-    <string name="file_transcribing">Trascrizione...</string>
-    <string name="file_refining">Ottimizzazione...</string>
+    <string name="rec_processing">Elaborazione…</string>
+    <string name="rec_refining">Ottimizzazione…</string>
+    <string name="file_preparing">Preparazione…</string>
+    <string name="file_loading_model">Caricamento del modello…</string>
+    <string name="file_decoding_audio">Decodifica dell\'audio…</string>
+    <string name="file_transcribing">Trascrizione…</string>
+    <string name="file_refining">Ottimizzazione…</string>
     <string name="file_copied">Copiato negli appunti</string>
     <string name="file_copy_to_clipboard">Copia negli appunti</string>
-    <string name="file_transcription_copied">Trascrizione copiata negli appunti</string>
     <string name="file_error_no_audio_received">Errore: nessun file audio ricevuto</string>
     <string name="file_error_no_audio">Errore: nessun file audio</string>
-    <string name="file_error_decode">Errore: impossibile decodificare il file audio</string>
+    <string name="file_error_no_speech">Errore: nessun parlato rilevato nel file audio</string>
     <string name="file_error_format">Errore: %1$s</string>
     <string name="subs_grant_overlay_permission">Concedi l\'autorizzazione \'Visualizza su altre app\'</string>
     <string name="subs_enable_overlay_app_settings">Attiva \'Visualizza su altre app\' nelle impostazioni dell\'app</string>
     <string name="subs_enable_overlay_settings">Attiva l\'autorizzazione di sovrapposizione nelle impostazioni</string>
     <string name="subs_overlay_required">Autorizzazione di sovrapposizione richiesta per i sottotitoli</string>
     <string name="subs_screen_capture_denied">Acquisizione schermo negata</string>
-    <string name="subs_waiting_for_audio">In attesa di audio...</string>
+    <string name="subs_waiting_for_audio">In attesa di audio…</string>
     <string name="subs_notification_active">Sottotitoli in tempo reale attivi</string>
-    <string name="subs_notification_recording">Registrazione dell\'audio interno...</string>
+    <string name="subs_notification_recording">Registrazione dell\'audio interno…</string>
     <string name="subs_notification_stop">Ferma</string>
     <string name="action_close">Chiudi</string>
     <string name="action_cancel">Annulla</string>
-    <string name="rec_cancelled">Trascrizione annullata</string>
     <string name="ime_cancelled">Trascrizione annullata</string>
     <string name="file_cancelled">Trascrizione annullata</string>
     <string name="debug_model_cannot_create_dir">Impossibile creare la cartella dei modelli</string>
@@ -246,31 +238,34 @@
     <!-- Floating dictation overlay & Accessibility auto-paste -->
     <string name="floating_bubble_description">Bolla fluttuante per dettatura vocale</string>
     <string name="floating_status_idle">Tocca la bolla per parlare</string>
-    <string name="floating_status_listening">Ascolto in corso...</string>
-    <string name="floating_status_transcribing">Trascrizione in corso...</string>
+    <string name="floating_status_listening">Ascolto in corso…</string>
+    <string name="floating_status_transcribing">Trascrizione in corso…</string>
     <string name="floating_status_ready">Pronto</string>
-    <string name="floating_status_error">Errore di dettatura</string>
     <string name="floating_action_cancel">Annulla</string>
     <string name="floating_action_insert">Inserisci</string>
-    <string name="floating_action_paste">Inserisci</string>
     <string name="floating_ai_fix_toggle">Correzione IA</string>
-    <string name="floating_toggle_ai_fix">Correzione IA</string>
-    <string name="floating_ai_fix_on">Correzione IA: ATTIVATA</string>
-    <string name="floating_ai_fix_off">Correzione IA: DISATTIVATA</string>
     <string name="floating_overlay_permission_title">Autorizzazione sovrapposizione richiesta</string>
     <string name="floating_overlay_permission_msg">Concedi l\'autorizzazione per la visualizzazione sopra altre app per usare la bolla fluttuante di dettatura.</string>
-    <string name="floating_accessibility_service_name">Incolla automatico dettatura fluttuante</string>
-    <string name="floating_accessibility_service_desc">Inserisce automaticamente il testo trascritto nei campi di testo focalizzati.</string>
-    <string name="floating_toast_pasted">Testo inserito nel campo attivo</string>
-    <string name="floating_toast_copied">Testo copiato negli appunti</string>
     <string name="floating_service_name">Sovrapposizione di dettatura mobile</string>
     <string name="floating_service_description">Bolla mobile per la dettatura vocale rapida e pannello sovrapposto.</string>
     <string name="floating_notification_stop">Ferma</string>
     <string name="floating_stopped">Dettatura mobile fermata</string>
     <string name="floating_need_mic_body">Concedi l\'autorizzazione al microfono per usare la bolla di dettatura fluttuante.</string>
     <string name="floating_start_failed_body">Impossibile avviare la bolla fluttuante. Controlla le autorizzazioni di sovrapposizione e microfono.</string>
-    <string name="accessibility_service_name">Servizio di incolla automatico vocale</string>
-    <string name="accessibility_service_description">Incolla automaticamente il testo trascritto nei campi di testo attivi.</string>
+    <string name="accessibility_service_name">Inserimento dettatura di Aura Transcribe</string>
+    <string name="accessibility_service_description">Inserisce nel campo che stavi modificando il testo che hai appena dettato. Legge solo quel campo, non conserva nulla ed è facoltativo: senza, la dettatura viene copiata negli appunti.</string>
+    <string name="a11y_disclosure_title">Inserire automaticamente il testo dettato?</string>
+    <string name="a11y_disclosure_intro">Aura Transcribe può scrivere ciò che detti direttamente nel campo di testo che stai usando in un\'altra app. Android lo consente solo con l\'accesso Accessibilità, quindi decidi tu: ecco esattamente cosa comporta, prima che ti venga chiesto.</string>
+    <string name="a11y_disclosure_what_title">Cosa può vedere l\'app</string>
+    <string name="a11y_disclosure_what_body">Finché è attivo, il servizio può leggere il campo di testo in cui si trova il cursore, per inserirvi la dettatura e posizionare correttamente il cursore. Non legge altre parti dello schermo, non esplora le tue app e non raccoglie né conserva ciò che c\'è nel campo.</string>
+    <string name="a11y_disclosure_why_title">Perché è facoltativo</string>
+    <string name="a11y_disclosure_why_body">Tutto il resto funziona anche senza. Quando l\'accesso Accessibilità è disattivato, la dettatura viene copiata negli appunti e la incolli tu: un passaggio in più, nessun permesso in più.</string>
+    <string name="a11y_disclosure_control_title">Il controllo resta a te</string>
+    <string name="a11y_disclosure_control_body">Nulla viene attivato finché non lo attivi nelle impostazioni di Android, e puoi revocarlo lì in qualsiasi momento, oppure disattivando la bolla flottante dentro Aura Transcribe.</string>
+    <string name="a11y_disclosure_consent">Continua alle impostazioni di Accessibilità</string>
+    <string name="a11y_disclosure_decline">Non ora</string>
+    <string name="a11y_disclosure_no_settings">Impossibile aprire le impostazioni di Android su questo dispositivo.</string>
+    <string name="a11y_copied_to_clipboard">Copiato negli appunti: incollalo dove vuoi</string>
     <string name="accessibility_paste_failed">Impossibile incollare il testo</string>
     <string name="floating_card_title">Dettatura Fluttuante e Accessibilità</string>
     <string name="floating_card_subtitle">Bolla fluttuante stile Whisperflow con incolla automatico via Accessibilità.</string>
@@ -291,8 +286,5 @@
     <string name="mic_test_btn_start">Avvia test audio</string>
     <string name="mic_test_btn_stop">Interrompi test audio</string>
     <string name="mic_test_active_device">Dispositivo attivo: %1$s</string>
-    <string name="mic_active_bluetooth">Auricolare Bluetooth</string>
     <string name="mic_active_builtin">Microfono interno</string>
-    <string name="mic_active_wired">Microfono cablato / USB</string>
-    <string name="mic_bt_recording_indicator">Auricolare Bluetooth attivo</string>
 </resources>

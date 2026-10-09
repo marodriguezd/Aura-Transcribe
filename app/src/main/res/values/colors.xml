@@ -1,21 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="colorPrimary">#2196F3</color>
-    <color name="colorPrimaryDark">#1976D2</color>
-    <color name="colorAccent">#FF4081</color>
-    <color name="status_ok">#2E7D32</color>
-    <color name="background">#F8F9FA</color>
-    <color name="textPrimary">#212121</color>
-    <color name="textSecondary">#757575</color>
-    <color name="white">#FFFFFF</color>
-    <color name="record_red">#F44336</color>
-    <color name="overlay_bg">#99000000</color>
-    <color name="card_bg">#FFFFFF</color>
+    <!--
+      This file no longer carries the app's UI palette. Material 3 supplies a
+      coherent light/dark tonal scheme through the theme, DynamicColors
+      personalises it from the wallpaper on Android 12+, and every surface
+      references a `?attr/color*` role instead of a literal (see styles.xml).
 
-    <!-- Keyboard / IME (overridden in values-night) -->
-    <color name="ime_bg">#F0F0F0</color>
-    <color name="ime_card_bg">#FFFFFF</color>
-    <color name="ime_text">#333333</color>
-    <color name="ime_hint">#888888</color>
-    <color name="ime_key_bg">#DDDDDD</color>
+      What remains here are the two cases Material 3 genuinely has no role for.
+    -->
+
+    <!-- Semantic "ready / granted" indicator. Material 3 ships error / primary /
+         secondary / tertiary roles only — there is no success role — so a
+         dedicated token is the correct model. Has a brighter night variant. -->
+    <color name="status_ok">#2E7D32</color>
+
+    <!-- Live-subtitle caption card. It is drawn over ARBITRARY third-party
+         content (system audio from any app, including bright video), so it must
+         not follow the app's own light/dark surface — a fixed translucent scrim
+         with light foreground guarantees legibility either way. -->
+    <color name="subs_scrim">#CC000000</color>
+    <color name="subs_scrim_fg">#FFFFFFFF</color>
+
+    <!-- Floating drag-to-dismiss drop target. Floats over third-party apps, so
+         (like the caption card) it keeps its own scrim in both themes rather
+         than switching between a light and a dark surface. -->
+    <color name="overlay_scrim">#CC1E1E24</color>
+    <color name="overlay_scrim_hover">#E6B3261E</color>
+    <color name="overlay_scrim_stroke">#40FFFFFF</color>
+    <color name="overlay_scrim_fg">#FFFFFFFF</color>
 </resources>

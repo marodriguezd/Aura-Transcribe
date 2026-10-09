@@ -1,33 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Material 3 DayNight base theme. Light/dark surfaces and text colors are
-         provided by the theme; on Android 12+ dynamic color (Material You)
-         overrides the seed with the user's wallpaper palette (applied in
-         App.onCreate via DynamicColors). The seed below is the brand blue used
-         as a fallback on older devices. -->
-    <style name="AppTheme" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/colorPrimary</item>
-        <item name="colorOnPrimary">@color/white</item>
-        <!-- Keep the system bars opaque and readable instead of inheriting a
-             transparent status bar from Material 3. The night variant switches
-             the icon appearance back to light icons. -->
-        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
-        <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowLightStatusBar">true</item>
-    </style>
+    <!--
+      Material 3 DayNight base theme.
+
+      Deliberately no colour overrides. Material 3's own tonal scheme is
+      internally consistent across light and dark, and DynamicColors
+      (App.onCreate) replaces it with the user's wallpaper palette on
+      Android 12+. The previous theme overrode only colorPrimary/colorOnPrimary
+      with a brand blue, which left every derived role (container, on-container,
+      inverse, …) on the M3 baseline — a half-branded palette whose containers
+      did not match the primary. Using the scheme as designed is what "respect
+      Dynamic Color" actually means.
+
+      System-bar colour is likewise not set here: android:statusBarColor is a
+      no-op from API 35 (edge-to-edge is enforced), the bars are made transparent
+      by EdgeToEdge.enable() in every Activity, and the light/dark icon
+      appearance is provided by the Material 3 DayNight theme itself.
+    -->
+    <style name="AppTheme" parent="Theme.Material3.DayNight.NoActionBar" />
 
     <!-- Voice-input popup (RecognizeActivity): a translucent window so the
          calling app stays visible (and keeps its UI state) behind the compact
          bottom panel, instead of a full-screen takeover. -->
-    <style name="AppTheme.VoicePanel">
+    <style name="AppTheme.VoicePanel" parent="AppTheme">
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowContentOverlay">@null</item>
         <item name="android:windowAnimationStyle">@android:style/Animation.InputMethod</item>
         <item name="android:windowSoftInputMode">stateUnchanged</item>
-        <!-- The popup is intentionally translucent over the calling app. -->
-        <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
 </resources>

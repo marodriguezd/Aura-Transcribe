@@ -15,7 +15,7 @@ import java.io.IOException;
  * Persists the user's dark-mode choice and applies it.
  *
  * Stored as a small file in the app's private files dir (not SharedPreferences)
- * so the value is reliably visible to the separate IME process (":ime"),
+ * so the value is reliably visible to the IME surface as well,
  * matching the existing marker-file settings (auto_record, etc.).
  *
  * Values are AppCompatDelegate night-mode constants:
@@ -50,8 +50,9 @@ public final class ThemePrefs {
 
     /**
      * Returns a context whose resources reflect the chosen night mode, for the IME
-     * (a non-AppCompat Service in a separate process, so AppCompat's delegate can't
-     * theme it). FOLLOW_SYSTEM returns the base unchanged so it follows the system.
+     * (a non-AppCompat Service, so AppCompat's delegate cannot theme it; it runs in
+     * the same process as the app — the manifest declares no android:process).
+     * FOLLOW_SYSTEM returns the base unchanged so it follows the system.
      */
     public static Context wrapForNight(Context base, int mode) {
         int night;
