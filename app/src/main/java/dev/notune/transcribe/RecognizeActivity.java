@@ -41,7 +41,7 @@ public class RecognizeActivity extends AppCompatActivity {
 
     private TextView status;
     private boolean isRecording = false;
-    private int currentSessionId = 0;
+    private volatile int currentSessionId = 0;
     private MicLevelView micLevel;
     private final AudioFocusPauser audioPauser = new AudioFocusPauser();
     private boolean pauseAudioActive = false;
@@ -130,8 +130,9 @@ public class RecognizeActivity extends AppCompatActivity {
 
     // Called from Rust (monitor thread) when trailing silence is detected.
     public void onAutoStop(int sessionId) {
+        if (sessionId != currentSessionId) return;
         runOnUiThread(() -> {
-            if (sessionId != currentSessionId) return;
+            if (sessionId != currentSessionId || isFinishing() || isDestroyed()) return;
             finishRecording();
         });
     }
@@ -176,15 +177,19 @@ public class RecognizeActivity extends AppCompatActivity {
 
     // Called from Rust for recording-scoped status updates.
     public void onStatusUpdate(String s, int sessionId) {
+        if (sessionId != currentSessionId) return;
         runOnUiThread(() -> {
-            if (sessionId != currentSessionId) return;
+            if (sessionId != currentSessionId || isFinishing() || isDestroyed()) return;
             showStatus(s);
         });
     }
 
     // Called from Rust with model lifecycle updates (not tied to a recording).
     public void onStatusUpdate(String s) {
-        runOnUiThread(() -> showStatus(s));
+        runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            showStatus(s);
+        });
     }
 
     private void showStatus(String s) {
@@ -208,9 +213,12 @@ public class RecognizeActivity extends AppCompatActivity {
 
     // Called from Rust with 0..1
     public void onAudioLevel(float level, int sessionId) {
+        if (sessionId != currentSessionId) return;
         runOnUiThread(() -> {
-            if (sessionId != currentSessionId) return;
-            micLevel.setLevel(level);
+            if (sessionId != currentSessionId || isFinishing() || isDestroyed()) return;
+            if (micLevel != null) {
+                micLevel.setLevel(level);
+            }
         });
     }
 
@@ -222,8 +230,9 @@ public class RecognizeActivity extends AppCompatActivity {
     // (streaming models). Visual-only: the final text replaces it via
     // onTextTranscribed.
     public void onPartialText(String text, int sessionId) {
+        if (sessionId != currentSessionId) return;
         runOnUiThread(() -> {
-            if (sessionId != currentSessionId) return;
+            if (sessionId != currentSessionId || isFinishing() || isDestroyed()) return;
             if (isRecording && text != null && !text.trim().isEmpty()) {
                 status.setText(text);
             }
@@ -232,8 +241,9 @@ public class RecognizeActivity extends AppCompatActivity {
 
     // Called from Rust – keep same method name as IME for code reuse
     public void onTextTranscribed(String text, int sessionId) {
+        if (sessionId != currentSessionId) return;
         runOnUiThread(() -> {
-            if (sessionId != currentSessionId) return;
+            if (sessionId != currentSessionId || isFinishing() || isDestroyed()) return;
             if (text == null || text.trim().isEmpty()) {
                 // Nothing was recognized (e.g. auto-stop after silence only).
                 setResult(Activity.RESULT_CANCELED);

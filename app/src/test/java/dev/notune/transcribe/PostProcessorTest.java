@@ -750,6 +750,120 @@ public class PostProcessorTest {
         }
     }
 
+    @Test
+    public void aReadCompletingAfterTheOperationWasCancelledSendsNoRequest() throws Exception {
+        ExecutorService credentialThread = Executors.newSingleThreadExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "pp-credential-read");
+            thread.setDaemon(true);
+            return thread;
+        });
+        try {
+            AsyncCredentialSettings settings = new AsyncCredentialSettings(credentialThread);
+            settings.url = server.url("/").toString();
+            settings.gate = new CountDownLatch(1);
+            settings.continuationRan = new CountDownLatch(1);
+
+            AtomicInteger currentOpId = new AtomicInteger(1);
+            final int opId = 1;
+            PostProcessor processor = new PostProcessor(settings, null,
+                    () -> opId == currentOpId.get(), new Object());
+
+            CountDownLatch done = new CountDownLatch(1);
+            CountingCallback callback = new CountingCallback(done);
+            processor.process("raw", callback);
+
+            currentOpId.set(2);
+            settings.gate.countDown();
+
+            assertTrue("the read must still complete",
+                    settings.continuationRan.await(5, TimeUnit.SECONDS));
+            assertEquals("a cancelled operation must not reach the network", null,
+                    server.takeRequest(200, TimeUnit.MILLISECONDS));
+            assertEquals("and must not deliver a callback", 0, callback.deliveries.get());
+        } finally {
+            credentialThread.shutdownNow();
+        }
+    }
+
+    @Test
+    public void aSupersededOperationSendsNoRequestWhileTheNewerOneIsServed() throws Exception {
+        ExecutorService credentialThread = Executors.newSingleThreadExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "pp-credential-read");
+            thread.setDaemon(true);
+            return thread;
+        });
+        try {
+            AsyncCredentialSettings settings = new AsyncCredentialSettings(credentialThread);
+            settings.url = server.url("/").toString();
+            settings.gate = new CountDownLatch(1);
+            server.enqueue(new MockResponse().setBody(completionJson("refined")));
+
+            AtomicInteger currentOpId = new AtomicInteger(1);
+            PostProcessor first = new PostProcessor(settings, null,
+                    () -> 1 == currentOpId.get(), new Object());
+            PostProcessor second = new PostProcessor(settings, null,
+                    () -> 2 == currentOpId.get(), new Object());
+
+            CountDownLatch stale = new CountDownLatch(1);
+            CountingCallback staleCallback = new CountingCallback(stale);
+            first.process("stale", staleCallback);
+
+            currentOpId.set(2);
+
+            CountDownLatch fresh = new CountDownLatch(1);
+            CountingCallback freshCallback = new CountingCallback(fresh);
+            second.process("fresh", freshCallback);
+
+            settings.gate.countDown();
+
+            assertTrue("the newer operation must be served", fresh.await(5, TimeUnit.SECONDS));
+            assertEquals("ok:refined", freshCallback.outcome.get());
+            assertEquals("the superseded operation must not deliver", 0,
+                    staleCallback.deliveries.get());
+            RecordedRequest request = server.takeRequest(2, TimeUnit.SECONDS);
+            assertNotNull("exactly one request, for the newer transcript", request);
+            assertTrue("the request must carry the newer transcript",
+                    request.getBody().readUtf8().contains("fresh"));
+            assertEquals("no request for the superseded transcript", null,
+                    server.takeRequest(200, TimeUnit.MILLISECONDS));
+        } finally {
+            credentialThread.shutdownNow();
+        }
+    }
+
+    @Test
+    public void aStaleResponseForACancelledOperationIsDeliveredToNoOne() throws Exception {
+        ExecutorService credentialThread = Executors.newSingleThreadExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "pp-credential-read");
+            thread.setDaemon(true);
+            return thread;
+        });
+        try {
+            AsyncCredentialSettings settings = new AsyncCredentialSettings(credentialThread);
+            settings.url = server.url("/").toString();
+            server.enqueue(new MockResponse().setBodyDelay(500, TimeUnit.MILLISECONDS)
+                    .setBody(completionJson("refined")));
+
+            AtomicInteger currentOpId = new AtomicInteger(1);
+            final int opId = 1;
+            PostProcessor processor = new PostProcessor(settings, null,
+                    () -> opId == currentOpId.get(), new Object());
+
+            CountDownLatch done = new CountDownLatch(1);
+            CountingCallback callback = new CountingCallback(done);
+            processor.process("raw", callback);
+
+            assertNotNull("the request was dispatched", server.takeRequest(2, TimeUnit.SECONDS));
+            currentOpId.set(2);
+
+            assertFalse("a cancelled operation must not receive its response",
+                    done.await(2, TimeUnit.SECONDS));
+            assertEquals("no callback", 0, callback.deliveries.get());
+        } finally {
+            credentialThread.shutdownNow();
+        }
+    }
+
     private static PostProcessor.PostProcessCallback callback(
             final String okPrefix, final String errPrefix,
             final AtomicReference<String> outcome, final CountDownLatch done) {

@@ -141,7 +141,7 @@ public class FloatingOverlayService extends Service {
     private Handler mMainHandler;
     private boolean mIsRecording = false;
     private boolean mResultPending = false;
-    private int mCurrentSessionId = 0;
+    private volatile int mCurrentSessionId = 0;
     private String mLastStatus = "Ready";
     private String mLastRawTranscript = null;
     private String mTranscribedResult = null;
@@ -1426,8 +1426,9 @@ public class FloatingOverlayService extends Service {
 
     // Callbacks from Rust
     public void onAutoStop(int sessionId) {
+        if (sessionId != mCurrentSessionId || mIsDestroyed) return;
         mMainHandler.post(() -> {
-            if (sessionId != mCurrentSessionId) return;
+            if (sessionId != mCurrentSessionId || mIsDestroyed) return;
             if (mIsRecording) {
                 stopRecordingSession();
             }
@@ -1435,12 +1436,14 @@ public class FloatingOverlayService extends Service {
     }
 
     public void onStatusUpdate(String status) {
+        if (mIsDestroyed) return;
         onStatusUpdate(status, mCurrentSessionId);
     }
 
     public void onStatusUpdate(String status, int sessionId) {
+        if (sessionId != mCurrentSessionId || mIsDestroyed) return;
         mMainHandler.post(() -> {
-            if (sessionId != mCurrentSessionId) return;
+            if (sessionId != mCurrentSessionId || mIsDestroyed) return;
             mLastStatus = status != null ? status : "";
             if (mLastStatus.startsWith("Error")) {
                 mResultPending = false;
@@ -1459,9 +1462,9 @@ public class FloatingOverlayService extends Service {
     }
 
     public void onAudioLevel(float level, int sessionId) {
-        if (sessionId != mCurrentSessionId) return;
+        if (sessionId != mCurrentSessionId || mIsDestroyed) return;
         mMainHandler.post(() -> {
-            if (sessionId == mCurrentSessionId) {
+            if (sessionId == mCurrentSessionId && !mIsDestroyed) {
                 if (mBubbleMicLevel != null) mBubbleMicLevel.setLevel(level);
                 if (mMicLevelView != null) mMicLevelView.setLevel(level);
             }
@@ -1469,8 +1472,9 @@ public class FloatingOverlayService extends Service {
     }
 
     public void onPartialText(String text, int sessionId) {
+        if (sessionId != mCurrentSessionId || mIsDestroyed) return;
         mMainHandler.post(() -> {
-            if (sessionId != mCurrentSessionId) return;
+            if (sessionId != mCurrentSessionId || mIsDestroyed) return;
             if (mIsRecording && mPartialText != null && mPartialScroll != null
                     && text != null && !text.trim().isEmpty()) {
                 mPartialText.setText(text);
@@ -1509,8 +1513,9 @@ public class FloatingOverlayService extends Service {
     }
 
     public void onTextTranscribed(String text, int sessionId) {
+        if (sessionId != mCurrentSessionId || mIsDestroyed) return;
         mMainHandler.post(() -> {
-            if (sessionId != mCurrentSessionId) return;
+            if (sessionId != mCurrentSessionId || mIsDestroyed) return;
             if (text == null || text.trim().isEmpty()) {
                 mResultPending = false;
                 mLastRawTranscript = null;

@@ -49,7 +49,7 @@ public class VoiceRecognitionService extends RecognitionService {
     // Incremented whenever a recognition session starts, is cancelled, or the
     // service is destroyed. Late post-processing callbacks compare against the
     // captured id so they cannot deliver results to a stale or new session.
-    private int currentSessionId = 0;
+    private volatile int currentSessionId = 0;
 
     @Override
     public void onCreate() {
@@ -130,6 +130,7 @@ public class VoiceRecognitionService extends RecognitionService {
     // --- Callbacks invoked from native code (any thread) ---------------------
 
     public void onReadyForSpeech(int sessionId) {
+        if (sessionId != currentSessionId) return;
         mainHandler.post(() -> {
             if (sessionId != currentSessionId) return;
             Callback cb = mCallback;
@@ -139,6 +140,7 @@ public class VoiceRecognitionService extends RecognitionService {
     }
 
     public void onBeginningOfSpeech(int sessionId) {
+        if (sessionId != currentSessionId) return;
         mainHandler.post(() -> {
             if (sessionId != currentSessionId) return;
             Callback cb = mCallback;
@@ -148,6 +150,7 @@ public class VoiceRecognitionService extends RecognitionService {
     }
 
     public void onRmsChanged(float rmsdB, int sessionId) {
+        if (sessionId != currentSessionId) return;
         mainHandler.post(() -> {
             if (sessionId != currentSessionId) return;
             Callback cb = mCallback;
@@ -157,6 +160,7 @@ public class VoiceRecognitionService extends RecognitionService {
     }
 
     public void onEndOfSpeech(int sessionId) {
+        if (sessionId != currentSessionId) return;
         mainHandler.post(() -> {
             if (sessionId != currentSessionId) return;
             Callback cb = mCallback;
@@ -172,6 +176,7 @@ public class VoiceRecognitionService extends RecognitionService {
      * AI post-processor (see onResults).
      */
     public void onPartialText(String text, int sessionId) {
+        if (sessionId != currentSessionId) return;
         mainHandler.post(() -> {
             if (sessionId != currentSessionId) return;
             Callback cb = mCallback;
@@ -185,6 +190,7 @@ public class VoiceRecognitionService extends RecognitionService {
     }
 
     public void onResults(String text, int sessionId) {
+        if (sessionId != currentSessionId) return;
         mainHandler.post(() -> {
             if (sessionId != currentSessionId) return;
             AudioDeviceManager.releaseMicrophone(VoiceRecognitionService.this);
@@ -246,6 +252,7 @@ public class VoiceRecognitionService extends RecognitionService {
     }
 
     public void onError(int errorCode, int sessionId) {
+        if (sessionId != currentSessionId) return;
         mainHandler.post(() -> {
             if (sessionId != currentSessionId) return;
             AudioDeviceManager.releaseMicrophone(VoiceRecognitionService.this);
