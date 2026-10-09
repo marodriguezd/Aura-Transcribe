@@ -135,6 +135,7 @@
     <string name="pp_api_url">URL base (compatible con OpenAI)</string>
     <string name="pp_api_key">Clave API</string>
     <string name="pp_api_key_required">Introduce una clave API para usar el posprocesado.</string>
+    <string name="pp_api_key_save_failed">No se pudo guardar la clave API de forma segura. Inténtalo de nuevo.</string>
     <string name="pp_model">Nombre del modelo</string>
     <string name="pp_refresh_models">Obtener modelos disponibles</string>
     <string name="pp_models_loaded">Modelos cargados — toca el campo para elegir uno</string>
@@ -234,6 +235,7 @@
     <string name="debug_model_unknown_reason">desconocido</string>
     <string name="bench_no_data_chunk">no hay bloque de datos en %1$s</string>
     <string name="file_error_too_long">El archivo de audio dura más de 30 minutos. Transcribe un archivo más corto.</string>
+    <string name="file_error_too_large">El archivo de audio es demasiado grande para importar (tamaño máximo 1 GB). Elige un archivo más pequeño.</string>
 
     <!-- Floating dictation overlay & Accessibility auto-paste -->
     <string name="floating_bubble_description">Burbuja flotante de dictado por voz</string>

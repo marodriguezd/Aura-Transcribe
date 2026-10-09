@@ -18,16 +18,55 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.function.Consumer;
 
 /**
  * Minimal settings store for the AI post-processing layer.
  *
- * All settings (enabled flag, provider, base URL, model, system prompt and
- * API key) are stored as marker files in {@code filesDir()} so they can be
- * read consistently by the Java UI and by the native engine (which reads them
- * straight from the filesystem), without SharedPreferences or Keystore.
- * The API key is Base64-encoded for minimal obscurity; real protection comes
- * from the Android app sandbox that guards filesDir().
+ * Non-secret settings (enabled flag, provider, base URL, model, system prompt)
+ * are stored as marker files in {@code filesDir()} so they can be read
+ * consistently by the Java UI and by the native engine (which reads them
+ * straight from the filesystem), without SharedPreferences.
+ *
+ * The API key is the deliberate exception: it is encrypted at rest with
+ * AES-256-GCM under an AndroidKeyStore-held key via
+ * {@link SecureCredentialStore} (marker {@code pp_api_key_enc}, versioned
+ * {@code v1:} format). Base64 is an encoding, not a protection — the legacy
+ * {@code pp_api_key} Base64 marker and the older SharedPreferences/
+ * EncryptedSharedPreferences copies are migrated into the encrypted store at
+ * startup, verifying the encrypted write before the legacy copy is removed.
+ *
+ * Only the Java layer reads the key (OkHttp builds the Authorization header);
+ * the Rust engine has no reference to it, so no JNI surface carries it.
+ *
+ * Threat model: encryption at rest protects the stored credential from
+ * offline extraction of app data without the Keystore key. It does NOT
+ * protect it on a rooted or otherwise compromised device while the app is
+ * using it — see {@link SecureCredentialStore}'s class documentation.
+ *
+ * Credential mutations — the start-up legacy import, a save from the settings
+ * screen and an explicit deletion — are serialized on one background lane
+ * ({@link CredentialOperations}, {@link #CREDENTIAL_OPS}), in submission order.
+ * See {@link #setApiKey} for the contract that callers see.
+ *
+ * Reads ({@link #readApiKey}, ordered on the same lane) observe the state left by
+ * the last <em>completed</em> mutation and are decided by {@link CredentialRead}: a
+ * completed save is visible to every later read, and a deletion is visible
+ * immediately — including when a copy could not physically be removed, and without
+ * reporting it as a read failure. A read is queued behind a pending start-up
+ * import, so a migration that has not finished is never mistaken for a missing
+ * credential. A caller that must observe its own mutation waits for the completion
+ * callback ({@link #setApiKey}) instead of re-reading; every such caller here does
+ * (the settings screen's save, model list and connection test all run only after
+ * that callback).
+ *
+ * The synchronous accessors that used to read the credential ({@code getApiKey},
+ * {@code isPostProcessEnabled}, {@code isPostProcessConfigured}) are deliberately
+ * gone: {@link #isPostProcessSwitchedOn} answers the cheap switch question with no
+ * credential I/O at all, and anything that needs the credential itself goes through
+ * {@link #readApiKey} / {@link #readPostProcessEnabled} on the lane.
  */
 public class SettingsManager implements PostProcessor.PostProcessorSettings {
     private static final String TAG = "SettingsManager";
@@ -50,13 +89,14 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
     private static final String PP_API_URL_FILE = "pp_api_url";
     private static final String PP_MODEL_FILE = "pp_model";
     private static final String PP_PROMPT_FILE = "pp_prompt";
-    private static final String PP_API_KEY_FILE = "pp_api_key";
+    // Same file the credential store reads and removes (single source of truth).
+    private static final String PP_API_KEY_FILE = SecureCredentialStore.LEGACY_MARKER_FILE;
     private static final String PP_PRESET_FILE = "pp_preset";
     private static final String MIC_MODE_FILE = "mic_mode";
 
     // Sentinel that guarantees the legacy -> marker migration runs at most once.
     private static final String MIGRATION_SENTINEL = "pp_migrated";
-    private static final String API_KEY_MIGRATION_SENTINEL = "pp_api_key_migrated";
+    // The API-key migration sentinel is owned by CredentialMigration.SENTINEL_NAME.
 
     private static final String DEFAULT_API_URL = "https://api.openai.com/v1";
     private static final String DEFAULT_MODEL = "gpt-4o-mini";
@@ -166,6 +206,24 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
         return PROVIDERS[PROVIDERS.length - 1]; // custom
     }
 
+    /**
+     * The one lane every credential mutation runs on: the start-up legacy import,
+     * a save from the settings screen, and an explicit deletion. Serialization is
+     * what makes the outcome deterministic — without it a migration could read a
+     * legacy key, the user could delete the key, and the migration could then
+     * write the deleted credential back. See {@link CredentialOperations} for why
+     * this is a lane rather than a lock, and why nothing here runs on the Android
+     * main thread.
+     */
+    private static final CredentialOperations CREDENTIAL_OPS = new CredentialOperations(
+            Executors.newSingleThreadExecutor(runnable -> {
+                Thread thread = new Thread(runnable, "credential-ops");
+                // Daemon: a queued mutation must never keep the process alive.
+                thread.setDaemon(true);
+                return thread;
+            }),
+            message -> Log.e(TAG, message));
+
     private final Context appContext;
 
     public SettingsManager(Context context) {
@@ -180,40 +238,127 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
     // Toggle (marker file)
     // ----------------------------------------------------------------------
 
-    public boolean isPostProcessEnabled() {
-        return MarkerFileHelper.exists(appContext, PP_ENABLED_FILE) && isPostProcessConfigured();
+    /**
+     * Cheap, main-thread-safe view of the AI-fix switch: the marker is on and the
+     * selected provider can run at all in this build.
+     *
+     * <p>Deliberately does <b>no</b> credential I/O — no file content read, no
+     * tombstone read, no Keystore decrypt — so a UI surface may ask it while
+     * laying out or handling a tap. It is not the whole answer: whether a
+     * <em>usable</em> credential exists is decided by
+     * {@link #readPostProcessEnabled} / {@link #readApiKey} on the credential lane.
+     *
+     * <p>Gating dictation on this cheap flag is also what keeps a *pending* legacy
+     * import from being misread as "not configured": the request that follows does
+     * the ordered read, queued behind that import, and finds the credential.
+     */
+    public boolean isPostProcessSwitchedOn() {
+        return MarkerFileHelper.exists(appContext, PP_ENABLED_FILE)
+                && isProviderAvailable(getProviderId());
     }
 
     public boolean isPostProcessMarkerSet() {
         return MarkerFileHelper.exists(appContext, PP_ENABLED_FILE);
     }
 
-    public boolean isPostProcessConfigured() {
-        String provider = getProviderId();
-        if (PROVIDER_LOCAL_S1.equals(provider)) {
+    /**
+     * Whether post-processing is enabled <em>and usable</em>, from the switch state
+     * and a credential outcome. Pure, so the rule is testable without a
+     * {@code Context} and shared by {@link #readPostProcessEnabled} and the
+     * settings screen.
+     */
+    public static boolean resolvePostProcessEnabled(boolean switchedOn, String providerId,
+                                                   ApiKeyRead credential,
+                                                   boolean localModelInstalled) {
+        if (!switchedOn) return false;
+        if (PROVIDER_LOCAL_S1.equals(providerId)) {
             // The model being on disk is not enough: without an inference engine
             // the provider produces no refinement at all, so treating it as
             // "configured" is what let the nonfunctional path be enabled.
-            return LOCAL_S1_INFERENCE_AVAILABLE && isLocalS1ModelInstalled();
+            return LOCAL_S1_INFERENCE_AVAILABLE && localModelInstalled;
         }
-        String key = getApiKey();
-        return key != null && !key.trim().isEmpty();
+        return credential != null && credential.hasCredential();
     }
 
+    /**
+     * The switch itself. Writes the marker and never reads the credential: whether
+     * the credential is usable belongs to the ordered read
+     * ({@link #readPostProcessEnabled}), which every caller performs before turning
+     * this on. The one rule kept here needs no credential at all — a provider that
+     * cannot run in this build is never persisted as enabled.
+     */
     public void setPostProcessEnabled(boolean enabled) {
-        if (enabled && !isPostProcessConfigured()) {
+        if (enabled && !isProviderAvailable(getProviderId())) {
             MarkerFileHelper.setExists(appContext, PP_ENABLED_FILE, false);
             return;
         }
         MarkerFileHelper.setExists(appContext, PP_ENABLED_FILE, enabled);
     }
 
-    public static boolean isPostProcessEnabled(Context context) {
-        if (!MarkerFileHelper.exists(context, PP_ENABLED_FILE)) {
-            return false;
-        }
-        SettingsManager sm = new SettingsManager(context);
-        return sm.isPostProcessConfigured();
+    // ----------------------------------------------------------------------
+    // Ordered credential reads (credential lane)
+    // ----------------------------------------------------------------------
+
+    /**
+     * Ordered, off-main credential read.
+     *
+     * <p>Submitted to the credential lane ({@link #CREDENTIAL_OPS}), so it runs
+     * after every mutation already queued — the start-up legacy import included —
+     * and observes the state they left. Nothing touches the filesystem, the
+     * tombstone or AndroidKeyStore on the caller's thread, which is what keeps the
+     * Android main thread clear of credential I/O.
+     *
+     * <p>The callback arrives exactly once on {@code callbackExecutor} (the main
+     * executor for UI callers) and is never handed {@code null}: an internal
+     * failure is reported as {@link ApiKeyRead.Status#UNREADABLE}, which no caller
+     * may turn into "not configured".
+     */
+    public void readApiKey(Executor callbackExecutor, Consumer<ApiKeyRead> callback) {
+        if (callback == null) return;
+        CREDENTIAL_OPS.submitValue(this::readApiKeyOnLane, callbackExecutor,
+                result -> callback.accept(result != null ? result : ApiKeyRead.unreadable()));
+    }
+
+    /**
+     * Ordered, off-main "is AI fix on and usable?" check: the switch state combined
+     * with a credential read queued behind every pending mutation.
+     */
+    public void readPostProcessEnabled(Executor callbackExecutor, Consumer<Boolean> callback) {
+        if (callback == null) return;
+        CREDENTIAL_OPS.submitValue(
+                () -> resolvePostProcessEnabled(isPostProcessSwitchedOn(), getProviderId(),
+                        readApiKeyOnLane(), isLocalS1ModelInstalled()),
+                callbackExecutor,
+                enabled -> callback.accept(Boolean.TRUE.equals(enabled)));
+    }
+
+    /**
+     * The read itself: the Android side of it (files, marker decoding, logging)
+     * handed to {@link CredentialRead#gather}, which owns the order and the
+     * classification.
+     *
+     * <p><b>Must run on the credential lane</b>, never on the Android main thread:
+     * it reads files, reads the deletion tombstone and may decrypt with
+     * AndroidKeyStore. Callers outside this class use {@link #readApiKey}.
+     */
+    private ApiKeyRead readApiKeyOnLane() {
+        File filesDir = appContext.getFilesDir();
+        return CredentialRead.gather(
+                filesDir,
+                secureStore(filesDir),
+                () -> readMarker(PP_API_KEY_FILE),
+                encoded -> {
+                    try {
+                        return new String(
+                                Base64.decode(encoded, Base64.NO_WRAP), StandardCharsets.UTF_8);
+                    } catch (Exception e) {
+                        // Never include the marker contents or decoded key in
+                        // diagnostics; the failure itself is reported by gather().
+                        Log.e(TAG, "Failed to decode API key from marker", e);
+                        return null;
+                    }
+                },
+                message -> Log.e(TAG, message));
     }
 
     // ----------------------------------------------------------------------
@@ -245,28 +390,74 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
     }
 
     // ----------------------------------------------------------------------
-    // API key (marker file, Base64-encoded)
+    // API key (encrypted at rest; see SecureCredentialStore for the format,
+    // threat model and legacy-marker migration semantics)
     // ----------------------------------------------------------------------
 
-    public String getApiKey() {
-        String encoded = readMarker(PP_API_KEY_FILE);
-        if (encoded == null || encoded.isEmpty()) return "";
-        try {
-            return new String(Base64.decode(encoded, Base64.NO_WRAP), StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            // Never include the marker contents or decoded key in diagnostics.
-            Log.e(TAG, "Failed to decode API key from marker", e);
-            return "";
-        }
+    /** Receives the durable outcome of {@link #setApiKey} on the caller's executor. */
+    public interface ApiKeyCallback {
+        /**
+         * @param saved true when the requested end state is stored; false when
+         *              the credential could not be encrypted/persisted (or the
+         *              provider is unavailable), in which case nothing was written
+         *              — never a plaintext fallback — and a previously stored
+         *              credential, if any, is left untouched
+         */
+        void onApiKeySaved(boolean saved);
     }
 
-    public void setApiKey(String key) {
-        if (key == null || key.isEmpty()) {
-            writeMarker(PP_API_KEY_FILE, null);
-            return;
-        }
-        writeMarker(PP_API_KEY_FILE,
-                Base64.encodeToString(key.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP));
+    /**
+     * Persists the API key encrypted at rest, or deletes it when {@code key} is
+     * null or empty.
+     *
+     * <p><b>Asynchronous and serialized on purpose.</b> This is one of the three
+     * credential mutations (see {@link #CREDENTIAL_OPS}); it is queued behind
+     * whatever the start-up migration is doing and behind every other save and
+     * deletion, so the last call wins deterministically. The mutation itself —
+     * Keystore plus file I/O, plus the cross-process file lock the migration
+     * takes — runs on the credential lane's background thread, never on the
+     * caller's: the settings screen calls this from the Android main thread and
+     * must not block on a migration. {@code callback} is invoked on
+     * {@code callbackExecutor} once the operation has completed, with its durable
+     * result, so a caller may report success only then.
+     *
+     * @param key              the plaintext key, or null/empty to delete it
+     * @param callbackExecutor where to deliver the outcome (null = none)
+     * @param callback         outcome receiver (null = fire and forget)
+     */
+    public void setApiKey(String key, Executor callbackExecutor, ApiKeyCallback callback) {
+        boolean delete = (key == null || key.isEmpty());
+        CREDENTIAL_OPS.submit(
+                () -> delete ? deleteCredential() : storeCredential(key),
+                callbackExecutor,
+                callback == null ? null : callback::onApiKeySaved);
+    }
+
+    /**
+     * Runs on the credential lane; true when the value was durably stored.
+     *
+     * <p>Delegates to the coordinator, which owns the write order: verified write
+     * → clear the deletion tombstone → drop the legacy copies a verified store
+     * supersedes. Clearing the tombstone in the same operation is what makes a
+     * credential stored after a deletion (whose removal had failed) visible to
+     * reads immediately instead of being hidden until the next start.
+     */
+    private boolean storeCredential(String key) {
+        return credentialMigration(appContext, legacyPrefs(appContext)).store(key);
+    }
+
+    /**
+     * Runs on the credential lane; true only once the credential is gone
+     * everywhere, so the UI never reports a deletion that did not happen.
+     */
+    private boolean deleteCredential() {
+        // Explicit deletion: drop the encrypted store and every legacy copy
+        // (marker, EncryptedSharedPreferences and plaintext). Because it runs on
+        // the same lane as the import, a migration cannot write the credential
+        // back afterwards; CredentialMigration.forget() additionally tombstones a
+        // copy that could not actually be removed, and reports whether the
+        // deletion really completed.
+        return credentialMigration(appContext, legacyPrefs(appContext)).forget();
     }
 
     // ----------------------------------------------------------------------
@@ -362,18 +553,48 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
     // ----------------------------------------------------------------------
 
     public static void migrateIfNeeded(Context context) {
+        // The whole start-up migration is submitted to the credential lane and
+        // the caller's thread does nothing but submit. Application.onCreate
+        // runs on the Android main thread, and the migration performs
+        // filesystem I/O that must never happen there: a cross-process file
+        // lock, the SharedPreferences load, marker writes with an fsync
+        // apiece, and a synchronous SharedPreferences commit. Submitting here
+        // — before any component callback can run — is also what orders the
+        // credential import ahead of every start-up read (the sentinel gate
+        // below runs on the lane too, so the main thread performs no filesystem
+        // access at all). See CredentialOperations for why a lane.
         Context app = context.getApplicationContext();
+        CREDENTIAL_OPS.submit(() -> runStartupMigration(app), null, null);
+    }
+
+    /**
+     * Runs one start-up migration pass on the credential lane. Never called on
+     * the Android main thread. Fire-and-forget: the outcome is logged, and the
+     * per-start retry re-attempts the API key import on the next start.
+     */
+    private static boolean runStartupMigration(Context app) {
         File filesDir = app.getFilesDir();
         File sentinel = new File(filesDir, MIGRATION_SENTINEL);
         if (sentinel.exists()) {
             // The ordinary settings migration may already be complete while a
             // previous process could not open Android Keystore. Retry the API
-            // key migration independently under its own process lock so main
-            // and any other starter cannot read/clean the legacy store concurrently.
-            migrateLegacyApiKeyLocked(app, filesDir);
-            return;
+            // key migration independently, keeping its own process lock and
+            // still going through the credential lane so it can never interleave
+            // with a save or a deletion.
+            return runLegacyApiKeyMigrationRetry(app, filesDir);
         }
+        return runFullMigration(app, filesDir);
+    }
 
+    /**
+     * The full first-launch settings migration, on the credential lane. Moves
+     * the non-secret legacy settings into marker files, imports the API key
+     * into the encrypted store, clears the legacy SharedPreferences and drops
+     * the sentinel — all serialized by the cross-process lock so a trailing
+     * process cannot resurrect a marker the user just removed.
+     */
+    private static boolean runFullMigration(Context app, File filesDir) {
+        File sentinel = new File(filesDir, MIGRATION_SENTINEL);
         File lockFile = new File(filesDir, MIGRATION_SENTINEL + ".lock");
         boolean migratedThisCall = false;
         FileLock lock = null;
@@ -383,17 +604,15 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
             if (lock == null) {
                 // Another process is migrating. Return immediately: the next
                 // App.onCreate in this process will catch up via the sentinel
-                // check. Avoid sleeping on the main thread (App.onCreate is
-                // on the UI thread) because the
-                // typical migration is <10ms.
-                return;
+                // check.
+                return true;
             }
 
             // Re-check sentinel under the lock (the previous holder may have
             // completed in the meantime).
-            if (sentinel.exists()) return;
+            if (sentinel.exists()) return true;
 
-            SharedPreferences legacy = app.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            SharedPreferences legacy = legacyPrefs(app);
 
             if (legacy.contains(LEGACY_KEY_POST_PROCESS_ENABLED)) {
                 boolean enabled = legacy.getBoolean(LEGACY_KEY_POST_PROCESS_ENABLED, false);
@@ -407,7 +626,7 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
             }
 
             if (legacy.contains(LEGACY_KEY_PROVIDER)) {
-                        writeMarkerIfAbsent(filesDir, PP_PROVIDER_FILE, legacy.getString(LEGACY_KEY_PROVIDER, "custom"));
+                writeMarkerIfAbsent(filesDir, PP_PROVIDER_FILE, legacy.getString(LEGACY_KEY_PROVIDER, "custom"));
             }
 
             if (legacy.contains(LEGACY_KEY_API_URL)) {
@@ -425,19 +644,30 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
                 }
             }
 
-            // The API key was historically stored in EncryptedSharedPreferences,
-            // not in the ordinary legacy preferences above. Read it with the
-            // exact old MasterKey/prefs name before clearing legacy state, then
-            // immediately move it into the cross-process marker store. If the
-            // old Keystore entry is unavailable (device restore, key invalidation
-            // or a corrupted legacy file), leave the marker absent: the runtime
-            // fast-fail path will ask the user to re-enter the key rather than
-            // sending an unauthenticated request and hiding the real cause.
-            // The outer migration lock already serializes this process-wide
-            // block; do not acquire the API-key lock recursively here.
-            boolean apiKeyMigrationReady = migrateLegacyApiKey(app, filesDir, legacy);
+            // The API key has three historical homes: the Base64 pp_api_key
+            // marker (most recent), EncryptedSharedPreferences (v0.1.19–v0.1.21)
+            // and plain SharedPreferences (earliest). CredentialMigration reads
+            // them in that recency order and moves the credential into the
+            // encrypted SecureCredentialStore BEFORE removing any legacy copy —
+            // the encrypted write is verified round-trip first. If encryption is
+            // unavailable (device restore, key invalidation, broken Keystore) the
+            // legacy copy is preserved for a later retry, and the runtime
+            // fast-fail path asks the user to re-enter the key rather than
+            // sending an unauthenticated request or writing plaintext.
+            //
+            // The coordinator removes the legacy API-key copy itself (with a
+            // checked commit()), which is why it is not part of the editor below:
+            // that removal must only happen after its own verified write.
+            //
+            // The import runs here, inside this lane task, rather than as a
+            // separate submission: this task is already on the credential lane,
+            // so the import stays ordered with respect to the settings screen's
+            // saves and deletions (an in-flight import can never write a
+            // credential the user has just deleted — see CredentialOperations).
+            credentialMigration(app, legacy).migrate();
 
-            // Synchronously commit the legacy-key removal (see class comment).
+            // Synchronously commit the removal of the non-secret legacy settings
+            // (see class comment).
             try {
                 SharedPreferences.Editor editor = legacy.edit();
                 editor.remove(LEGACY_KEY_POST_PROCESS_ENABLED);
@@ -445,14 +675,13 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
                 editor.remove(LEGACY_KEY_API_URL);
                 editor.remove(LEGACY_KEY_MODEL_NAME);
                 editor.remove(LEGACY_KEY_SYSTEM_PROMPT);
-                // The API key is removed only after migrateLegacyApiKey has
-                // copied it successfully. If the old encrypted store cannot
-                // be opened, retaining this plain fallback lets the next app
-                // start recover it instead of destroying the last copy.
-                if (apiKeyMigrationReady) {
-                    editor.remove(LEGACY_KEY_API_KEY);
+                if (!editor.commit()) {
+                    // Report it instead of claiming a clean migration: the
+                    // sentinel at the end of this block stops it from running
+                    // again, so a lost commit leaves these legacy values on disk.
+                    // They are inert (the markers above already hold the values).
+                    Log.e(TAG, "Legacy settings could not be cleared from SharedPreferences");
                 }
-                editor.commit();
             } catch (Exception e) {
                 Log.e(TAG, "Failed to clear legacy SharedPreferences", e);
             }
@@ -486,137 +715,196 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
                 lockFile.delete();
             }
         }
+        return true;
     }
 
-    private static void migrateLegacyApiKeyLocked(Context app, File filesDir) {
-        File lockFile = new File(filesDir, API_KEY_MIGRATION_SENTINEL + ".lock");
+    /**
+     * The per-start API-key migration retry, on the credential lane. Keeps its
+     * own cross-process file lock so it can never interleave with a save or a
+     * deletion. Runs on every start, including when the main settings migration
+     * already completed: the import is idempotent, and a Keystore failure or a
+     * legacy cleanup that did not persist must be retried instead of being
+     * written off.
+     */
+    private static boolean runLegacyApiKeyMigrationRetry(Context app, File filesDir) {
+        File lockFile = new File(filesDir, CredentialMigration.SENTINEL_NAME + ".lock");
         try (FileOutputStream fos = new FileOutputStream(lockFile, true)) {
             FileLock lock = fos.getChannel().tryLock();
-            if (lock == null) return;
+            if (lock == null) return true; // another process is migrating
             try {
-                migrateLegacyApiKey(app, filesDir,
-                        app.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE));
+                credentialMigration(app, legacyPrefs(app)).migrate();
             } finally {
                 try { lock.release(); } catch (IOException ignored) { }
             }
         } catch (OverlappingFileLockException | IOException e) {
             Log.w(TAG, "Legacy API key migration deferred");
         }
+        return true;
     }
 
-    private static void migrateLegacyApiKeyLocked(Context app, File filesDir,
-                                                  SharedPreferences legacy) {
-        File lockFile = new File(filesDir, API_KEY_MIGRATION_SENTINEL + ".lock");
-        try (FileOutputStream fos = new FileOutputStream(lockFile, true)) {
-            FileLock lock = fos.getChannel().tryLock();
-            if (lock == null) return;
-            try {
-                migrateLegacyApiKey(app, filesDir, legacy);
-            } finally {
-                try { lock.release(); } catch (IOException ignored) { }
-            }
-        } catch (OverlappingFileLockException | IOException e) {
-            Log.w(TAG, "Legacy API key migration deferred");
-        }
+    private static SharedPreferences legacyPrefs(Context app) {
+        return app.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
     }
 
-    private static boolean migrateLegacyApiKey(Context app, File filesDir,
-                                               SharedPreferences legacy) {
-        if (hasUsableApiKeyMarker(app)) return true;
-        if (new File(filesDir, API_KEY_MIGRATION_SENTINEL).exists()) return false;
+    /**
+     * Builds the API-key migration coordinator for this app's {@code filesDir}.
+     *
+     * <p>The rules (precedence, write-before-delete, sentinel semantics, retry)
+     * live in {@link CredentialMigration} so they are covered by JVM tests; this
+     * method only supplies the Android implementation of its seams and forwards
+     * its diagnostics to logcat. Nothing here logs key material.
+     */
+    private static CredentialMigration credentialMigration(Context app, SharedPreferences legacy) {
+        return new CredentialMigration(
+                secureStore(app.getFilesDir()),
+                new AndroidLegacySources(app, legacy),
+                app.getFilesDir(),
+                DIAGNOSTICS);
+    }
 
-        File legacyEncryptedFile = new File(
-                new File(app.getApplicationInfo().dataDir, "shared_prefs"),
-                LEGACY_ENCRYPTED_PREFS_NAME + ".xml");
-        boolean hasPlainFallback = legacy != null && legacy.contains(LEGACY_KEY_API_KEY);
-        if (!legacyEncryptedFile.exists() && !hasPlainFallback) {
-            // Fresh installs have no legacy key. Avoid creating a new
-            // EncryptedSharedPreferences file or touching Android Keystore.
-            try {
-                new File(filesDir, API_KEY_MIGRATION_SENTINEL).createNewFile();
-            } catch (IOException ignored) {
-                // Best effort only; the next startup can repeat this check.
+    private static final CredentialMigration.Diagnostics DIAGNOSTICS =
+            new CredentialMigration.Diagnostics() {
+                @Override
+                public void warn(String message) {
+                    Log.w(TAG, message);
+                }
+
+                @Override
+                public void error(String message) {
+                    Log.e(TAG, message);
+                }
+            };
+
+    /** Store for [filesDir]; the Keystore key provider is shared process-wide. */
+    private static SecureCredentialStore secureStore(File filesDir) {
+        return new SecureCredentialStore(filesDir, new AndroidCredentialKeyProvider());
+    }
+
+    /**
+     * The Android view of the legacy API-key sources: the Base64 marker file (the
+     * same file {@link SecureCredentialStore} reads and removes), the prefs file
+     * the older builds encrypted with {@code EncryptedSharedPreferences}, and the
+     * earliest plaintext prefs.
+     *
+     * <p>Every removal is verified — a {@code commit()} result plus a re-read — so
+     * a cleanup that did not actually persist is reported as retained and retried
+     * on the next start rather than assumed to have succeeded.
+     */
+    private static final class AndroidLegacySources implements CredentialMigration.LegacySources {
+        private final Context app;
+        private final SharedPreferences legacy;
+        private final File legacyEncryptedFile;
+
+        AndroidLegacySources(Context app, SharedPreferences legacy) {
+            this.app = app;
+            this.legacy = legacy;
+            this.legacyEncryptedFile = new File(
+                    new File(app.getApplicationInfo().dataDir, "shared_prefs"),
+                    LEGACY_ENCRYPTED_PREFS_NAME + ".xml");
+        }
+
+        @Override
+        public boolean hasMarker() {
+            // Non-empty, matching what SecureCredentialStore treats as a marker.
+            return MarkerFileHelper.readStringFromFile(
+                    app.getFilesDir(), PP_API_KEY_FILE, null) != null;
+        }
+
+        @Override
+        public boolean deleteMarker() {
+            MarkerFileHelper.delete(app, PP_API_KEY_FILE);
+            return !new File(app.getFilesDir(), PP_API_KEY_FILE).exists();
+        }
+
+        @Override
+        public boolean hasLegacyEncrypted() {
+            return legacyEncryptedFile.exists();
+        }
+
+        @Override
+        public CredentialMigration.LegacyRead readLegacyEncrypted() {
+            // Opening EncryptedSharedPreferences CREATES its backing file, so
+            // never do it when there is nothing to read: a fresh install must not
+            // grow a new legacy file (nor touch the Android Keystore).
+            if (!legacyEncryptedFile.exists()) {
+                return new CredentialMigration.LegacyRead(true, null);
             }
-            return false;
+            SharedPreferences encrypted = openLegacyEncrypted();
+            if (encrypted == null) {
+                return CredentialMigration.LegacyRead.unavailable();
+            }
+            try {
+                String key = encrypted.getString(LEGACY_KEY_API_KEY, "");
+                return new CredentialMigration.LegacyRead(
+                        true, (key == null || key.isEmpty()) ? null : key);
+            } catch (RuntimeException e) {
+                return CredentialMigration.LegacyRead.unavailable();
+            }
         }
 
-        String key = "";
-        SharedPreferences encrypted = null;
-        boolean encryptedReadCompleted = false;
-        try {
-            MasterKey masterKey = new MasterKey.Builder(app)
-                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                    .build();
-            encrypted = EncryptedSharedPreferences.create(
-                    app,
-                    LEGACY_ENCRYPTED_PREFS_NAME,
-                    masterKey,
-                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM);
-            key = encrypted.getString(LEGACY_KEY_API_KEY, "");
-            encryptedReadCompleted = true;
-        } catch (Exception e) {
-            // Try the historical plaintext fallback below. Never expose the
-            // exception or any key material in logs.
-            Log.w(TAG, "Legacy encrypted API key unavailable; trying fallback");
-        }
-
-        if ((key == null || key.isEmpty()) && legacy != null) {
-            key = legacy.getString(LEGACY_KEY_API_KEY, "");
-        }
-
-        if (key != null && !key.isEmpty()) {
-            String encoded = Base64.encodeToString(
-                    key.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
-            MarkerFileHelper.writeString(app, PP_API_KEY_FILE, encoded);
-            // Verify the atomic marker write before removing the only legacy
-            // copy. MarkerFileHelper deliberately has a void API and can only
-            // report a best-effort write, so read it back and compare exactly.
-            String stored = MarkerFileHelper.readString(app, PP_API_KEY_FILE, null);
-            if (!encoded.equals(stored)) {
-                Log.w(TAG, "Legacy API key migration deferred; marker write could not be verified");
+        @Override
+        public boolean deleteLegacyEncrypted() {
+            if (!legacyEncryptedFile.exists()) return true;
+            SharedPreferences encrypted = openLegacyEncrypted();
+            if (encrypted == null) return false;
+            try {
+                // commit(), not apply() (lint's [ApplySharedPref] suggestion): the
+                // caller reports the migration complete as soon as this returns,
+                // so an asynchronous removal could be lost to process death and
+                // leave the legacy key on disk for good — a durable removal is the
+                // point. The result is used, and the removal re-read: a commit
+                // that failed can leave the in-memory map already updated, so
+                // checking only the map would report success while the key is
+                // still on disk.
+                boolean committed = encrypted.edit().remove(LEGACY_KEY_API_KEY).commit();
+                return committed && encrypted.getString(LEGACY_KEY_API_KEY, null) == null;
+            } catch (RuntimeException e) {
+                // Retaining the old encrypted copy is safer than risking loss.
                 return false;
             }
-            // Best-effort cleanup after the marker has been verified.
-            //
-            // commit(), not apply() (lint's [ApplySharedPref] suggestion): the
-            // caller marks the migration complete as soon as this returns, so an
-            // asynchronous removal could be lost to process death and leave the
-            // legacy plain/encrypted key on disk for good — a durable removal is
-            // the point. It costs nothing on the UI thread either: the whole
-            // migration runs on App's "app-bootstrap" worker.
-            if (encrypted != null) {
-                try {
-                    encrypted.edit().remove(LEGACY_KEY_API_KEY).commit();
-                } catch (Exception ignored) {
-                    // Retaining the old encrypted copy is safer than risking
-                    // loss if cleanup fails.
-                }
-            }
-            return true;
         }
 
-        if (encryptedReadCompleted) {
-            // No old key existed. Do not reopen Keystore on every process start.
+        @Override
+        public boolean hasLegacyPlain() {
+            return legacy != null && legacy.contains(LEGACY_KEY_API_KEY);
+        }
+
+        @Override
+        public String legacyPlain() {
+            return legacy == null ? null : legacy.getString(LEGACY_KEY_API_KEY, null);
+        }
+
+        @Override
+        public boolean deleteLegacyPlain() {
+            if (legacy == null || !legacy.contains(LEGACY_KEY_API_KEY)) return true;
             try {
-                new File(filesDir, API_KEY_MIGRATION_SENTINEL).createNewFile();
-            } catch (IOException ignored) {
-                // The migration remains harmless if this best-effort marker fails.
+                // commit(): the plaintext copy must be durably gone before the
+                // migration stops retrying its removal.
+                boolean committed = legacy.edit().remove(LEGACY_KEY_API_KEY).commit();
+                return committed && !legacy.contains(LEGACY_KEY_API_KEY);
+            } catch (RuntimeException e) {
+                return false;
             }
         }
-        // If encryptedReadCompleted is false, leave the marker absent so a
-        // later startup can retry after a transient Keystore failure.
-        return false;
-    }
 
-    private static boolean hasUsableApiKeyMarker(Context app) {
-        String encoded = MarkerFileHelper.readString(app, PP_API_KEY_FILE, null);
-        if (encoded == null || encoded.isEmpty()) return false;
-        try {
-            byte[] decoded = Base64.decode(encoded, Base64.NO_WRAP);
-            return decoded.length > 0;
-        } catch (Exception e) {
-            return false;
+        /** Opens the legacy EncryptedSharedPreferences, or null when unavailable. */
+        private SharedPreferences openLegacyEncrypted() {
+            try {
+                MasterKey masterKey = new MasterKey.Builder(app)
+                        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                        .build();
+                return EncryptedSharedPreferences.create(
+                        app,
+                        LEGACY_ENCRYPTED_PREFS_NAME,
+                        masterKey,
+                        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM);
+            } catch (Exception e) {
+                // Never log this exception or any key material: the legacy store
+                // simply could not be read, which the caller reports generically
+                // and retries on a later start.
+                return null;
+            }
         }
     }
 

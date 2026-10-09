@@ -237,18 +237,17 @@ public class RustInputMethodService extends InputMethodService {
             ppToggle = view.findViewById(R.id.ime_pp_toggle);
 
             if (ppToggle != null) {
-                ppToggle.setChecked(SettingsManager.isPostProcessEnabled(this));
+                // The switch starts disabled and off: whether AI fix is on *and
+                // usable* is decided by an ordered credential read on the lane
+                // (see syncPostProcessToggle), never by reading storage — or
+                // AndroidKeyStore — here on the UI thread.
+                ppToggle.setEnabled(false);
                 ppToggle.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                    SettingsManager settingsManager = new SettingsManager(RustInputMethodService.this);
-                    if (isChecked && !settingsManager.isPostProcessConfigured()) {
-                        buttonView.setChecked(false);
-                        settingsManager.setPostProcessEnabled(false);
-                        Toast.makeText(RustInputMethodService.this,
-                                R.string.pp_not_configured_prompt, Toast.LENGTH_LONG).show();
-                        return;
-                    }
-                    settingsManager.setPostProcessEnabled(isChecked);
+                    if (suppressPpToggle) return;
+                    final SettingsManager settingsManager =
+                            new SettingsManager(RustInputMethodService.this);
                     if (!isChecked) {
+                        settingsManager.setPostProcessEnabled(false);
                         if (!isRecording && statusView != null
                                 && getString(R.string.ime_refining).equals(statusView.getText().toString())) {
                             PostProcessor.cancelAllFor(RustInputMethodService.this);
@@ -256,8 +255,29 @@ public class RustInputMethodService extends InputMethodService {
                                 commitFinalText(lastRawTranscript);
                             }
                         }
+                        return;
                     }
+                    // Turning it on needs a usable credential. Ask the lane and
+                    // only then persist, so the switch never shows ON for a state
+                    // the credential store cannot back.
+                    settingsManager.readPostProcessEnabled(mainHandler::post, usable -> {
+                        if (isDestroyed) return;
+                        if (!usable) {
+                            suppressPpToggle = true;
+                            try {
+                                buttonView.setChecked(false);
+                            } finally {
+                                suppressPpToggle = false;
+                            }
+                            settingsManager.setPostProcessEnabled(false);
+                            Toast.makeText(RustInputMethodService.this,
+                                    R.string.pp_not_configured_prompt, Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        settingsManager.setPostProcessEnabled(true);
+                    });
                 });
+                syncPostProcessToggle();
             }
 
             switchKeyboardButton.setOnClickListener(v -> {
@@ -497,7 +517,7 @@ public class RustInputMethodService extends InputMethodService {
         super.onStartInputView(info, restarting);
         inputActive = true;
         if (ppToggle != null) {
-            ppToggle.setChecked(SettingsManager.isPostProcessEnabled(this));
+            syncPostProcessToggle();
         }
         // Rebuild the keyboard if the theme preference changed while this
         // (long-lived) IME process stayed alive, so it matches the app setting.
@@ -790,7 +810,11 @@ public class RustInputMethodService extends InputMethodService {
 
             lastRawTranscript = text;
             SettingsManager settings = new SettingsManager(this);
-            if (settings.isPostProcessEnabled()) {
+            // Cheap switch check (no credential I/O on this thread). Whether a
+            // usable credential exists is decided inside PostProcessor by a read
+            // queued on the credential lane, behind any pending legacy import; if
+            // there is none, the raw transcript is delivered, exactly once.
+            if (settings.isPostProcessSwitchedOn()) {
                 lastStatus = "Processing...";
                 if (statusView != null) statusView.setText(getString(R.string.ime_refining));
                 if (hintView != null) hintView.setText("");
@@ -831,6 +855,35 @@ public class RustInputMethodService extends InputMethodService {
             } else {
                 commitFinalText(text);
             }
+        });
+    }
+
+    /**
+     * True while the AI-fix switch is being set programmatically, so its listener
+     * does not mistake that for a user action.
+     */
+    private boolean suppressPpToggle;
+
+    /**
+     * Reflects the AI-fix state on the toggle from an ordered credential read on
+     * the credential lane. The answer already accounts for a start-up legacy import
+     * that is still queued, so a migration in flight is not shown as "off", and no
+     * credential I/O happens on this (UI) thread. A stale answer is dropped by the
+     * identity check on the view.
+     */
+    private void syncPostProcessToggle() {
+        final android.widget.CompoundButton toggle = ppToggle;
+        if (toggle == null) return;
+        final SettingsManager settingsManager = new SettingsManager(this);
+        settingsManager.readPostProcessEnabled(mainHandler::post, enabled -> {
+            if (toggle != ppToggle || isDestroyed) return;
+            suppressPpToggle = true;
+            try {
+                toggle.setChecked(enabled);
+            } finally {
+                suppressPpToggle = false;
+            }
+            toggle.setEnabled(true);
         });
     }
 

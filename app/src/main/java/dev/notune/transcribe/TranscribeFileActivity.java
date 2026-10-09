@@ -5,6 +5,7 @@ import android.content.res.AssetFileDescriptor;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Intent;
+import android.database.Cursor;
 import android.media.MediaCodec;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
@@ -13,6 +14,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
+import android.provider.OpenableColumns;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
@@ -286,12 +288,44 @@ public class TranscribeFileActivity extends AppCompatActivity {
 
             } catch (CancellationException e) {
                 // User explicitly cancelled; do not surface an error or result.
+            } catch (BoundedSourceCopy.SourceTooLargeException tooLarge) {
+                // The fallback copy refused to write past the import byte cap.
+                // Show a dedicated localized message — the raw exception text is
+                // for the log, never the only thing the user sees.
+                if (cancelRequested.get() || opId != currentOpId) return;
+                Log.w(TAG, "Rejected a source larger than "
+                        + BoundedSourceCopy.MAX_SOURCE_FILE_BYTES + " bytes");
+                showError(getString(R.string.file_error_too_large));
             } catch (Exception e) {
                 if (cancelRequested.get() || opId != currentOpId) return;
                 Log.e(TAG, "Error decoding audio", e);
                 showError(getString(R.string.file_error_format, e.getMessage()));
             }
         }, "file-decode").start();
+    }
+
+    /**
+     * Best-effort size the content provider declares for {@code uri}, or {@code -1}
+     * when the metadata is missing, unknown (0/null) or the query is refused.
+     *
+     * <p>Only a fast-abort hint for the fallback copy: providers can and do
+     * report nothing or a wrong number, so the read-time accounting inside
+     * {@link BoundedSourceCopy} remains the authoritative enforcement.
+     */
+    private long queryDeclaredSize(Uri uri) {
+        try (Cursor cursor = getContentResolver().query(
+                uri, new String[]{OpenableColumns.SIZE}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int index = cursor.getColumnIndex(OpenableColumns.SIZE);
+                if (index >= 0 && !cursor.isNull(index)) {
+                    long size = cursor.getLong(index);
+                    if (size > 0) return size;
+                }
+            }
+        } catch (Throwable ignored) {
+            // Restricted providers may refuse the query; unknown size is fine.
+        }
+        return -1L;
     }
 
     private void showError(String message) {
@@ -325,19 +359,25 @@ public class TranscribeFileActivity extends AppCompatActivity {
 
             // 2. If direct FD failed (e.g. raw file:// URI or restricted cross-app stream), copy to local app cache
             if (!dataSourceSet) {
+                long declaredSize = queryDeclaredSize(uri);
                 try (java.io.InputStream in = getContentResolver().openInputStream(uri)) {
                     if (in != null) {
                         tempAudioFile = File.createTempFile("audio_decode_", ".tmp", getCacheDir());
-                        try (java.io.FileOutputStream out = new java.io.FileOutputStream(tempAudioFile)) {
-                            byte[] buf = new byte[65536];
-                            int read;
-                            while ((read = in.read(buf)) != -1) {
-                                out.write(buf, 0, read);
-                            }
-                        }
+                        // Bounded copy: the byte limit is enforced against the
+                        // bytes actually read (declared metadata may be missing
+                        // or wrong). Over the limit the helper deletes the
+                        // partial file and the exception is rethrown — not
+                        // swallowed like the other descriptor failures — so the
+                        // caller can show a localized error instead of silently
+                        // falling through to another resolution path.
+                        BoundedSourceCopy.copyToFile(
+                                in, tempAudioFile,
+                                BoundedSourceCopy.MAX_SOURCE_FILE_BYTES, declaredSize);
                         extractor.setDataSource(tempAudioFile.getAbsolutePath());
                         dataSourceSet = true;
                     }
+                } catch (BoundedSourceCopy.SourceTooLargeException tooLarge) {
+                    throw tooLarge;
                 } catch (Throwable ignored) {}
             }
 
@@ -571,12 +611,23 @@ public class TranscribeFileActivity extends AppCompatActivity {
     private void deliverTranscript(String text, int opId) {
         if (opId != currentOpId || cancelRequested.get() || isFinishing() || isDestroyed()) return;
         SettingsManager settings = new SettingsManager(this);
-        if (settings.isPostProcessEnabled()) {
+        // Cheap switch check (no credential I/O on this thread). PostProcessor
+        // performs the ordered credential read itself and shows the raw transcript
+        // when there is no usable credential, so a pending legacy import is never
+        // read as "not configured".
+        if (settings.isPostProcessSwitchedOn()) {
             statusText.setText(getString(R.string.file_refining));
             // Owned by this Activity so its teardown only cancels its own
-            // in-flight call, never another surface's (P0.1).
+            // in-flight call, never another surface's (P0.1). The operation id
+            // is part of the validator exactly as the IME and overlay include
+            // their session id: a read that completes after this operation was
+            // cancelled or replaced must not start a request with the stale
+            // transcript — the response would be dropped by the opId check
+            // below, but the cancelled speech would already have been sent to
+            // the provider.
+            final int ppOpId = opId;
             new PostProcessor(settings, new Handler(Looper.getMainLooper()),
-                    () -> !isFinishing() && !isDestroyed(), this)
+                    () -> ppOpId == currentOpId && !isFinishing() && !isDestroyed(), this)
                     .process(text, new PostProcessor.PostProcessCallback() {
                 @Override
                 public void onSuccess(String refinedText) {

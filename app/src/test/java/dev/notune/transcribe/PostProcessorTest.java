@@ -8,7 +8,11 @@ import org.junit.Test;
 
 import java.net.InetAddress;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -64,7 +68,7 @@ public class PostProcessorTest {
         String prompt = "";
 
         @Override
-        public boolean isPostProcessEnabled() {
+        public boolean isPostProcessSwitchedOn() {
             return enabled;
         }
 
@@ -74,8 +78,14 @@ public class PostProcessorTest {
         }
 
         @Override
-        public String getApiKey() {
-            return key;
+        public void readApiKey(java.util.concurrent.Executor callbackExecutor,
+                               java.util.function.Consumer<ApiKeyRead> callback) {
+            // Handed straight through the executor the processor passes in: the
+            // ordering guarantee itself belongs to the credential lane
+            // (SettingsManager), which CredentialOperationsTest drives with real
+            // latches. Every assertion in this suite is about the request the
+            // credential produces, not about the queue.
+            callbackExecutor.execute(() -> callback.accept(ApiKeyRead.loaded(key)));
         }
 
         @Override
@@ -132,19 +142,38 @@ public class PostProcessorTest {
     }
 
     @Test
-    public void missingApiKeyFailsBeforeNetworkRequest() throws Exception {
+    public void aMissingApiKeyNeverReachesTheNetwork() throws Exception {
+        // Ordinary dictation path: the switch is on but the ordered credential read
+        // finds no usable credential, so the raw transcript is delivered exactly
+        // once and no request is made — what every surface did in its `else` branch.
         FakeSettings settings = new FakeSettings();
         settings.url = server.url("/").toString();
         settings.key = "";
 
-        CountDownLatch done = new CountDownLatch(1);
-        AtomicReference<String> outcome = new AtomicReference<>("pending");
+        CountDownLatch raw = new CountDownLatch(1);
+        AtomicReference<String> rawOutcome = new AtomicReference<>("pending");
         newProcessor(settings, new Object()).process("raw",
-                callback("ok:", "err:", outcome, done));
+                callback("ok:", "err:", rawOutcome, raw));
 
-        assertTrue("missing-key callback must fire", done.await(2, TimeUnit.SECONDS));
-        assertEquals("err:" + PostProcessor.MISSING_API_KEY_ERROR, outcome.get());
-        assertEquals("missing key must not make an HTTP request", null,
+        assertTrue("the raw transcript must still be delivered", raw.await(2, TimeUnit.SECONDS));
+        assertEquals("ok:raw", rawOutcome.get());
+        assertEquals("a missing key must not make an HTTP request", null,
+                server.takeRequest(200, TimeUnit.MILLISECONDS));
+
+        // Forced path (the settings screen's diagnostic button): the same missing
+        // credential is reported as an error before the network is touched, so the
+        // screen can say "API key required" instead of looking like a broken
+        // provider — and an unreadable store is reported the same way rather than as
+        // a successful request.
+        CountDownLatch failed = new CountDownLatch(1);
+        AtomicReference<String> errorOutcome = new AtomicReference<>("pending");
+        newProcessor(settings, new Object()).testConnection(
+                callback("ok:", "err:", errorOutcome, failed));
+
+        assertTrue("the diagnostic must report the missing key",
+                failed.await(2, TimeUnit.SECONDS));
+        assertEquals("err:" + PostProcessor.MISSING_API_KEY_ERROR, errorOutcome.get());
+        assertEquals("the diagnostic must not make an HTTP request either", null,
                 server.takeRequest(200, TimeUnit.MILLISECONDS));
     }
 
@@ -525,6 +554,200 @@ public class PostProcessorTest {
         assertTrue(done.await(5, TimeUnit.SECONDS));
         assertNotNull(errorRef.get());
         assertTrue(errorRef.get().contains("S1-mini"));
+    }
+
+    /**
+     * A credential source that answers from another thread, counts the reads and
+     * can be parked mid-flight. The ordering guarantee itself belongs to the
+     * credential lane (driven with real latches in {@link CredentialOperationsTest});
+     * what these tests pin is the consumer side: one read per call, no request and
+     * no callback when the read has no usable answer, and no UI update once the
+     * surface is gone.
+     */
+    static class AsyncCredentialSettings extends FakeSettings {
+        private final Executor deliverOn;
+        final AtomicInteger reads = new AtomicInteger();
+        ApiKeyRead outcome = ApiKeyRead.loaded("test-key");
+        /** When set, the answer is held until the test releases it. */
+        CountDownLatch gate;
+        /** Counts down after the processor's continuation has run. */
+        CountDownLatch continuationRan;
+
+        AsyncCredentialSettings(Executor deliverOn) {
+            this.deliverOn = deliverOn;
+        }
+
+        @Override
+        public void readApiKey(Executor callbackExecutor, java.util.function.Consumer<ApiKeyRead> callback) {
+            reads.incrementAndGet();
+            deliverOn.execute(() -> callbackExecutor.execute(() -> {
+                CountDownLatch held = gate;
+                if (held != null) {
+                    try {
+                        if (!held.await(5, TimeUnit.SECONDS)) {
+                            throw new IllegalStateException("the credential read was never released");
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+                callback.accept(outcome);
+                CountDownLatch ran = continuationRan;
+                if (ran != null) ran.countDown();
+            }));
+        }
+    }
+
+    /** Credential source whose storage cannot be read. */
+    static class UnreadableCredentialSettings extends FakeSettings {
+        final AtomicInteger reads = new AtomicInteger();
+
+        @Override
+        public void readApiKey(Executor callbackExecutor, java.util.function.Consumer<ApiKeyRead> callback) {
+            reads.incrementAndGet();
+            callbackExecutor.execute(() -> callback.accept(ApiKeyRead.unreadable()));
+        }
+    }
+
+    /** Counts every final delivery, whatever its kind. */
+    private static final class CountingCallback implements PostProcessor.PostProcessCallback {
+        final AtomicInteger deliveries = new AtomicInteger();
+        final AtomicReference<String> outcome = new AtomicReference<>("pending");
+        private final CountDownLatch done;
+
+        CountingCallback(CountDownLatch done) {
+            this.done = done;
+        }
+
+        @Override
+        public void onSuccess(String refinedText) {
+            outcome.set("ok:" + refinedText);
+            deliveries.incrementAndGet();
+            done.countDown();
+        }
+
+        @Override
+        public void onError(String error) {
+            outcome.set("err:" + error);
+            deliveries.incrementAndGet();
+            done.countDown();
+        }
+    }
+
+    @Test
+    public void anUnreadableCredentialIsNeverAnsweredWithARefinedTranscript() throws Exception {
+        // Storage that exists but cannot be read is not "not configured": either way
+        // no request may be sent, and the ordinary dictation path must still deliver
+        // the raw transcript exactly once.
+        UnreadableCredentialSettings settings = new UnreadableCredentialSettings();
+        settings.url = server.url("/").toString();
+
+        CountDownLatch raw = new CountDownLatch(1);
+        CountingCallback dictation = new CountingCallback(raw);
+        newProcessor(settings, new Object()).process("raw", dictation);
+
+        assertTrue("the raw transcript must still be delivered", raw.await(2, TimeUnit.SECONDS));
+        assertEquals("ok:raw", dictation.outcome.get());
+        assertEquals(1, dictation.deliveries.get());
+        assertEquals("one ordered read per call", 1, settings.reads.get());
+        assertEquals("an unreadable credential must not reach the network", null,
+                server.takeRequest(200, TimeUnit.MILLISECONDS));
+
+        // The settings screen's diagnostic button: reported as a configuration
+        // problem, so the screen can say "API key required" instead of showing a
+        // provider error or a fake refinement.
+        CountDownLatch failed = new CountDownLatch(1);
+        CountingCallback diagnostic = new CountingCallback(failed);
+        newProcessor(settings, new Object()).testConnection(diagnostic);
+
+        assertTrue(failed.await(2, TimeUnit.SECONDS));
+        assertEquals("err:" + PostProcessor.MISSING_API_KEY_ERROR, diagnostic.outcome.get());
+        assertEquals(1, diagnostic.deliveries.get());
+        assertEquals("one ordered read per call", 2, settings.reads.get());
+        assertEquals("the diagnostic must not probe without a credential", null,
+                server.takeRequest(200, TimeUnit.MILLISECONDS));
+    }
+
+    @Test
+    public void anAsynchronousCredentialReadMakesExactlyOneRequestAndOneDelivery()
+            throws Exception {
+        ExecutorService credentialThread = Executors.newSingleThreadExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "pp-credential-read");
+            thread.setDaemon(true);
+            return thread;
+        });
+        try {
+            AsyncCredentialSettings settings = new AsyncCredentialSettings(credentialThread);
+            settings.url = server.url("/").toString();
+            server.enqueue(new MockResponse().setBody(completionJson("refined")));
+
+            CountDownLatch done = new CountDownLatch(1);
+            CountingCallback callback = new CountingCallback(done);
+            newProcessor(settings, new Object()).process("raw", callback);
+
+            assertTrue("callback must fire", done.await(5, TimeUnit.SECONDS));
+            assertEquals("ok:refined", callback.outcome.get());
+            assertEquals("exactly one delivery", 1, callback.deliveries.get());
+            assertEquals("exactly one ordered read", 1, settings.reads.get());
+
+            RecordedRequest request = server.takeRequest(2, TimeUnit.SECONDS);
+            assertNotNull("the request is sent once the read answers", request);
+            assertEquals("Bearer test-key", request.getHeader("Authorization"));
+            assertEquals("no second request", null,
+                    server.takeRequest(200, TimeUnit.MILLISECONDS));
+        } finally {
+            credentialThread.shutdownNow();
+        }
+    }
+
+    @Test
+    public void aDestroyedConsumerGetsNoCallbackWhileTheReadStillCompletes() throws Exception {
+        ExecutorService credentialThread = Executors.newSingleThreadExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "pp-credential-read");
+            thread.setDaemon(true);
+            return thread;
+        });
+        try {
+            AsyncCredentialSettings settings = new AsyncCredentialSettings(credentialThread);
+            settings.url = server.url("/").toString();
+            // Park the read so the surface can be destroyed while it is in flight.
+            settings.gate = new CountDownLatch(1);
+            settings.continuationRan = new CountDownLatch(1);
+            AtomicBoolean alive = new AtomicBoolean(true);
+            PostProcessor processor = new PostProcessor(settings, null, alive::get, new Object());
+
+            CountDownLatch done = new CountDownLatch(1);
+            CountingCallback callback = new CountingCallback(done);
+            processor.process("raw", callback);
+
+            alive.set(false); // the Activity/Service goes away mid-read
+            settings.gate.countDown();
+
+            assertTrue("the read must still complete",
+                    settings.continuationRan.await(5, TimeUnit.SECONDS));
+            assertEquals("the read is submitted once and not reordered",
+                    1, settings.reads.get());
+            assertEquals("a destroyed consumer receives no update", 0, callback.deliveries.get());
+            assertEquals("and no request is made on its behalf", null,
+                    server.takeRequest(200, TimeUnit.MILLISECONDS));
+
+            // A live surface afterwards is served normally: the dropped callback did
+            // not poison the processor or the credential source.
+            server.enqueue(new MockResponse().setBody(completionJson("refined")));
+            settings.gate = null;
+            settings.continuationRan = null;
+            alive.set(true);
+            CountDownLatch second = new CountDownLatch(1);
+            CountingCallback live = new CountingCallback(second);
+            processor.process("raw again", live);
+
+            assertTrue(second.await(5, TimeUnit.SECONDS));
+            assertEquals("ok:refined", live.outcome.get());
+            assertEquals(1, live.deliveries.get());
+            assertEquals(2, settings.reads.get());
+        } finally {
+            credentialThread.shutdownNow();
+        }
     }
 
     private static PostProcessor.PostProcessCallback callback(

@@ -4,9 +4,13 @@
 Why this exists on top of the Gradle gates (`verifyReleaseApkModel`,
 `verifyReleaseBundleModel`): a release pipeline should not rest on a single
 implementation of its most important invariant. The Gradle gates compare the
-*entry size* and match the asset path by suffix; this script is a second,
-deliberately different check that also compares the **content hash** and the
-**delivery location**, and it can be run by hand against any artifact.
+*entry size* at the exact expected path; this script is a second, deliberately
+different check that also compares the **content hash**, and it can be run by
+hand against any artifact. Both implementations agree on what constitutes a
+valid package: the model is accepted only at the artifact's exact packaging
+path (APK `assets/builtin-model/<name>`, AAB
+`model_assets/assets/builtin-model/<name>`), and any copy anywhere else in the
+archive is a failure — a suffix match is not enough.
 
 Division of labour with `checkModels` (Gradle): `checkModels` proves the source
 asset on disk has the SHA-256 declared in `modelPackFiles`. This script proves
@@ -27,11 +31,31 @@ from __future__ import annotations
 import argparse
 import hashlib
 import os
+import posixpath
 import sys
+import zlib
 import zipfile
 
 ASSET_SUBDIR = "assets/builtin-model/"
 CHUNK = 1024 * 1024
+
+
+def expected_entry_path(kind: str, model_name: str) -> str:
+    """The one archive path where `kind` must carry the model.
+
+    Derived from the repository's packaging logic, not from convention:
+
+    * APK: the release source set folds `model_assets/src/main/assets/` into the
+      base module's `assets/` directory (see the `if (!isBundle)` block in
+      `app/build.gradle.kts`), so the entry is `assets/builtin-model/<name>`.
+    * AAB: the model lives only in the `:model_assets` asset pack
+      (`dynamicDelivery = "install-time"`), and a bundle stores each module's
+      assets under `<module>/assets/`, so the entry is
+      `model_assets/assets/builtin-model/<name>`.
+    """
+    if kind == "aab":
+        return "model_assets/" + ASSET_SUBDIR + model_name
+    return ASSET_SUBDIR + model_name
 
 
 def sha256_of(path: str) -> str:
@@ -97,78 +121,114 @@ def verify(kind: str, archive_path: str, model_dir: str, allow_model_less: bool)
         print(f"FAIL: {archive_path} is not a readable zip: {error}", file=sys.stderr)
         return 1
 
-    with archive:
-        entries = [info for info in archive.infolist() if not info.is_dir()]
-        total_entries = len(entries)
+    # Reading an archive *entry* can fail as well: a corrupted entry fails its
+    # CRC mid-read, a truncated one raises EOFError/zlib errors. Every such
+    # failure must fail the verification with a diagnostic instead of escaping
+    # as an uncaught traceback (fail closed).
+    try:
+        with archive:
+            entries = [info for info in archive.infolist() if not info.is_dir()]
+            total_entries = len(entries)
 
-        for model_name in names:
-            suffix = ASSET_SUBDIR + model_name
-            matches = [info for info in entries if info.filename.endswith(suffix)]
-            model_entries += len(matches)
+            for model_name in names:
+                expected_path = expected_entry_path(kind, model_name)
+                # Every entry whose file name equals the model's is a copy of it,
+                # wherever it sits. Basename matching is what catches a nested or
+                # stray duplicate that a suffix check would silently accept.
+                copies = [
+                    info
+                    for info in entries
+                    if posixpath.basename(info.filename) == model_name
+                ]
+                model_entries += len(copies)
+                expected_entry = next(
+                    (info for info in copies if info.filename == expected_path), None
+                )
 
-            if not matches:
-                if allow_model_less:
-                    print(
-                        f"WARNING: {archive_path} does not contain {suffix} — allowed by "
-                        f"--allow-model-less. THIS ARTIFACT IS NOT DISTRIBUTABLE."
+                if expected_entry is None:
+                    if copies:
+                        # Present but misplaced: not "missing", so the model-less
+                        # opt-in must not paper over it either.
+                        failures.append(
+                            f"{kind.upper()} places {model_name} at "
+                            f"{', '.join(info.filename for info in copies)}, but the only "
+                            f"valid delivery path for this artifact is {expected_path}"
+                        )
+                        continue
+                    if allow_model_less:
+                        print(
+                            f"WARNING: {archive_path} does not contain {expected_path} — "
+                            f"allowed by --allow-model-less. THIS ARTIFACT IS NOT "
+                            f"DISTRIBUTABLE."
+                        )
+                        continue
+                    failures.append(
+                        f"{kind.upper()} does not contain {expected_path}"
                     )
                     continue
-                failures.append(f"{kind.upper()} does not contain {suffix}")
-                continue
 
-            if len(matches) > 1:
-                failures.append(
-                    f"{kind.upper()} contains {model_name} {len(matches)} times "
-                    f"({', '.join(info.filename for info in matches)}) — the model must be "
-                    f"delivered exactly once"
+                if len(copies) > 1:
+                    failures.append(
+                        f"{kind.upper()} contains {model_name} {len(copies)} times "
+                        f"({', '.join(info.filename for info in copies)}) — the model must "
+                        f"be delivered exactly once"
+                    )
+                    continue
+
+                entry = expected_entry
+
+                if entry.file_size != expected[model_name]:
+                    failures.append(
+                        f"{kind.upper()} packages {model_name} at {entry.file_size} bytes but "
+                        f"the source asset is {expected[model_name]} bytes (truncated or stale)"
+                    )
+                    continue
+
+                found = sha256_of_zip_entry(archive, entry.filename)
+                if found != hashes[model_name]:
+                    failures.append(
+                        f"{kind.upper()} packages a {model_name} whose SHA-256 is {found} but "
+                        f"the source asset is {hashes[model_name]}"
+                    )
+                    continue
+
+                print(
+                    f"  {kind.upper()} {os.path.basename(archive_path)}: OK {entry.filename} "
+                    f"({entry.file_size} bytes, sha256 {found[:16]}…)"
                 )
-                continue
 
-            entry = matches[0]
-
-            # An AAB must deliver the model through the :model_assets asset pack, and
-            # a copy in the base module as well would ship ~750 MB to the user twice.
-            if kind == "aab" and not entry.filename.startswith("model_assets/"):
-                failures.append(
-                    f"AAB packages {model_name} at {entry.filename}, which is not inside the "
-                    f":model_assets asset pack"
-                )
-                continue
-
-            if entry.file_size != expected[model_name]:
-                failures.append(
-                    f"{kind.upper()} packages {model_name} at {entry.file_size} bytes but the "
-                    f"source asset is {expected[model_name]} bytes (truncated or stale)"
-                )
-                continue
-
-            found = sha256_of_zip_entry(archive, entry.filename)
-            if found != hashes[model_name]:
-                failures.append(
-                    f"{kind.upper()} packages a {model_name} whose SHA-256 is {found} but the "
-                    f"source asset is {hashes[model_name]}"
-                )
-                continue
-
-            print(
-                f"  {kind.upper()} {os.path.basename(archive_path)}: OK {entry.filename} "
-                f"({entry.file_size} bytes, sha256 {found[:16]}…)"
-            )
-
-        # Duplicate-delivery guard that does not depend on which module the copy
-        # landed in: an AAB must contain the model in the asset pack and nowhere
-        # else, so any second copy under base/ is a packaging mistake.
-        if kind == "aab":
+            # Directory-level guard: `assets/builtin-model/` may appear only at the
+            # artifact's allowed location. This also catches undeclared leftovers
+            # (e.g. a stale GGUF merged into an unexpected module) that name
+            # matching alone would miss.
+            allowed_prefix = expected_entry_path(kind, "")
             stray = [
                 info.filename
                 for info in entries
-                if info.filename.startswith("base/") and ASSET_SUBDIR in info.filename
+                if ASSET_SUBDIR in info.filename
+                and not info.filename.startswith(allowed_prefix)
             ]
             if stray:
                 failures.append(
-                    "AAB base module also contains the bundled model "
-                    f"({', '.join(stray)}); it must be delivered only by :model_assets"
+                    f"{kind.upper()} contains the bundled-model directory outside "
+                    f"{allowed_prefix} ({', '.join(stray)}) — the model must be delivered "
+                    f"only at {allowed_prefix}<model>"
                 )
+    except (
+        zipfile.BadZipFile,
+        zipfile.LargeZipFile,
+        OSError,
+        EOFError,
+        ValueError,
+        RuntimeError,
+        zlib.error,
+    ) as error:
+        print(
+            f"FAIL: {archive_path} could not be read to completion: "
+            f"{type(error).__name__}: {error}",
+            file=sys.stderr,
+        )
+        return 1
 
     if failures:
         for failure in failures:

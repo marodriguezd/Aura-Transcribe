@@ -242,7 +242,10 @@ public class RecognizeActivity extends AppCompatActivity {
             }
 
             SettingsManager settings = new SettingsManager(this);
-            if (settings.isPostProcessEnabled()) {
+            // Cheap switch check (no credential I/O on this thread). PostProcessor
+            // decides with a read queued on the credential lane, behind any pending
+            // legacy import, and delivers the raw transcript when there is none.
+            if (settings.isPostProcessSwitchedOn()) {
                 status.setText(getString(R.string.rec_refining));
                 // Privacy (v0.1.24): never log the transcript or the provider
                 // endpoint in release builds. Debug-only diagnostics keep the

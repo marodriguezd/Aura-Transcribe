@@ -135,6 +135,7 @@
     <string name="pp_api_url">Basis-URL (OpenAI-kompatibel)</string>
     <string name="pp_api_key">API-Schlüssel</string>
     <string name="pp_api_key_required">Gib einen API-Schlüssel ein, um die Nachbearbeitung zu verwenden.</string>
+    <string name="pp_api_key_save_failed">Der API-Schlüssel konnte nicht gesichert gespeichert werden. Bitte versuche es erneut.</string>
     <string name="pp_model">Modellname</string>
     <string name="pp_refresh_models">Verfügbare Modelle abrufen</string>
     <string name="pp_models_loaded">Modelle geladen — tippe auf das Feld, um eines zu wählen</string>
@@ -234,6 +235,7 @@
     <string name="debug_model_unknown_reason">unbekannt</string>
     <string name="bench_no_data_chunk">kein Datenblock in %1$s</string>
     <string name="file_error_too_long">Die Audiodatei ist länger als 30 Minuten. Bitte transkribiere eine kürzere Datei.</string>
+    <string name="file_error_too_large">Die Audiodatei ist zum Importieren zu groß (Maximalgröße 1 GB). Bitte wähle eine kleinere Datei.</string>
 
     <!-- Floating dictation overlay & Accessibility auto-paste -->
     <string name="floating_bubble_description">Schwebende Sprachdiktat-Blase</string>

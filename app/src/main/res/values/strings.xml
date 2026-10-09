@@ -142,6 +142,7 @@
     <string name="pp_api_url">Base URL (OpenAI-compatible)</string>
     <string name="pp_api_key">API key</string>
     <string name="pp_api_key_required">Enter an API key to use post-processing.</string>
+    <string name="pp_api_key_save_failed">Could not securely save the API key. Please try again.</string>
     <string name="pp_model">Model name</string>
     <string name="pp_refresh_models">Fetch available models</string>
     <string name="pp_models_loaded">Models loaded — tap the field to pick one</string>
@@ -256,6 +257,7 @@
     <string name="debug_model_unknown_reason">unknown</string>
     <string name="bench_no_data_chunk">no data chunk in %1$s</string>
     <string name="file_error_too_long">The audio file is longer than 30 minutes. Please transcribe a shorter file.</string>
+    <string name="file_error_too_large">The audio file is too large to import (maximum size 1 GB). Please choose a smaller file.</string>
 
     <!-- Floating overlay & accessibility auto-paste (feature/floating-bubble-dictation) -->
     <string name="floating_bubble_description">Floating voice dictation bubble</string>

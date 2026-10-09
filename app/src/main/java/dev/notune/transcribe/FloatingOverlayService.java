@@ -439,18 +439,15 @@ public class FloatingOverlayService extends Service {
         mCloseButton.setOnClickListener(v -> collapsePanel());
 
         if (mPpToggle != null) {
-            mPpToggle.setChecked(SettingsManager.isPostProcessEnabled(this));
+            // Starts disabled and off: whether AI fix is on *and usable* comes from
+            // an ordered credential read on the lane (syncPostProcessToggle), never
+            // from storage or AndroidKeyStore I/O on this (UI) thread.
+            mPpToggle.setEnabled(false);
             mPpToggle.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                SettingsManager sm = new SettingsManager(FloatingOverlayService.this);
-                if (isChecked && !sm.isPostProcessConfigured()) {
-                    buttonView.setChecked(false);
-                    sm.setPostProcessEnabled(false);
-                    Toast.makeText(FloatingOverlayService.this,
-                            R.string.pp_not_configured_prompt, Toast.LENGTH_LONG).show();
-                    return;
-                }
-                sm.setPostProcessEnabled(isChecked);
+                if (mSuppressPpToggle) return;
+                final SettingsManager sm = new SettingsManager(FloatingOverlayService.this);
                 if (!isChecked) {
+                    sm.setPostProcessEnabled(false);
                     if (!mIsRecording && mStatusText != null
                             && getString(R.string.ime_refining).equals(mStatusText.getText().toString())) {
                         PostProcessor.cancelAllFor(FloatingOverlayService.this);
@@ -458,8 +455,28 @@ public class FloatingOverlayService extends Service {
                             deliverFinalText(mLastRawTranscript);
                         }
                     }
+                    return;
                 }
+                // Turning it on needs a usable credential: ask the lane, then
+                // persist only if the answer is yes.
+                sm.readPostProcessEnabled(mMainHandler::post, usable -> {
+                    if (mIsDestroyed) return;
+                    if (!usable) {
+                        mSuppressPpToggle = true;
+                        try {
+                            buttonView.setChecked(false);
+                        } finally {
+                            mSuppressPpToggle = false;
+                        }
+                        sm.setPostProcessEnabled(false);
+                        Toast.makeText(FloatingOverlayService.this,
+                                R.string.pp_not_configured_prompt, Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    sm.setPostProcessEnabled(true);
+                });
             });
+            syncPostProcessToggle();
         }
 
         mCancelButton.setOnClickListener(v -> cancelCurrentTranscription());
@@ -608,7 +625,7 @@ public class FloatingOverlayService extends Service {
         mBubbleRoot.setVisibility(View.GONE);
         mPanelRoot.setVisibility(View.VISIBLE);
         if (mPpToggle != null) {
-            mPpToggle.setChecked(SettingsManager.isPostProcessEnabled(this));
+            syncPostProcessToggle();
         }
         // Full-width panel, IME style: stretch the window to near-screen width
         // and anchor it below the status bar, centered horizontally.
@@ -1463,6 +1480,34 @@ public class FloatingOverlayService extends Service {
         });
     }
 
+    /**
+     * True while the AI-fix switch is being set programmatically, so its listener
+     * does not mistake that for a user action.
+     */
+    private boolean mSuppressPpToggle;
+
+    /**
+     * Reflects the AI-fix state on the overlay toggle from an ordered credential
+     * read on the credential lane: no credential I/O on this (UI) thread, and an
+     * answer that already accounts for a start-up legacy import still queued. A
+     * stale answer is dropped by the identity check on the view.
+     */
+    private void syncPostProcessToggle() {
+        final android.widget.CompoundButton toggle = mPpToggle;
+        if (toggle == null) return;
+        final SettingsManager sm = new SettingsManager(this);
+        sm.readPostProcessEnabled(mMainHandler::post, enabled -> {
+            if (toggle != mPpToggle || mIsDestroyed) return;
+            mSuppressPpToggle = true;
+            try {
+                toggle.setChecked(enabled);
+            } finally {
+                mSuppressPpToggle = false;
+            }
+            toggle.setEnabled(true);
+        });
+    }
+
     public void onTextTranscribed(String text, int sessionId) {
         mMainHandler.post(() -> {
             if (sessionId != mCurrentSessionId) return;
@@ -1478,7 +1523,10 @@ public class FloatingOverlayService extends Service {
 
             mLastRawTranscript = text;
             SettingsManager settings = new SettingsManager(this);
-            if (settings.isPostProcessEnabled()) {
+            // Cheap switch check (no credential I/O on this thread); PostProcessor
+            // performs the ordered credential read and falls back to the raw
+            // transcript, exactly once, when there is no usable credential.
+            if (settings.isPostProcessSwitchedOn()) {
                 mLastStatus = "Processing...";
                 if (mStatusText != null) mStatusText.setText(getString(R.string.ime_refining));
                 if (mProgress != null) mProgress.setVisibility(View.VISIBLE);

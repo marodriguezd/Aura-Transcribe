@@ -135,6 +135,7 @@
     <string name="pp_api_url">Базовый URL (совместимый с OpenAI)</string>
     <string name="pp_api_key">Ключ API</string>
     <string name="pp_api_key_required">Введите ключ API, чтобы использовать постобработку.</string>
+    <string name="pp_api_key_save_failed">Не удалось безопасно сохранить ключ API. Повторите попытку.</string>
     <string name="pp_model">Название модели</string>
     <string name="pp_refresh_models">Получить доступные модели</string>
     <string name="pp_models_loaded">Модели загружены — коснитесь поля, чтобы выбрать</string>
@@ -234,6 +235,7 @@
     <string name="debug_model_unknown_reason">неизвестно</string>
     <string name="bench_no_data_chunk">нет блока данных в %1$s</string>
     <string name="file_error_too_long">Аудиофайл длится более 30 минут. Транскрибируйте более короткий файл.</string>
+    <string name="file_error_too_large">Аудиофайл слишком большой для импорта (максимальный размер 1 ГБ). Выберите файл меньшего размера.</string>
 
     <!-- Floating dictation overlay & Accessibility auto-paste -->
     <string name="floating_bubble_description">Плавающий пузырь голосового диктовщика</string>

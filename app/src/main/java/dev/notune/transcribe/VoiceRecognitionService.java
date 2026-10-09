@@ -200,11 +200,16 @@ public class VoiceRecognitionService extends RecognitionService {
 
     private void deliverResults(Callback cb, String text, int sessionId) {
         SettingsManager settings = new SettingsManager(this);
-        if (settings.isPostProcessEnabled()) {
+        // Cheap switch check (no credential I/O on this thread). PostProcessor does
+        // the ordered credential read on the credential lane — queued behind any
+        // pending legacy import — and hands back the raw transcript when there is
+        // no usable credential, so nothing is dropped and no unauthenticated
+        // request is sent.
+        if (settings.isPostProcessSwitchedOn()) {
             // Owned by this service so a cancelled/destroyed session only
             // cancels its own call, never another surface's (P0.1).
             new PostProcessor(settings, mainHandler,
-                    () -> sessionId == currentSessionId && settings.isPostProcessEnabled(),
+                    () -> sessionId == currentSessionId && settings.isPostProcessSwitchedOn(),
                     this)
                     .process(text, new PostProcessor.PostProcessCallback() {
                 @Override

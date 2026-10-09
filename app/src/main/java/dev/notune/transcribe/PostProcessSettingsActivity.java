@@ -55,6 +55,14 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
     private TextView txtS1Status;
     private Button btnDownloadS1;
     private ProgressBar progressS1;
+    private Button btnSave;
+    private Button btnTestConnection;
+
+    /**
+     * Main-thread delivery for the credential-write outcome and for the
+     * provider network callbacks (both must touch views).
+     */
+    private Handler mainHandler;
 
     /** Provider id currently selected in the dropdown. */
     private String selectedProviderId;
@@ -118,6 +126,7 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
         // bounded main-thread wait.
 
         settings = new SettingsManager(this);
+        mainHandler = new Handler(Looper.getMainLooper());
 
         MaterialToolbar toolbar = findViewById(R.id.toolbar);
         if (toolbar != null) {
@@ -183,7 +192,12 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
         updateLocalModelCard();
         btnDownloadS1.setOnClickListener(v -> downloadS1Model());
 
-        switchEnabled.setChecked(settings.isPostProcessEnabled());
+        // The switch starts off and disabled: the real state (marker AND a usable
+        // credential, read on the credential lane) is applied by
+        // loadApiKeyAndState() once that ordered read answers, so this screen never
+        // derives it from credential I/O on the UI thread.
+        switchEnabled.setEnabled(false);
+        switchEnabled.setChecked(false);
         switchEnabled.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (suppressEnableChecks) return;
             if (isChecked) {
@@ -207,22 +221,86 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
             }
         });
         editApiUrl.setText(settings.getApiUrl());
-        editApiKey.setText(settings.getApiKey());
         editModel.setText(settings.getModelName());
         editPrompt.setText(settings.getActivePromptBody());
-        if (settings.isPostProcessEnabled() && !SettingsManager.PROVIDER_LOCAL_S1.equals(selectedProviderId) && settings.getApiKey().isEmpty()) {
-            layoutApiKey.setError(getString(R.string.pp_api_key_required));
-        }
+        // The saved key is loaded asynchronously by loadApiKeyAndState() below:
+        // reading it here would decrypt with AndroidKeyStore on the UI thread.
 
         updateProviderUi(current, false);
 
         btnRefreshModels.setOnClickListener(v -> fetchModels());
 
-        Button save = findViewById(R.id.btn_save);
-        save.setOnClickListener(v -> save(true));
+        btnSave = findViewById(R.id.btn_save);
+        btnSave.setOnClickListener(v -> saveAndClose());
 
-        Button testConnection = findViewById(R.id.btn_test_connection);
-        testConnection.setOnClickListener(v -> testConnection(testConnection));
+        btnTestConnection = findViewById(R.id.btn_test_connection);
+        btnTestConnection.setOnClickListener(v -> testConnection(btnTestConnection));
+
+        // Everything that depends on the credential waits for the ordered read.
+        loadApiKeyAndState();
+    }
+
+    /**
+     * Loads the saved credential and the AI-fix state through ordered reads on the
+     * credential lane, then applies them on the main thread.
+     *
+     * <p>Why not read here: the key is encrypted with AndroidKeyStore, so the read
+     * is file I/O plus a decrypt, and the lane is what orders it behind the
+     * start-up legacy import (a key that lives only in the legacy prefs is
+     * therefore found rather than reported missing) and behind any save or deletion
+     * already queued.
+     *
+     * <p>Save, test and fetch stay disabled until the read has answered — they all
+     * depend on it — and an unreadable store is reported distinctly from "nothing
+     * configured": the field is left empty for re-entry rather than silently
+     * pretending there is no credential.
+     */
+    private void loadApiKeyAndState() {
+        setActionsEnabled(false);
+        settings.readApiKey(mainHandler::post, read -> {
+            if (isFinishing() || isDestroyed()) return;
+            if (read.status() == ApiKeyRead.Status.LOADED) {
+                editApiKey.setText(read.key());
+            } else {
+                editApiKey.setText("");
+                if (read.status() == ApiKeyRead.Status.UNREADABLE) {
+                    // Something is stored but could not be read (corrupt/tampered
+                    // ciphertext, Keystore unavailable): ask for a re-entry instead
+                    // of pretending the credential is absent.
+                    layoutApiKey.setError(getString(R.string.pp_api_key_required));
+                }
+            }
+            settings.readPostProcessEnabled(mainHandler::post, enabled -> {
+                if (isFinishing() || isDestroyed()) return;
+                suppressEnableChecks = true;
+                try {
+                    switchEnabled.setChecked(enabled);
+                } finally {
+                    suppressEnableChecks = false;
+                }
+                switchEnabled.setEnabled(true);
+                applyApiKeyErrorState();
+                setActionsEnabled(true);
+            });
+        });
+    }
+
+    /** Flags the key field when the switch is on but nothing usable is stored. */
+    private void applyApiKeyErrorState() {
+        boolean needsKey = switchEnabled.isChecked()
+                && !SettingsManager.PROVIDER_LOCAL_S1.equals(selectedProviderId)
+                && editApiKey.getText().toString().trim().isEmpty();
+        layoutApiKey.setError(needsKey ? getString(R.string.pp_api_key_required) : null);
+    }
+
+    /**
+     * Save, test and fetch all read or depend on the credential, so they stay
+     * disabled until the ordered read that loads it has answered.
+     */
+    private void setActionsEnabled(boolean enabled) {
+        if (btnSave != null) btnSave.setEnabled(enabled);
+        if (btnTestConnection != null) btnTestConnection.setEnabled(enabled);
+        if (btnRefreshModels != null) btnRefreshModels.setEnabled(enabled);
     }
 
     private void updateLocalModelCard() {
@@ -381,11 +459,20 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
      * Fetches the /models list from the currently selected provider using
      * the values in the form (persisting them first, since PostProcessor
      * reads from SettingsManager), and fills the model dropdown.
+     *
+     * <p>The request only starts once the credential write has completed — not
+     * merely been submitted — because the request reads the key back from
+     * {@link SettingsManager}. As before, it proceeds even if that write failed:
+     * the provider call then reports the missing key, which is the accurate
+     * reason.
      */
     private void fetchModels() {
-        save(false);
+        persistSettings(saved -> requestModels());
+    }
+
+    private void requestModels() {
         btnRefreshModels.setEnabled(false);
-        new PostProcessor(settings, new Handler(Looper.getMainLooper()),
+        new PostProcessor(settings, mainHandler,
                 () -> !isFinishing() && !isDestroyed(), this)
                 .fetchModels(new PostProcessor.ModelsCallback() {
             @Override
@@ -412,10 +499,14 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
         });
     }
 
+    /** Persists the form, then probes the provider with the stored values. */
     private void testConnection(Button button) {
-        save(false);
         button.setEnabled(false);
-        new PostProcessor(settings, new Handler(Looper.getMainLooper()),
+        persistSettings(saved -> requestConnection(button));
+    }
+
+    private void requestConnection(Button button) {
+        new PostProcessor(settings, mainHandler,
                 () -> !isFinishing() && !isDestroyed(), this)
                 .testConnection(new PostProcessor.PostProcessCallback() {
             @Override
@@ -436,8 +527,42 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
         });
     }
 
-    private void save(boolean closeAfter) {
-        boolean wasEnabled = settings.isPostProcessEnabled();
+    /**
+     * Save button: persists the form and closes the screen, but only once the
+     * credential write has actually succeeded. A failed write is not reported as
+     * a successful save, and the screen stays open so the user can retry (the
+     * failure itself is already reported by {@link #persistSettings}).
+     */
+    private void saveAndClose() {
+        persistSettings(saved -> {
+            if (!saved) return;
+            Toast.makeText(this, R.string.pp_saved, Toast.LENGTH_SHORT).show();
+            finish();
+        });
+    }
+
+    /** Continuation of {@link #persistSettings}; receives the credential outcome. */
+    private interface PersistCallback {
+        void onPersisted(boolean apiKeySaved);
+    }
+
+    /**
+     * Writes the form.
+     *
+     * <p>The non-secret settings are marker files and are written synchronously.
+     * The API key is deliberately not: it is encrypted with an Android Keystore
+     * key, and every credential mutation — including the start-up legacy import —
+     * is serialized on {@link SettingsManager}'s credential lane, which must not
+     * be entered from the main thread while a migration holds it. The write is
+     * therefore submitted asynchronously; the save button is disabled until the
+     * outcome arrives, and {@code afterPersist} runs only once the operation has
+     * completed, with its durable result.
+     */
+    private void persistSettings(PersistCallback afterPersist) {
+        // The cheap marker state (no credential I/O): it is what every surface
+        // consults, and the only thing this needs to know is whether AI fix was on
+        // before this save, so turning it off can cancel in-flight calls.
+        boolean wasEnabled = settings.isPostProcessMarkerSet();
         // Never persist "AI fix is on" for a provider that cannot run. This is
         // the last line of defence: the switch is disabled in the UI, but the
         // marker file is what every surface actually consults, so the decision
@@ -471,17 +596,15 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
                 Toast.makeText(this, R.string.pp_api_key_required, Toast.LENGTH_SHORT).show();
             }
         }
+        // The outcome callback runs later, so the validated decision is captured
+        // now; only the credential result can still change it.
+        final boolean requestedEnabled = nowEnabled;
 
         settings.setProviderId(selectedProviderId);
         if (selectedPreset != null) {
             settings.setPostProcessPreset(selectedPreset);
         }
         settings.setApiUrl(editApiUrl.getText().toString().trim());
-        settings.setApiKey(apiKey);
-        settings.setPostProcessEnabled(nowEnabled);
-
-        layoutApiKey.setError(apiKey.isEmpty() && nowEnabled && !isLocal
-                ? getString(R.string.pp_api_key_required) : null);
         settings.setModelName(editModel.getText().toString().trim());
 
         // Only persist the prompt if the user actually changed it; otherwise
@@ -495,21 +618,45 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
             settings.setActivePromptBody(prompt);
         }
 
-        // If the user just disabled post-processing, cancel any in-flight LLM
-        // calls in this process and broadcast to the IME component so
-        // it cancels its own calls immediately instead of waiting for them to
-        // time out.
-        if (wasEnabled && !nowEnabled) {
-            PostProcessor.cancelAll();
-            Intent cancelIntent = new Intent(PostProcessor.CANCEL_ACTION);
-            cancelIntent.setPackage(getPackageName());
-            sendBroadcast(cancelIntent);
-        }
+        setSaving(true);
+        settings.setApiKey(apiKey, mainHandler::post, saved -> {
+            setSaving(false);
+            if (isFinishing() || isDestroyed()) return;
 
+            // A failed write stored nothing (there is no plaintext fallback), so
+            // the feature must not claim to be enabled with a key that will not
+            // exist at request time. A previously stored credential, if any, is
+            // left untouched.
+            boolean effectiveEnabled = requestedEnabled && saved;
+            settings.setPostProcessEnabled(effectiveEnabled);
 
-        if (closeAfter) {
-            Toast.makeText(this, R.string.pp_saved, Toast.LENGTH_SHORT).show();
-            finish();
-        }
+            layoutApiKey.setError(apiKey.isEmpty() && effectiveEnabled && !isLocal
+                    ? getString(R.string.pp_api_key_required) : null);
+            if (!saved) {
+                switchEnabled.setChecked(false);
+                layoutApiKey.setError(getString(R.string.pp_api_key_save_failed));
+                Toast.makeText(this, R.string.pp_api_key_save_failed, Toast.LENGTH_LONG).show();
+            }
+
+            // If post-processing is no longer on, cancel any in-flight LLM calls
+            // in this process and broadcast to the IME component so it cancels its
+            // own calls immediately instead of waiting for them to time out.
+            if (wasEnabled && !effectiveEnabled) {
+                PostProcessor.cancelAll();
+                Intent cancelIntent = new Intent(PostProcessor.CANCEL_ACTION);
+                cancelIntent.setPackage(getPackageName());
+                sendBroadcast(cancelIntent);
+            }
+
+            if (afterPersist != null) afterPersist.onPersisted(saved);
+        });
+    }
+
+    /**
+     * Disables the save button while a credential write is queued or running, so
+     * a second tap cannot submit a second mutation on top of the first.
+     */
+    private void setSaving(boolean saving) {
+        if (btnSave != null) btnSave.setEnabled(!saving);
     }
 }

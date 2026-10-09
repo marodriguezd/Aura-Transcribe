@@ -42,6 +42,7 @@ class VerifyReleaseArtifactTest(unittest.TestCase):
         os.makedirs(self.model_dir)
         with open(os.path.join(self.model_dir, MODEL_NAME), "wb") as handle:
             handle.write(MODEL_BYTES)
+        self.last_stderr = ""
 
     def tearDown(self) -> None:
         shutil.rmtree(self.workdir, ignore_errors=True)
@@ -51,12 +52,17 @@ class VerifyReleaseArtifactTest(unittest.TestCase):
 
     def run_verifier(self, kind: str, archive: str, allow_model_less: bool = False) -> int:
         # Silence the verifier's progress output; the return code is the assertion.
+        # The captured stderr is kept so a test can additionally assert that a
+        # failure carries a diagnostic instead of an uncaught traceback.
         stdout, stderr = sys.stdout, sys.stderr
-        sys.stdout, sys.stderr = io.StringIO(), io.StringIO()
+        captured_out, captured_err = io.StringIO(), io.StringIO()
+        sys.stdout, sys.stderr = captured_out, captured_err
         try:
-            return verifier.verify(kind, archive, self.model_dir, allow_model_less)
+            code = verifier.verify(kind, archive, self.model_dir, allow_model_less)
         finally:
             sys.stdout, sys.stderr = stdout, stderr
+        self.last_stderr = captured_err.getvalue()
+        return code
 
     def test_apk_with_model_in_base_module_passes(self) -> None:
         archive = self.archive(
@@ -149,6 +155,98 @@ class VerifyReleaseArtifactTest(unittest.TestCase):
             "partial.zip", {"assets/builtin-model/" + MODEL_NAME: MODEL_BYTES}
         )
         self.assertEqual(1, self.run_verifier("apk", archive))
+
+    # --------------------------------------------------------------- strict paths
+    # The layouts below are what the packaging logic actually produces (see
+    # `modelPackFiles` and the asset-pack wiring in `app/build.gradle.kts`):
+    # APK -> assets/builtin-model/<name>, AAB -> model_assets/assets/builtin-model/<name>.
+    # A suffix match must NOT be enough: every archive here ends with the
+    # expected suffix yet is at the wrong place for its artifact kind.
+
+    def test_apk_with_nested_path_matching_the_expected_suffix_fails(self) -> None:
+        archive = self.archive(
+            "apk-nested.zip",
+            {"prefix/deeper/assets/builtin-model/" + MODEL_NAME: MODEL_BYTES},
+        )
+        self.assertEqual(1, self.run_verifier("apk", archive))
+
+    def test_apk_with_the_asset_pack_path_fails(self) -> None:
+        # The :model_assets path is AAB-only delivery; an APK carrying the model
+        # there would never be read by the runtime.
+        archive = self.archive(
+            "apk-wrong-module.zip",
+            {"model_assets/assets/builtin-model/" + MODEL_NAME: MODEL_BYTES},
+        )
+        self.assertEqual(1, self.run_verifier("apk", archive))
+
+    def test_aab_with_the_pack_path_nested_inside_an_extra_directory_fails(self) -> None:
+        # Starts with model_assets/ AND ends with the expected suffix — still not
+        # the exact pack path, so it must be rejected.
+        archive = self.archive(
+            "aab-nested-pack.zip",
+            {"model_assets/extra/assets/builtin-model/" + MODEL_NAME: MODEL_BYTES},
+        )
+        self.assertEqual(1, self.run_verifier("aab", archive))
+
+    def test_apk_with_valid_copy_plus_unexpected_extra_copy_fails(self) -> None:
+        # An otherwise perfect delivery accompanied by a second copy that does
+        # not even match the suffix is still duplicate delivery.
+        archive = self.archive(
+            "apk-dup-stray.zip",
+            {
+                "assets/builtin-model/" + MODEL_NAME: MODEL_BYTES,
+                "stray/" + MODEL_NAME: MODEL_BYTES,
+            },
+        )
+        self.assertEqual(1, self.run_verifier("apk", archive))
+
+    def test_model_less_opt_in_does_not_cover_a_misplaced_model(self) -> None:
+        # The escape hatch is for artifacts with NO model at all; a model parked
+        # at a wrong path is a packaging bug and must fail even with the opt-in.
+        archive = self.archive(
+            "apk-nested-hatch.zip",
+            {"prefix/assets/builtin-model/" + MODEL_NAME: MODEL_BYTES},
+        )
+        self.assertEqual(1, self.run_verifier("apk", archive, allow_model_less=True))
+
+    # ------------------------------------------------------- fail-closed reads
+
+    @staticmethod
+    def corrupt_first_entry_data(path: str, entry_name: str) -> None:
+        """Flip a byte *inside* the stored entry so its CRC no longer matches."""
+        with open(path, "r+b") as handle:
+            raw = bytearray(handle.read())
+        name = entry_name.encode("utf-8")
+        pos = raw.find(name)  # first occurrence is the local file header
+        assert pos >= 30, "entry name not found in the archive"
+        fnlen = int.from_bytes(raw[pos - 4 : pos - 2], "little")
+        extralen = int.from_bytes(raw[pos - 2 : pos], "little")
+        data_off = pos + fnlen + extralen
+        raw[data_off] ^= 0xFF
+        with open(path, "r+b") as handle:
+            handle.write(bytes(raw))
+
+    def test_error_raised_while_reading_an_entry_fails_closed_with_a_diagnostic(
+        self,
+    ) -> None:
+        entry = "assets/builtin-model/" + MODEL_NAME
+        archive = self.archive("apk-entry-corrupt.zip", {entry: MODEL_BYTES})
+        self.corrupt_first_entry_data(archive, entry)
+        # zipfile raises BadZipFile (bad CRC) from inside the entry read; that
+        # must surface as a verified FAIL, not as an uncaught traceback.
+        self.assertEqual(1, self.run_verifier("apk", archive))
+        self.assertIn("FAIL:", self.last_stderr)
+
+    def test_truncated_zip_fails(self) -> None:
+        archive = self.archive(
+            "apk-truncated.zip", {"assets/builtin-model/" + MODEL_NAME: MODEL_BYTES}
+        )
+        with open(archive, "rb") as handle:
+            raw = handle.read()
+        with open(archive, "wb") as handle:
+            handle.write(raw[: len(raw) // 2])
+        self.assertEqual(1, self.run_verifier("apk", archive))
+        self.assertIn("FAIL:", self.last_stderr)
 
 
 if __name__ == "__main__":

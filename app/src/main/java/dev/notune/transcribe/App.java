@@ -44,34 +44,48 @@ public class App extends Application {
         ThemePrefs.apply(this);
         DynamicColors.applyToActivitiesIfAvailable(this);
 
-        // First-run bootstrap + the one-time legacy→marker settings migration.
-        // Both are filesystem work and the migration may touch Android Keystore,
-        // neither of which belongs on the UI thread: Application.onCreate is
-        // called on the main thread, and a slow Keystore open there delays the
-        // first frame. Nothing awaits this any more (the previous
-        // CountDownLatch + bounded wait on the settings screen is gone, see
-        // SettingsManager.writeMarkerIfAbsent for how the race it guarded
-        // against is now impossible by construction), so a few milliseconds of
-        // delay is invisible to every consumer: all settings are read lazily
-        // from marker files.
+        // The one-time legacy→marker settings migration runs HERE on the main
+        // thread, not on the bootstrap thread: it submits the migration to the
+        // credential lane, and every credential read (the IME/overlay toggle
+        // sync, the settings screen, every dictation surface) is queued behind
+        // it. Application.onCreate is guaranteed to complete before any
+        // application component is instantiated, so submitting the migration
+        // here — before any component callback can run — is what makes "a read
+        // is always ordered behind the start-up migration" hold by construction.
+        //
+        // The caller's thread does nothing but submit: the migration itself —
+        // the cross-process file lock, the SharedPreferences load, the marker
+        // writes with their fsync, the synchronous legacy commit, the sentinel
+        // creation and the Keystore-backed import — all runs on the credential
+        // lane, so the Android main thread performs no filesystem access and no
+        // blocking I/O while establishing that ordering. Deferring the call to
+        // a background thread let an IME view created at process start submit
+        // its toggle sync first: the read then ran before the migration and
+        // answered ABSENT for a credential that only a legacy prefs copy held
+        // — recoverable by the pending migration, but invisible to the
+        // unordered read, and the toggle never re-synced for that view's life.
+        try {
+            SettingsManager.migrateIfNeeded(this);
+        } catch (Exception t) {
+            // Never let the migration kill the process (review finding,
+            // 2026-08-06): an unexpected RuntimeException (e.g.
+            // ClassCastException while reading a legacy pref) would otherwise
+            // crash the app. The migration is best-effort — settings are read
+            // lazily from markers, so a failed migration only means the legacy
+            // values stay unmoved. Errors (OOM, ThreadDeath) are deliberately
+            // not caught so a genuinely fatal condition still surfaces to the
+            // system.
+            Log.e(TAG, "Post-processing migration failed", t);
+        }
+
+        // First-run language bootstrap: pure marker writes with no credential
+        // involvement, so their timing relative to component creation does not
+        // matter — they stay off the UI thread.
         new Thread(() -> {
             try {
                 applyDeviceLanguageIfUnset();
             } catch (RuntimeException t) {
                 Log.e(TAG, "First-run language bootstrap failed", t);
-            }
-            try {
-                SettingsManager.migrateIfNeeded(this);
-            } catch (Exception t) {
-                // Never let the background migration kill the process (review
-                // finding, 2026-08-06): an unexpected RuntimeException (e.g.
-                // ClassCastException while reading a legacy pref) would
-                // otherwise crash the app from this thread. The migration is
-                // best-effort — settings are read lazily from markers, so a
-                // failed migration only means the legacy values stay unmoved.
-                // Errors (OOM, ThreadDeath) are deliberately not caught so a
-                // genuinely fatal condition still surfaces to the system.
-                Log.e(TAG, "Post-processing migration failed", t);
             }
         }, "app-bootstrap").start();
     }

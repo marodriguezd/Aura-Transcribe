@@ -157,11 +157,23 @@ public class PostProcessor {
      * plain-JVM HTTP tests.
      */
     interface PostProcessorSettings {
-        boolean isPostProcessEnabled();
+        /**
+         * Cheap switch state (the enabled marker plus whether the provider can run
+         * at all in this build). Deliberately performs <b>no</b> credential I/O, so
+         * it is safe to call from a UI thread and from the mid-flight re-checks.
+         */
+        boolean isPostProcessSwitchedOn();
 
         String getEffectiveApiUrl();
 
-        String getApiKey();
+        /**
+         * Ordered, off-main credential read (production: the credential lane). The
+         * callback is invoked exactly once, on {@code callbackExecutor}, with a
+         * non-null outcome whose {@code ABSENT}/{@code UNREADABLE} distinction the
+         * caller must respect.
+         */
+        void readApiKey(java.util.concurrent.Executor callbackExecutor,
+                        java.util.function.Consumer<ApiKeyRead> callback);
 
         String getModelName();
 
@@ -183,17 +195,11 @@ public class PostProcessor {
             return false;
         }
 
-        default boolean isPostProcessConfigured() {
-            String provider = getProviderId();
-            if (PROVIDER_LOCAL_S1.equals(provider)) {
-                // Must mirror SettingsManager.isPostProcessConfigured(): a model
-                // on disk does not make the provider functional while there is no
-                // inference engine behind it.
-                return SettingsManager.LOCAL_S1_INFERENCE_AVAILABLE && isLocalS1ModelInstalled();
-            }
-            String key = getApiKey();
-            return key != null && !key.trim().isEmpty();
-        }
+        // "Configured" is deliberately no longer a method here: for a cloud provider
+        // it depends on the credential, which is only knowable through the ordered
+        // read above, so the rule lives in one place —
+        // SettingsManager.resolvePostProcessEnabled — and callers that need it
+        // combine isPostProcessSwitchedOn() with the read's outcome.
     }
 
     private static OkHttpClient getSharedClient() {
@@ -305,13 +311,46 @@ public class PostProcessor {
             return;
         }
 
-        // Re-check the marker here, not only at each caller, because the toggle
-        // can change between receiving the ASR result and creating this call.
-        if (!forceRequest && !settings.isPostProcessEnabled()) {
-            dispatchToUi(() -> callback.onSuccess(rawText));
-            return;
-        }
+        // One ordered credential read on the credential lane, and only then the
+        // request. The gate used to be a synchronous credential read on the
+        // caller's thread — the Android main thread for every UI surface — which
+        // also paid for file I/O and a Keystore decrypt there. The read is queued
+        // behind every pending mutation, the start-up legacy import included, so a
+        // migration that has not finished yet is never mistaken for a missing
+        // credential; and it is queued *before* the request, so no network call is
+        // ever made with a credential from a different queue state.
+        settings.readApiKey(continuationExecutor(), credential -> {
+            // The read is asynchronous, so the owning surface can be destroyed
+            // between the submission and its answer. Do not start a request whose
+            // result could only be dropped: no credential, quota or battery spent on
+            // a dead surface. (A destroy landing after this check is still covered by
+            // cancelAllFor(owner) — the call is registered before it is enqueued.)
+            if (validator != null && !validator.getAsBoolean()) return;
+            boolean usable = credential != null && credential.hasCredential();
+            // Same rule as SettingsManager.resolvePostProcessEnabled: the switch must
+            // be on, and the credential must be usable — except for the on-device
+            // provider, which needs no API key (it is refused earlier in this build
+            // because there is no inference engine behind it).
+            boolean providerUsable = PROVIDER_LOCAL_S1.equals(settings.getProviderId())
+                    || usable;
+            if (!forceRequest && !(settings.isPostProcessSwitchedOn() && providerUsable)) {
+                // No usable credential, or the switch is off: the raw transcript
+                // wins, delivered exactly once, as the callers' former `else`
+                // branch did.
+                dispatchToUi(() -> callback.onSuccess(rawText));
+                return;
+            }
+            runRequest(rawText, callback, forceRequest,
+                    credential != null ? credential.key() : "");
+        });
+    }
 
+    /**
+     * Runs the request. Only ever called after the ordered credential read, on the
+     * continuation executor — never with a credential gathered elsewhere.
+     */
+    private void runRequest(final String rawText, final PostProcessCallback callback,
+                            boolean forceRequest, final String apiKey) {
         if (PROVIDER_LOCAL_S1.equals(settings.getProviderId())) {
             if (!SettingsManager.LOCAL_S1_INFERENCE_AVAILABLE) {
                 // Defensive: the settings UI refuses to enable this provider, but
@@ -326,13 +365,14 @@ public class PostProcessor {
         }
 
         final String completionUrl = buildCompletionUrl(settings.getEffectiveApiUrl());
-        final String apiKey = settings.getApiKey();
         if (apiKey == null || apiKey.trim().isEmpty()) {
             // An upgraded installation can legitimately have lost the legacy
-            // Keystore key. Fail before touching the network so release builds
-            // do not look like a broken provider and the raw transcript is
-            // delivered immediately by every caller. The diagnostic button
-            // uses the same guard, so it never sends an unauthenticated probe.
+            // Keystore key, and an unreadable store is reported as UNREADABLE
+            // rather than as "absent" by the read. Either way: fail before
+            // touching the network so release builds do not look like a broken
+            // provider and the raw transcript is delivered immediately by every
+            // caller. The diagnostic button uses the same guard, so it never sends
+            // an unauthenticated probe.
             dispatchToUi(() -> callback.onError(MISSING_API_KEY_ERROR));
             return;
         }
@@ -406,8 +446,12 @@ public class PostProcessor {
                     // failures, so repeated dictations do not exhaust OkHttp.
                     try (Response responseResource = response) {
                         // If the user disabled post-processing while the request
-                        // was in flight, the raw transcript wins.
-                        if (!forceRequest && !settings.isPostProcessEnabled()) {
+                        // was in flight, the raw transcript wins. This is the cheap
+                        // switch check on purpose: it runs on the HTTP thread but
+                        // needs no credential I/O, and turning the switch off is
+                        // what the settings screen persists alongside a deleted or
+                        // unusable key.
+                        if (!forceRequest && !settings.isPostProcessSwitchedOn()) {
                             dispatchToUi(() -> callback.onSuccess(rawText));
                             return;
                         }
@@ -444,7 +488,7 @@ public class PostProcessor {
                                 // If the user disabled PP after the HTTP thread parsed the
                                 // response, the raw ASR transcript still wins.
                                 dispatchToUi(() -> callback.onSuccess(
-                                        forceRequest || settings.isPostProcessEnabled()
+                                        forceRequest || settings.isPostProcessSwitchedOn()
                                                 ? resultText : rawText));
                             }
                         } catch (Exception e) {
@@ -588,6 +632,19 @@ public class PostProcessor {
         return apiUrl;
     }
 
+    /**
+     * Where the continuation after the ordered credential read runs.
+     *
+     * <p>With a UI handler: on that handler (the caller's thread of record, where
+     * every UI update and validator check already runs). Without one: inline on the
+     * lane thread the read completed on — never on the calling thread, which for
+     * every UI surface is the Android main thread. Either way no credential I/O
+     * happens here; it already happened on the lane.
+     */
+    private java.util.concurrent.Executor continuationExecutor() {
+        return uiHandler != null ? uiHandler::post : Runnable::run;
+    }
+
     /** Runs {@code action} on the configured handler, if the owner is valid. */
     private void dispatchToUi(Runnable action) {
         if (uiHandler != null) {
@@ -612,12 +669,27 @@ public class PostProcessor {
         if (!modelsUrl.endsWith("/models")) {
             modelsUrl += "/models";
         }
+        final String resolvedModelsUrl = modelsUrl;
 
-        String apiKey = settings.getApiKey();
-        if (apiKey == null || apiKey.trim().isEmpty()) {
-            dispatchToUi(() -> callback.onError(MISSING_API_KEY_ERROR));
-            return;
-        }
+        // Ordered credential read first: the list request must not be sent with a
+        // credential read on the caller's thread, and must observe the same queue
+        // state as the request it feeds.
+        settings.readApiKey(continuationExecutor(), credential -> {
+            // Same rule as processInternal: a dead surface does not get to spend a
+            // model-list request either.
+            if (validator != null && !validator.getAsBoolean()) return;
+            String apiKey = credential != null ? credential.key() : "";
+            if (apiKey.trim().isEmpty()) {
+                dispatchToUi(() -> callback.onError(MISSING_API_KEY_ERROR));
+                return;
+            }
+            runFetchModels(resolvedModelsUrl, callback, apiKey);
+        });
+    }
+
+    /** Runs the model-list request; only called after the ordered credential read. */
+    private void runFetchModels(final String modelsUrl, final ModelsCallback callback,
+                                final String apiKey) {
         final Request request;
         try {
             Request.Builder requestBuilder = new Request.Builder().url(modelsUrl).get();

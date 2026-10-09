@@ -25,8 +25,10 @@ public class PostProcessConfigurationGuardTest {
         boolean localModelInstalled = false;
 
         @Override
-        public boolean isPostProcessEnabled() {
-            return enabled && isPostProcessConfigured();
+        public boolean isPostProcessSwitchedOn() {
+            // Mirrors the production rule: the marker is on and the provider can run
+            // at all in this build.
+            return enabled && SettingsManager.isProviderAvailable(provider);
         }
 
         @Override
@@ -35,8 +37,9 @@ public class PostProcessConfigurationGuardTest {
         }
 
         @Override
-        public String getApiKey() {
-            return apiKey;
+        public void readApiKey(java.util.concurrent.Executor callbackExecutor,
+                               java.util.function.Consumer<ApiKeyRead> callback) {
+            callbackExecutor.execute(() -> callback.accept(ApiKeyRead.loaded(apiKey)));
         }
 
         @Override
@@ -70,18 +73,27 @@ public class PostProcessConfigurationGuardTest {
         }
     }
 
+    /**
+     * The production enabled rule, driven with a switch state and a read outcome.
+     * It lives in {@link SettingsManager#resolvePostProcessEnabled} so the async
+     * read and the settings screen cannot disagree about it.
+     */
+    private static boolean enabledWith(String apiKey, String providerId) {
+        return SettingsManager.resolvePostProcessEnabled(
+                true, providerId, ApiKeyRead.loaded(apiKey), false);
+    }
+
     @Test
     public void testCloudProviderRequiresApiKey() {
-        TestSettings settings = new TestSettings();
-        settings.provider = "groq";
-        settings.apiKey = "";
-        assertFalse("Cloud provider without API key must not be configured", settings.isPostProcessConfigured());
-
-        settings.apiKey = "   ";
-        assertFalse("Cloud provider with whitespace API key must not be configured", settings.isPostProcessConfigured());
-
-        settings.apiKey = "gsk_validKey123";
-        assertTrue("Cloud provider with valid API key must be configured", settings.isPostProcessConfigured());
+        assertFalse("Cloud provider without API key must not be configured",
+                enabledWith("", "groq"));
+        assertFalse("Cloud provider with whitespace API key must not be configured",
+                enabledWith("   ", "groq"));
+        assertTrue("Cloud provider with valid API key must be configured",
+                enabledWith("gsk_validKey123", "groq"));
+        assertFalse("A read that failed is not a configured provider either",
+                SettingsManager.resolvePostProcessEnabled(
+                        true, "groq", ApiKeyRead.unreadable(), false));
     }
 
     /**
@@ -94,18 +106,18 @@ public class PostProcessConfigurationGuardTest {
      */
     @Test
     public void testLocalProviderIsNotConfiguredWithoutInferenceEngine() {
-        TestSettings settings = new TestSettings();
-        settings.provider = SettingsManager.PROVIDER_LOCAL_S1;
-        settings.localModelInstalled = false;
-        assertFalse("Local provider without model installed must not be configured", settings.isPostProcessConfigured());
+        assertFalse("Local provider without model installed must not be configured",
+                SettingsManager.resolvePostProcessEnabled(
+                        true, SettingsManager.PROVIDER_LOCAL_S1, ApiKeyRead.absent(), false));
 
-        settings.localModelInstalled = true;
         if (SettingsManager.LOCAL_S1_INFERENCE_AVAILABLE) {
             assertTrue("Local provider with a model and an inference engine must be configured",
-                    settings.isPostProcessConfigured());
+                    SettingsManager.resolvePostProcessEnabled(
+                            true, SettingsManager.PROVIDER_LOCAL_S1, ApiKeyRead.absent(), true));
         } else {
             assertFalse("Local provider must not be configured while it has no inference engine",
-                    settings.isPostProcessConfigured());
+                    SettingsManager.resolvePostProcessEnabled(
+                            true, SettingsManager.PROVIDER_LOCAL_S1, ApiKeyRead.absent(), true));
         }
     }
 
@@ -256,17 +268,13 @@ public class PostProcessConfigurationGuardTest {
 
     @Test
     public void testEnabledReturnsFalseWhenNotConfigured() {
-        TestSettings settings = new TestSettings();
-        settings.enabled = true;
-        settings.provider = "openai";
-        settings.apiKey = "";
-
-        assertFalse("Even if enabled is true, isPostProcessEnabled must return false when not configured",
-                settings.isPostProcessEnabled());
-
-        settings.apiKey = "sk-valid-key";
-        assertTrue("isPostProcessEnabled returns true when enabled and key is present",
-                settings.isPostProcessEnabled());
+        assertFalse("Even with the switch on, an absent credential is not enabled",
+                enabledWith("", "openai"));
+        assertTrue("The switch plus a usable credential is enabled",
+                enabledWith("sk-valid-key", "openai"));
+        assertFalse("The switch off is never enabled, credential or not",
+                SettingsManager.resolvePostProcessEnabled(
+                        false, "openai", ApiKeyRead.loaded("sk-valid-key"), false));
     }
 
     @Test

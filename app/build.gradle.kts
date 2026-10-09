@@ -1,5 +1,6 @@
 import java.io.FileInputStream
 import java.io.File
+import java.io.IOException
 import java.security.MessageDigest
 import java.util.Properties
 import java.util.zip.ZipEntry
@@ -27,6 +28,12 @@ android {
         applicationId = "com.auratranscribe.app"
         minSdk = 26
         targetSdk = 37
+        // JUnit4 instrumentation tests (currently the AndroidKeyStore seam of
+        // the credential store). They COMPILE in CI but never run there — no
+        // arm64 device/emulator exists (AGENTS.md §5.4); `connectedDebugAndroidTest`
+        // runs them on a connected device. Without this runner the platform
+        // default would silently skip AndroidJUnit4 classes.
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = 41
         versionName = "0.2.2"
         ndk {
@@ -327,9 +334,11 @@ dependencies {
     implementation(libs.mlkit.translate)
 
     // One-time compatibility migration for API keys saved by v0.1.19–v0.1.21
-    // in EncryptedSharedPreferences. New writes remain marker-file based; this
-    // dependency is retained so upgrades can recover the old key instead of
-    // silently turning post-processing into unauthenticated 401 requests.
+    // in EncryptedSharedPreferences. New writes go through the encrypted
+    // SecureCredentialStore (AES-256-GCM + AndroidKeyStore); this dependency is
+    // retained ONLY so upgrades can read the old format during the one-time
+    // migration instead of silently turning post-processing into
+    // unauthenticated 401 requests.
     implementation(libs.androidx.security.crypto)
 
     // Unit test harness
@@ -738,9 +747,11 @@ tasks.matching { it.name == "bundleRelease" }.configureEach {
 //     combined, debug-only, verification-only, aggregators, no tasks at all);
 //   * the archive table pins accept/reject behaviour for a correctly placed
 //     model, an asset-pack AAB, a model delivered twice (base + pack), a model in
-//     the wrong directory, a truncated entry, and a missing model — including the
-//     documented model-less escape hatch, which must only be honoured when it is
-//     explicitly enabled.
+//     the wrong directory, a nested path that only *ends* in the expected suffix,
+//     the wrong module for the artifact kind, a valid copy accompanied by a stray
+//     duplicate, a truncated entry, and a missing model — including the documented
+//     model-less escape hatch, which must only be honoured when it is explicitly
+//     enabled and only for archives with no model at all.
 //
 // It is a Gradle task rather than a JVM unit test on purpose: the logic lives in
 // this script, and a JVM test could only ever exercise a re-implementation. It
@@ -948,16 +959,21 @@ fun newestArchives(dir: File, extension: String): List<File> {
 
 /**
  * Opens [archive] and asserts that every model in [expected] (asset name to
- * uncompressed byte length) is packaged exactly once under
- * `assets/builtin-model/`.
+ * uncompressed byte length) is packaged **exactly** at the artifact's packaging
+ * path — with no suffix tolerance:
  *
- * The path suffix is matched rather than an absolute entry name because an APK
- * stores `assets/builtin-model/…` while an AAB stores the same file as
- * `model_assets/assets/builtin-model/…` (asset-pack module) or
- * `base/assets/builtin-model/…` (base module). Matching the suffix also means
- * the "delivered twice" case — the model merged into the base module *and* kept
- * in the asset pack — is counted as two hits and rejected, instead of being
- * quietly tolerated.
+ * * APK → `assets/builtin-model/<name>` (the release source set folds
+ *   `model_assets/src/main/assets/` into the base module's `assets/` directory,
+ *   see the `if (!isBundle)` block above);
+ * * AAB → `model_assets/assets/builtin-model/<name>` (the install-time asset
+ *   pack; a bundle stores each module's assets under `<module>/assets/`).
+ *
+ * A suffix match is deliberately not enough: a nested or wrong-module path that
+ * *ends* in the expected suffix satisfies `endsWith`, yet the runtime would
+ * never read the model from there. Duplicate delivery is detected by file name
+ * anywhere in the archive, so a valid copy accompanied by a stray copy
+ * elsewhere is rejected too. This mirrors `scripts/verify_release_artifact.py`,
+ * which applies the same rule and additionally compares the content hash.
  *
  * Deliberately not a `tasks.register { }`-local function: see the note above
  * `checkNativeAlignment` about declarations truncating the Kotlin DSL script.
@@ -969,14 +985,43 @@ fun verifyModelInArchive(
     allowModelLess: Boolean,
     optOutProperty: String?,
 ) {
-    ZipFile(archive).use { zip ->
+    val allowedPrefix = if (kind.equals("AAB", ignoreCase = true)) {
+        "model_assets/assets/builtin-model/"
+    } else {
+        "assets/builtin-model/"
+    }
+    // Fail closed: a malformed or unreadable archive must fail the gate with a
+    // diagnostic instead of escaping as a raw IO stack trace.
+    val zip = try {
+        ZipFile(archive)
+    } catch (e: IOException) {
+        throw GradleException("$kind ${archive.name} is not a readable zip: ${e.message}", e)
+    }
+    zip.use {
+        val entries = zip.entries().asSequence().filter { !it.isDirectory }.toList()
         for ((modelName, expectedBytes) in expected) {
-            val suffix = "assets/builtin-model/$modelName"
-            val matches = zip.entries().asSequence()
-                .filter { !it.isDirectory && it.name.endsWith(suffix) }
-                .toList()
+            val expectedPath = allowedPrefix + modelName
+            // Any entry whose file name equals the model's is a copy of it,
+            // wherever it sits: this is what catches nested and stray duplicates.
+            val copies = entries.filter { it.name.substringAfterLast('/') == modelName }
 
-            if (matches.isEmpty()) {
+            if (copies.none { it.name == expectedPath }) {
+                if (copies.isNotEmpty()) {
+                    // Present but misplaced: not "missing", so the model-less
+                    // opt-in must not paper over it either.
+                    val hatch = if (allowModelLess) {
+                        " The model-less opt-in (-P$optOutProperty=true) only covers archives " +
+                            "with no model at all."
+                    } else {
+                        ""
+                    }
+                    throw GradleException(
+                        "$kind ${archive.name} packages $modelName at " +
+                            copies.joinToString(", ") { it.name } + ", but the only valid " +
+                            "delivery path for this artifact is $expectedPath — a path that " +
+                            "merely ends in the expected suffix is not accepted." + hatch
+                    )
+                }
                 if (allowModelLess) {
                     println(
                         "  $kind ${archive.name}: WARNING no $modelName inside — allowed by " +
@@ -992,34 +1037,50 @@ fun verifyModelInArchive(
                         "-P$optOutProperty=true — never distribute that one."
                 }
                 throw GradleException(
-                    "$kind ${archive.name} does not contain $suffix. A release $kind must ship " +
-                        "the bundled model. If the GGUF was never fetched, run " +
+                    "$kind ${archive.name} does not contain $expectedPath. A release $kind must " +
+                        "ship the bundled model. If the GGUF was never fetched, run " +
                         "`./gradlew downloadModels` (a release build wires it into preBuild " +
                         "automatically). If the model was removed from " +
                         "model_assets/src/main/assets/builtin-model by hand, restore it. " +
                         cannotBeMissing
                 )
             }
-            if (matches.size > 1) {
+            if (copies.size > 1) {
                 throw GradleException(
-                    "$kind ${archive.name} contains $modelName ${matches.size} times " +
-                        "(${matches.joinToString(", ") { it.name }}). The model must be delivered " +
-                        "exactly once: an APK carries it in the base module, an AAB only in the " +
+                    "$kind ${archive.name} contains $modelName ${copies.size} times " +
+                        "(${copies.joinToString(", ") { it.name }}). The model must be delivered " +
+                        "exactly once: an APK carries it at $expectedPath, an AAB only in the " +
                         ":model_assets asset pack. Packaging both copies ships ~750 MB twice."
                 )
             }
 
-            val entry = matches.first()
+            val entry = copies.first { it.name == expectedPath }
             if (expectedBytes > 0 && entry.size != expectedBytes) {
                 throw GradleException(
-                    "$kind ${archive.name} packages $suffix at ${entry.size} bytes, but the source " +
-                        "asset is $expectedBytes bytes. The packaged model is truncated or stale; " +
-                        "re-run `./gradlew downloadModels` (it verifies the SHA-256 on download)."
+                    "$kind ${archive.name} packages $expectedPath at ${entry.size} bytes, but the " +
+                        "source asset is $expectedBytes bytes. The packaged model is truncated " +
+                        "or stale; re-run `./gradlew downloadModels` (it verifies the SHA-256 on " +
+                        "download)."
                 )
             }
             println(
                 "  $kind ${archive.name}: OK ${entry.name} (${entry.size} bytes, " +
                     "delivered once)"
+            )
+        }
+
+        // Directory-level guard: `assets/builtin-model/` may appear only at the
+        // artifact's allowed location. Catches undeclared leftovers (e.g. a
+        // stale GGUF merged into an unexpected module) that name matching alone
+        // would miss.
+        val stray = entries.filter {
+            "assets/builtin-model/" in it.name && !it.name.startsWith(allowedPrefix)
+        }
+        if (stray.isNotEmpty()) {
+            throw GradleException(
+                "$kind ${archive.name} contains the bundled-model directory outside " +
+                    "$allowedPrefix (${stray.joinToString(", ") { it.name }}). The model must " +
+                    "be delivered only at $allowedPrefix<model>."
             )
         }
     }
@@ -1101,10 +1162,15 @@ fun writeProbeArchive(target: File, entries: List<Pair<String, ByteArray>>) {
  * [shouldPass] is the contract under test in BOTH directions: a gate that
  * suddenly accepts a model-less artifact is as broken as one that rejects a
  * correct one, and only asserting the happy path would hide the first.
+ *
+ * [kind] is the artifact shape under test ("APK" or "AAB") — it selects the
+ * exact packaging path the probe must be held to, so a probe can pin the
+ * wrong-module cases in both directions.
  */
 fun expectModelGateOutcome(
     archive: File,
     expected: Map<String, Long>,
+    kind: String,
     allowModelLess: Boolean,
     label: String,
     shouldPass: Boolean,
@@ -1113,7 +1179,7 @@ fun expectModelGateOutcome(
         verifyModelInArchive(
             archive,
             expected,
-            "PROBE",
+            kind,
             allowModelLess,
             if (allowModelLess) "auratranscribe.allowModelLessReleaseApk" else null,
         )
@@ -1192,19 +1258,19 @@ fun runPackagingDecisionGate(workDir: File) {
     val baseModulePath = "assets/builtin-model/$modelName"
     val assetPackPath = "model_assets/assets/builtin-model/$modelName"
 
-    // APK-shaped archive: the model inside the base module.
+    // APK-shaped archive: the model at the APK's exact packaging path.
     val apkArchive = File(workDir, "apk-ok.zip")
     writeProbeArchive(apkArchive, listOf(baseModulePath to modelBytes))
     expectModelGateOutcome(
-        apkArchive, oneModel, false,
-        "APK with the model in the base module", true,
+        apkArchive, oneModel, "APK", false,
+        "APK with the model at assets/builtin-model", true,
     )
 
     // AAB-shaped archive: the model only in the :model_assets pack.
     val aabArchive = File(workDir, "aab-ok.zip")
     writeProbeArchive(aabArchive, listOf(assetPackPath to modelBytes))
     expectModelGateOutcome(
-        aabArchive, oneModel, false,
+        aabArchive, oneModel, "AAB", false,
         "AAB with the model only in the :model_assets pack", true,
     )
 
@@ -1215,7 +1281,7 @@ fun runPackagingDecisionGate(workDir: File) {
         listOf(assetPackPath to modelBytes, "base/assets/builtin-model/$modelName" to modelBytes),
     )
     expectModelGateOutcome(
-        duplicated, oneModel, false,
+        duplicated, oneModel, "AAB", false,
         "AAB with the model in both the base module and the asset pack", false,
     )
 
@@ -1223,7 +1289,7 @@ fun runPackagingDecisionGate(workDir: File) {
     val misplaced = File(workDir, "wrong-directory.zip")
     writeProbeArchive(misplaced, listOf("assets/model/$modelName" to modelBytes))
     expectModelGateOutcome(
-        misplaced, oneModel, false,
+        misplaced, oneModel, "APK", false,
         "archive with the model outside assets/builtin-model", false,
     )
 
@@ -1231,7 +1297,7 @@ fun runPackagingDecisionGate(workDir: File) {
     val truncated = File(workDir, "truncated.zip")
     writeProbeArchive(truncated, listOf(baseModulePath to modelBytes.copyOf(64)))
     expectModelGateOutcome(
-        truncated, oneModel, false,
+        truncated, oneModel, "APK", false,
         "archive whose packaged model is truncated", false,
     )
 
@@ -1239,11 +1305,11 @@ fun runPackagingDecisionGate(workDir: File) {
     val missing = File(workDir, "no-model.zip")
     writeProbeArchive(missing, listOf("assets/unrelated.txt" to ByteArray(8)))
     expectModelGateOutcome(
-        missing, oneModel, false,
+        missing, oneModel, "APK", false,
         "archive with no model at all", false,
     )
     expectModelGateOutcome(
-        missing, oneModel, true,
+        missing, oneModel, "APK", true,
         "model-less archive with -Pauratranscribe.allowModelLessReleaseApk=true", true,
     )
 
@@ -1257,16 +1323,82 @@ fun runPackagingDecisionGate(workDir: File) {
         ),
     )
     expectModelGateOutcome(
-        multiOk, bothModels, false,
+        multiOk, bothModels, "APK", false,
         "archive with every declared model present", true,
     )
 
     val multiIncomplete = File(workDir, "multi-incomplete.zip")
     writeProbeArchive(multiIncomplete, listOf(baseModulePath to modelBytes))
     expectModelGateOutcome(
-        multiIncomplete, bothModels, false,
+        multiIncomplete, bothModels, "APK", false,
         "archive missing one of the declared models", false,
     )
 
-    println("  verifyPackagingDecision: 9 archive cases verified (accept and reject)")
+    // ---- 3. Exact-path strictness (suffix matches are NOT enough) ----------
+    // Each of these ends with the expected suffix, or would be accepted by a
+    // looser check — they pin the audit fix: only the artifact's exact packaging
+    // path is valid, and any other copy of the model is a failure.
+
+    // Nested path that happens to end with the expected suffix.
+    val nested = File(workDir, "nested-suffix.zip")
+    writeProbeArchive(nested, listOf("prefix/deeper/assets/builtin-model/$modelName" to modelBytes))
+    expectModelGateOutcome(
+        nested, oneModel, "APK", false,
+        "APK with the model at a nested path ending in the expected suffix", false,
+    )
+
+    // The asset-pack path is AAB-only delivery; an APK reading it never happens.
+    val wrongModuleApk = File(workDir, "apk-wrong-module.zip")
+    writeProbeArchive(wrongModuleApk, listOf(assetPackPath to modelBytes))
+    expectModelGateOutcome(
+        wrongModuleApk, oneModel, "APK", false,
+        "APK with the model only at the asset-pack path", false,
+    )
+
+    // Conversely, an AAB whose model lives only in the base module: wrong
+    // delivery channel (it would ship from the base module, not the pack).
+    val baseOnlyAab = File(workDir, "aab-base-only.zip")
+    writeProbeArchive(baseOnlyAab, listOf("base/assets/builtin-model/$modelName" to modelBytes))
+    expectModelGateOutcome(
+        baseOnlyAab, oneModel, "AAB", false,
+        "AAB with the model only in the base module", false,
+    )
+
+    // Nested inside an extra directory *within* the pack: starts with the right
+    // module and ends with the right suffix — still not the exact pack path.
+    val nestedPack = File(workDir, "aab-nested-pack.zip")
+    writeProbeArchive(
+        nestedPack,
+        listOf("model_assets/extra/assets/builtin-model/$modelName" to modelBytes),
+    )
+    expectModelGateOutcome(
+        nestedPack, oneModel, "AAB", false,
+        "AAB with the pack path nested inside an extra directory", false,
+    )
+
+    // A perfect delivery plus a stray second copy that does not even match the
+    // suffix: still duplicate delivery.
+    val strayDuplicate = File(workDir, "apk-dup-stray.zip")
+    writeProbeArchive(
+        strayDuplicate,
+        listOf(baseModulePath to modelBytes, "stray/$modelName" to modelBytes),
+    )
+    expectModelGateOutcome(
+        strayDuplicate, oneModel, "APK", false,
+        "APK with the valid copy plus an unexpected extra copy elsewhere", false,
+    )
+
+    // The model-less escape hatch covers archives with NO model; a model parked
+    // at a wrong path is a packaging bug and must fail even with the opt-in.
+    val misplacedOptIn = File(workDir, "misplaced-opt-in.zip")
+    writeProbeArchive(
+        misplacedOptIn,
+        listOf("prefix/assets/builtin-model/$modelName" to modelBytes),
+    )
+    expectModelGateOutcome(
+        misplacedOptIn, oneModel, "APK", true,
+        "misplaced model with -Pauratranscribe.allowModelLessReleaseApk=true", false,
+    )
+
+    println("  verifyPackagingDecision: 15 archive cases verified (accept and reject)")
 }
