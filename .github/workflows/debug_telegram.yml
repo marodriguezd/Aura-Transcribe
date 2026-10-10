@@ -172,6 +172,15 @@ jobs:
         set -e -o pipefail
         ./gradlew assembleDebug --stacktrace 2>&1 | tee gradle_build.log
 
+    # Compiles the JUnit4 Android instrumented test APK (e.g. AndroidCredentialKeyProviderTest).
+    # Hard gate: fails the workflow if compilation fails. Device execution is not run on device-less CI runners.
+    - name: Compile Instrumented Tests (hard gate)
+      run: |
+        export PATH="$HOME/.cargo/bin:$PATH"
+        set -e -o pipefail
+        ./gradlew :app:assembleDebugAndroidTest --stacktrace 2>&1 | tee gradle_androidtest_build.log
+
+
     - name: Lint (hard gate)
       run: |
         export PATH="$HOME/.cargo/bin:$PATH"
@@ -256,6 +265,8 @@ jobs:
       run: |
         echo "=================== GRADLE BUILD LOG ==================="
         cat gradle_build.log || true
+        echo "=================== GRADLE ANDROIDTEST BUILD LOG ======="
+        cat gradle_androidtest_build.log || true
         echo "=================== GRADLE LINT LOG ==================="
         cat gradle_lint.log || true
         echo "=================== NATIVE ALIGNMENT LOG ==================="
@@ -286,4 +297,4 @@ jobs:
           --chat-id "$TELEGRAM_CHAT_ID" \
           --mode alert \
           --sha "$COMMIT_SHA" \
-          --logs "gradle_build.log,gradle_lint.log"
+          --logs "gradle_build.log,gradle_androidtest_build.log,gradle_lint.log"

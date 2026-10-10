@@ -115,4 +115,58 @@ public class AndroidCredentialKeyProviderTest {
         assertFalse(new File(dir, SecureCredentialStore.FILE_NAME).exists());
         assertNull(store.read());
     }
+
+    @Test
+    public void tamperedCiphertextFailsClosedWithoutLegacyOrPlaintextFallback() throws Exception {
+        // Place a legacy marker in the directory before storing the secure secret
+        String legacySecret = "sk-legacy-unencrypted-456";
+        File legacyFile = new File(dir, SecureCredentialStore.LEGACY_MARKER_FILE);
+        String legacyB64 = java.util.Base64.getEncoder().encodeToString(
+                legacySecret.getBytes(StandardCharsets.UTF_8));
+        Files.write(legacyFile.toPath(), legacyB64.getBytes(StandardCharsets.UTF_8));
+
+        store.store(SECRET);
+        File encFile = new File(dir, SecureCredentialStore.FILE_NAME);
+        String payload = new String(
+                Files.readAllBytes(encFile.toPath()), StandardCharsets.UTF_8);
+        int ctStart = payload.lastIndexOf(':') + 1;
+        byte[] ciphertext = java.util.Base64.getDecoder()
+                .decode(payload.substring(ctStart));
+        ciphertext[0] ^= 0x01;
+        String tampered = payload.substring(0, ctStart)
+                + java.util.Base64.getEncoder().encodeToString(ciphertext);
+        Files.write(encFile.toPath(), tampered.getBytes(StandardCharsets.UTF_8));
+
+        try {
+            String result = store.read();
+            fail("expected CredentialStoreException for tampered ciphertext, got: " + result);
+        } catch (SecureCredentialStore.CredentialStoreException expected) {
+            // Authentication tag failure must fail closed without returning legacy secret or plaintext
+        }
+
+        // Verify the legacy marker was not removed or returned
+        assertTrue("Legacy marker must remain untouched", legacyFile.exists());
+    }
+
+    @Test
+    public void cleanupOfTestFilesLeavesKeystoreKeyIntactAndUsable() throws Exception {
+        store.store(SECRET);
+        // Simulate test cleanup (deleting test store files without touching the Keystore alias)
+        store.delete();
+        File[] files = dir.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                //noinspection ResultOfMethodCallIgnored
+                file.delete();
+            }
+        }
+
+        // Prove that the Keystore alias remains completely valid and usable across store lifecycles
+        SecureCredentialStore freshStore =
+                new SecureCredentialStore(dir, new AndroidCredentialKeyProvider());
+        String nextSecret = "sk-post-cleanup-key-intact-789";
+        freshStore.store(nextSecret);
+        assertEquals(nextSecret, freshStore.read());
+        freshStore.delete();
+    }
 }

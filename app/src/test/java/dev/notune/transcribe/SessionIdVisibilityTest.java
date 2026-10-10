@@ -286,6 +286,35 @@ public class SessionIdVisibilityTest {
     }
 
     @Test
+    public void recognizeActivityHasEarlySessionCheckInOnTextTranscribed() throws Exception {
+        String source = readSource("RecognizeActivity.java");
+        int methodIndex = source.indexOf("public void onTextTranscribed(String text, int sessionId)");
+        assertTrue("RecognizeActivity must declare onTextTranscribed(String, int)", methodIndex >= 0);
+
+        String methodBody = source.substring(methodIndex, source.indexOf('}', methodIndex) + 200);
+        int guardIndex = methodBody.indexOf("if (sessionId != currentSessionId) return;");
+        int dispatchIndex = methodBody.indexOf("runOnUiThread");
+
+        assertTrue("onTextTranscribed must check sessionId != currentSessionId before runOnUiThread",
+                guardIndex >= 0 && guardIndex < dispatchIndex);
+    }
+
+    @Test
+    public void voiceRecognitionServiceHasEarlySessionCheckInOnResults() throws Exception {
+        String source = readSource("VoiceRecognitionService.java");
+        int methodIndex = source.indexOf("public void onResults(String text, int sessionId)");
+        assertTrue("VoiceRecognitionService must declare onResults(String, int)", methodIndex >= 0);
+
+        String methodBody = source.substring(methodIndex, source.indexOf('}', methodIndex) + 200);
+        int guardIndex = methodBody.indexOf("if (sessionId != currentSessionId) return;");
+        int dispatchIndex = methodBody.indexOf("mainHandler.post");
+
+        assertTrue("onResults must check sessionId != currentSessionId before mainHandler.post",
+                guardIndex >= 0 && guardIndex < dispatchIndex);
+    }
+
+
+    @Test
     public void audioLevelSessionReplacementDrainsStaleWorkAndDeliversActiveSessionMeterUpdate() {
         AtomicInteger activeSession = new AtomicInteger(1);
         AtomicBoolean isDestroyed = new AtomicBoolean(false);

@@ -29,10 +29,10 @@ android {
         minSdk = 26
         targetSdk = 37
         // JUnit4 instrumentation tests (currently the AndroidKeyStore seam of
-        // the credential store). They COMPILE in CI but never run there — no
-        // arm64 device/emulator exists (AGENTS.md §5.4); `connectedDebugAndroidTest`
-        // runs them on a connected device. Without this runner the platform
-        // default would silently skip AndroidJUnit4 classes.
+        // the credential store). They compile in CI (via :app:assembleDebugAndroidTest)
+        // but never run there — no arm64 device/emulator exists (AGENTS.md §5.4);
+        // `connectedDebugAndroidTest` runs them on a connected device. Without this runner
+        // the platform default would silently skip AndroidJUnit4 classes.
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = 41
         versionName = "0.2.2"
