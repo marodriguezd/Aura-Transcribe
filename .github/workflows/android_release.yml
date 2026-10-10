@@ -16,18 +16,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
 
     - name: Setup Rust
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
       with:
         targets: aarch64-linux-android
 
     - name: Rust format check (hard gate)
       run: cargo fmt --all -- --check
 
+    - name: Rust workspace tests (hard gate)
+      run: cargo test --workspace
+
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
       with:
         python-version: '3.11'
 
@@ -41,7 +44,7 @@ jobs:
       run: python3 scripts/test_verify_release_artifact.py
 
     - name: Set up JDK 17
-      uses: actions/setup-java@v4
+      uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.7.1
       with:
         java-version: '17'
         distribution: 'temurin'
@@ -52,7 +55,7 @@ jobs:
         sed -i '/android.aapt2FromMavenOverride/d' gradle.properties
 
     - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v4
+      uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4.4.1
 
     # `set -o pipefail` is required: without it the pipeline's exit status is
     # `tee`'s and a failing gate would report success.
@@ -82,16 +85,16 @@ jobs:
       contents: write
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
 
     - name: Set up JDK 17
-      uses: actions/setup-java@v4
+      uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.7.1
       with:
         java-version: '17'
         distribution: 'temurin'
 
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
       with:
         python-version: '3.11'
 
@@ -120,21 +123,21 @@ jobs:
         echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
 
     - name: Setup Rust
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
       with:
         targets: aarch64-linux-android
 
     - name: Rust Cache
-      uses: Swatinem/rust-cache@v2
+      uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2.7.8
 
     - name: Install CMake & Ninja
       run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
 
     - name: Install cargo-ndk
-      run: cargo install cargo-ndk
+      run: cargo install cargo-ndk --version 4.1.2 --locked
 
     - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v4
+      uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4.4.1
 
     # The build can only produce a model-less release APK when the documented
     # escape-hatch property is passed. It exists for local experiments; a release
@@ -266,6 +269,13 @@ jobs:
         # bytes in the artifact must equal the verified source asset.
         python3 scripts/verify_release_artifact.py --kind apk --archive "$APK"
 
+        # Verify MODEL_LICENSE.md is packaged inside APK assets and matches source
+        unzip -p "$APK" assets/MODEL_LICENSE.md | cmp - MODEL_LICENSE.md || {
+          echo "::error::assets/MODEL_LICENSE.md is missing or corrupt in release APK"
+          exit 1
+        }
+        echo "OK: assets/MODEL_LICENSE.md verified inside release APK."
+
         echo "RELEASE_APK=$APK" >> "$GITHUB_ENV"
 
     - name: Verify bundled model hash (checkModels gate)
@@ -325,6 +335,13 @@ jobs:
         # duplicated into the base module (which would deliver ~750 MB twice).
         python3 scripts/verify_release_artifact.py --kind aab --archive "$AAB"
 
+        # Verify MODEL_LICENSE.md is packaged inside AAB asset pack and matches source
+        unzip -p "$AAB" model_assets/assets/MODEL_LICENSE.md | cmp - MODEL_LICENSE.md || {
+          echo "::error::model_assets/assets/MODEL_LICENSE.md is missing or corrupt in release AAB"
+          exit 1
+        }
+        echo "OK: model_assets/assets/MODEL_LICENSE.md verified inside release AAB."
+
         echo "RELEASE_AAB=$AAB" >> "$GITHUB_ENV"
 
     - name: Extract Version Name
@@ -351,13 +368,13 @@ jobs:
         cat aab-verify.txt || true
 
     - name: Upload APK Artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: Aura-Transcribe-v${{ env.VERSION_NAME }}
         path: Aura_Transcribe_v${{ env.VERSION_NAME }}.apk
 
     - name: Upload AAB Artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: Aura-Transcribe-v${{ env.VERSION_NAME }}-aab
         path: Aura_Transcribe_v${{ env.VERSION_NAME }}.aab
@@ -366,8 +383,8 @@ jobs:
     # project key (not the debug key), 16 KB aligned, and contains the bundled
     # model; the AAB is signed and delivers the same model once, in its asset pack.
     - name: Create Release
-      if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
-      uses: softprops/action-gh-release@v2
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
       with:
         name: Aura Transcribe v${{ env.VERSION_NAME }}
         tag_name: v${{ env.VERSION_NAME }}
@@ -375,3 +392,4 @@ jobs:
         files: |
           Aura_Transcribe_v${{ env.VERSION_NAME }}.apk
           Aura_Transcribe_v${{ env.VERSION_NAME }}.aab
+          MODEL_LICENSE.md

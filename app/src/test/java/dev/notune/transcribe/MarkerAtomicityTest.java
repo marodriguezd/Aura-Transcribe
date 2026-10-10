@@ -17,10 +17,9 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
- * Plain-JVM concurrency coverage for the atomic marker-file writes that the
- * main process and the isolated \":ime\" process share (P1.2): a reader must
- * never observe a partially-written marker — only a complete value (the old
- * one, the new one, or none on first creation).
+ * Plain-JVM concurrency coverage for atomic marker-file writes across concurrent
+ * components and threads (P1.2): a reader must never observe a partially-written
+ * marker — only a complete value (the old one, the new one, or none on first creation).
  *
  * <p>This is what guarantees, e.g., that the engine never reads a torn
  * {@code model_language} or {@code stream_context_right} value while the

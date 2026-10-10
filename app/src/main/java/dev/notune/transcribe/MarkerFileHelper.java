@@ -6,7 +6,9 @@ import android.util.Log;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 
 /**
  * Centralized helper for managing marker files in {@code filesDir()}.
@@ -68,37 +70,21 @@ public final class MarkerFileHelper {
     }
 
     /**
-     * Writes a UTF-8 string to a marker file atomically. If {@code value} is
-     * null or empty, deletes the file.
+     * Writes a UTF-8 string to a marker file using safe atomic promotion. If {@code value}
+     * is null or empty, deletes the marker file.
      *
-     * <p>The temp file is unique per write (P1.2): concurrent writers of the
-     * same marker (settings UI, native readers) must never share a
-     * temp path, or one writer's rename can move the file another writer is
-     * still writing to, exposing partial content to readers. With per-write
-     * temps, every rename is atomic and readers only ever see a complete
-     * value.</p>
+     * <p>The value is written and flushed (with {@code fsync}) to a unique temporary file
+     * in the same directory, then promoted via {@link Files#move} with atomic replacement.
+     * If atomic promotion fails, the previous destination file is preserved intact,
+     * the temporary file is deleted, and a secret-free error diagnostic is logged.
+     * The method never falls back to directly overwriting the destination file.</p>
+     *
+     * @return true if the marker file was successfully written (or deleted when empty); false on failure
      */
-    public static void writeString(Context context, String fileName, String value) {
-        if (context == null || fileName == null) return;
+    public static boolean writeString(Context context, String fileName, String value) {
+        if (context == null || fileName == null) return false;
         File dir = context.getApplicationContext().getFilesDir();
-        File file = new File(dir, fileName);
-        if (value == null || value.isEmpty()) {
-            if (file.exists()) file.delete();
-            return;
-        }
-        File temp = new File(dir, uniqueTempName(fileName));
-        try (java.io.FileOutputStream os = new java.io.FileOutputStream(temp)) {
-            os.write(value.getBytes(StandardCharsets.UTF_8));
-            os.getFD().sync();
-            if (!temp.renameTo(file)) {
-                // Fallback to direct write if rename fails across partitions
-                Files.write(file.toPath(), value.getBytes(StandardCharsets.UTF_8));
-            }
-        } catch (IOException e) {
-            Log.e(TAG, "Failed to write marker file: " + fileName, e);
-        } finally {
-            if (temp.exists()) temp.delete();
-        }
+        return writeStringToFile(dir, fileName, value);
     }
 
     /**
@@ -115,10 +101,12 @@ public final class MarkerFileHelper {
     }
 
     /**
-     * Writes an integer as a string to a marker file.
+     * Writes an integer as a string to a marker file using safe atomic promotion.
+     *
+     * @return true if the marker file was successfully written; false on failure
      */
-    public static void writeInt(Context context, String fileName, int value) {
-        writeString(context, fileName, Integer.toString(value));
+    public static boolean writeInt(Context context, String fileName, int value) {
+        return writeString(context, fileName, Integer.toString(value));
     }
 
     /**
@@ -147,49 +135,93 @@ public final class MarkerFileHelper {
         }
     }
 
-    public static void writeStringToFile(File dir, String fileName, String value) {
-        if (dir == null || fileName == null) return;
-        if (value == null || value.isEmpty()) {
-            File file = new File(dir, fileName);
-            if (file.exists()) file.delete();
-            return;
-        }
-        File temp = new File(dir, uniqueTempName(fileName));
-        File file = new File(dir, fileName);
-        try (java.io.FileOutputStream os = new java.io.FileOutputStream(temp)) {
-            os.write(value.getBytes(StandardCharsets.UTF_8));
-            os.getFD().sync();
-            if (!temp.renameTo(file)) {
-                Files.write(file.toPath(), value.getBytes(StandardCharsets.UTF_8));
-            }
-        } catch (IOException e) {
-            // Log or fallback
-        } finally {
-            if (temp.exists()) temp.delete();
-        }
-    }
-
     /**
-     * Per-write unique temp name: concurrent writers of the same marker must
-     * never share a temp path (their renames would race and could expose a
-     * partially-written target). Thread id + a monotonic nanoTime keep names
-     * distinct across threads and repeated calls.
+     * Writes a UTF-8 string to a marker file in {@code dir} using safe atomic promotion.
+     * If {@code value} is null or empty, deletes the marker file.
+     *
+     * <p>Promotes a flushed temporary file to {@code fileName} using an atomic replacement
+     * mechanism. If promotion fails, the previous destination file is preserved intact,
+     * the temporary file is deleted, and the method fails safely without direct overwriting.</p>
+     *
+     * @return true if the marker file was successfully written (or deleted when empty); false on failure
      */
-    private static String uniqueTempName(String fileName) {
-        return fileName + ".tmp" + Thread.currentThread().getId() + "-" + System.nanoTime();
-    }
+     public static boolean writeStringToFile(File dir, String fileName, String value) {
+         if (dir == null || fileName == null) return false;
+         File file = new File(dir, fileName);
+         if (value == null || value.isEmpty()) {
+             if (file.exists()) {
+                 return file.delete();
+             }
+             return true;
+         }
+         File temp = new File(dir, uniqueTempName(fileName));
+         try (java.io.FileOutputStream os = new java.io.FileOutputStream(temp)) {
+             os.write(value.getBytes(StandardCharsets.UTF_8));
+             os.flush();
+             os.getFD().sync();
+             if (!promoteAtomic(temp, file)) {
+                 Log.e(TAG, "Failed to atomically promote marker file: " + fileName);
+                 return false;
+             }
+             return true;
+         } catch (IOException e) {
+             Log.e(TAG, "Failed to write temporary marker file: " + fileName, e);
+             return false;
+         } finally {
+             if (temp.exists()) {
+                 temp.delete();
+             }
+         }
+     }
 
-    public static int readIntFromFile(File dir, String fileName, int defaultValue) {
-        String s = readStringFromFile(dir, fileName, null);
-        if (s == null || s.isEmpty()) return defaultValue;
-        try {
-            return Integer.parseInt(s);
-        } catch (NumberFormatException e) {
-            return defaultValue;
-        }
-    }
+     /**
+      * Safely promotes a temporary file to destination using an atomic replacement mechanism.
+      * If ATOMIC_MOVE is unsupported, attempts REPLACE_EXISTING move, but never falls back
+      * to a direct file-stream overwrite.
+      */
+     private static boolean promoteAtomic(File temp, File destination) {
+         if (temp == null || destination == null || !temp.exists()) {
+             return false;
+         }
+         try {
+             Files.move(temp.toPath(), destination.toPath(),
+                     StandardCopyOption.ATOMIC_MOVE,
+                     StandardCopyOption.REPLACE_EXISTING);
+             return true;
+         } catch (AtomicMoveNotSupportedException e) {
+             try {
+                 Files.move(temp.toPath(), destination.toPath(),
+                         StandardCopyOption.REPLACE_EXISTING);
+                 return true;
+             } catch (IOException ex) {
+                 return false;
+             }
+         } catch (IOException e) {
+             return false;
+         }
+     }
 
-    public static void writeIntToFile(File dir, String fileName, int value) {
-        writeStringToFile(dir, fileName, Integer.toString(value));
-    }
+     /**
+      * Per-write unique temp name: concurrent writers of the same marker must
+      * never share a temp path (their renames would race and could expose a
+      * partially-written target). Thread id + a monotonic nanoTime keep names
+      * distinct across threads and repeated calls.
+      */
+     private static String uniqueTempName(String fileName) {
+         return fileName + ".tmp" + Thread.currentThread().getId() + "-" + System.nanoTime();
+     }
+
+     public static int readIntFromFile(File dir, String fileName, int defaultValue) {
+         String s = readStringFromFile(dir, fileName, null);
+         if (s == null || s.isEmpty()) return defaultValue;
+         try {
+             return Integer.parseInt(s);
+         } catch (NumberFormatException e) {
+             return defaultValue;
+         }
+     }
+
+     public static boolean writeIntToFile(File dir, String fileName, int value) {
+         return writeStringToFile(dir, fileName, Integer.toString(value));
+     }
 }

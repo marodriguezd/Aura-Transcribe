@@ -606,6 +606,14 @@ public class ModelsActivity extends AppCompatActivity {
                     .show();
             return;
         }
+        if (size > ModelImportHelper.MAX_MODEL_SIZE_BYTES) {
+            new MaterialAlertDialogBuilder(this)
+                    .setTitle(R.string.models_import_bad_title)
+                    .setMessage(R.string.models_import_bad_body)
+                    .setPositiveButton(android.R.string.ok, null)
+                    .show();
+            return;
+        }
         if (size > 0 && DeviceStorage.availableBytes(this, getFilesDir()) < size + FREE_SPACE_MARGIN) {
             snackbar(getString(R.string.models_import_no_space));
             return;
@@ -623,7 +631,7 @@ public class ModelsActivity extends AppCompatActivity {
         importText.setText(getString(R.string.models_importing, name));
 
         File dest = new File(modelsDir(), name);
-        File tmp = new File(modelsDir(), name + ".part");
+        File tmp = new File(modelsDir(), name + ".part" + System.currentTimeMillis());
         // A large GGUF import can outlive this Activity (rotation, task
         // switch, low-memory kill). The thread must not touch the Activity
         // or its views after destruction: resolve views on the UI thread
@@ -635,27 +643,22 @@ public class ModelsActivity extends AppCompatActivity {
         final String finalName = name;
 
         new Thread(() -> {
-            boolean ok = false;
-            try (InputStream in = appContext.getContentResolver().openInputStream(uri);
-                 OutputStream out = new FileOutputStream(tmp)) {
-                byte[] buf = new byte[1024 * 1024];
-                long copied = 0;
-                int read;
-                while (in != null && (read = in.read(buf)) != -1) {
-                    out.write(buf, 0, read);
-                    copied += read;
-                    if (size > 0) {
-                        final int pct = (int) (copied * 100 / size);
-                        postOnUi(weak, activity -> activity.importBar.setProgress(pct));
-                    }
-                }
-                ok = true;
-            } catch (IOException e) {
+            ModelImportHelper.ImportResult result;
+            try (InputStream in = appContext.getContentResolver().openInputStream(uri)) {
+                result = ModelImportHelper.copyAndPromote(
+                        in, dest, tmp, size,
+                        (copied, declared) -> {
+                            if (declared > 0) {
+                                final int pct = (int) Math.min(100L, copied * 100 / declared);
+                                postOnUi(weak, activity -> activity.importBar.setProgress(pct));
+                            }
+                        });
+            } catch (Exception e) {
                 Log.e(TAG, "Model import failed", e);
+                result = ModelImportHelper.ImportResult.error("Failed to open or process model stream: " + e.getMessage());
             }
 
-            boolean success = ok && tmp.renameTo(dest);
-            if (!success) tmp.delete();
+            final boolean success = result.success;
             postOnUi(weak, activity -> {
                 activity.importButton.setEnabled(true);
                 activity.importArea.setVisibility(View.GONE);

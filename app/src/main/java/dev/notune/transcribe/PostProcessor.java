@@ -43,7 +43,7 @@ public class PostProcessor {
     private static final String DIAGNOSTIC_MARKER = "POSTPROCESS_DIAGNOSTIC_OK";
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
 
-    /** Broadcast action used to cancel calls in the isolated IME process. */
+    /** Broadcast action used to cancel in-flight post-processing calls across components. */
     public static final String CANCEL_ACTION = "dev.notune.transcribe.CANCEL_PP";
     /** Stable callback error used by settings UI to show a localized fix. */
     public static final String MISSING_API_KEY_ERROR =

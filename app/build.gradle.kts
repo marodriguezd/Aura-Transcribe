@@ -424,10 +424,30 @@ val cargoNdkBuild = tasks.register<Exec>("cargoNdkBuild") {
     val prebuiltDir = ndkPrebuiltDir()
     val jniLibsDir = project.file("src/main/jniLibs")
     val soFile = File(jniLibsDir, "arm64-v8a/libandroid_transcribe_app.so")
-
-    onlyIf {
-        !soFile.exists()
+    val rustSources = rootProject.fileTree(rootProject.projectDir) {
+        include("src/**/*.rs")
+        include("crates/**/*.rs")
+        include("Cargo.toml")
+        include("Cargo.lock")
+        include("build.rs")
+        include("crates/**/Cargo.toml")
+        include("crates/**/Cargo.lock")
+        include(".cargo/config.toml")
     }
+
+    inputs.files(rustSources)
+        .withPropertyName("rustSources")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+
+    // Capture critical toolchain environment settings as inputs so changes trigger rebuild
+    inputs.property("androidAbi", "arm64-v8a")
+    inputs.property("targetPlatform", "26")
+    inputs.property("rustFlags", "-C target-feature=+neon,+fp16,+dotprod -C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-lc++_shared")
+    inputs.property("cmakeArgs", "-DCMAKE_TOOLCHAIN_FILE=$ndkDir/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=26 -DANDROID_STL=c++_shared -DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16 -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS_RELEASE=-O3 -DCMAKE_CXX_FLAGS_RELEASE=-O3 -DGGML_NATIVE=OFF -DGGML_BUILD_TESTS=OFF -DGGML_BUILD_EXAMPLES=OFF")
+    inputs.property("ndkVersion", android.ndkVersion)
+
+    outputs.file(soFile).withPropertyName("nativeLibrary")
+    outputs.file(File(jniLibsDir, "arm64-v8a/libc++_shared.so")).withPropertyName("libCppShared")
 
     if (ndkDir.isNotEmpty()) {
         environment("ANDROID_NDK_HOME", ndkDir)
@@ -478,16 +498,12 @@ val cargoNdkBuild = tasks.register<Exec>("cargoNdkBuild") {
             }
         }
     }
-
-    outputs.dir(jniLibsDir)
 }
 
-// Wire the cargo-ndk build into the Android build lifecycle for APK builds
-// (skipping heavy Rust compilation during unit testing/linting to conserve CPU).
-val isUnitTestTask = gradle.startParameter.taskNames.any {
-    it.contains("test", ignoreCase = true) || it.contains("lint", ignoreCase = true)
-}
-if (!isUnitTestTask) {
+// Wire the cargo-ndk build into the Android build lifecycle for APK/AAB builds
+// (skipping heavy Rust compilation during pure unit testing/linting to conserve CPU).
+// Mixed invocations (e.g. `assembleDebug testDebugUnitTest`) must compile native code.
+if (needsNativeBuild(requestedTaskNames)) {
     tasks.named("preBuild") {
         dependsOn(cargoNdkBuild)
     }
@@ -585,16 +601,22 @@ fun downloadToDir(assetsDir: File, files: List<ModelFile>) {
 }
 
 val downloadModels = tasks.register("downloadModels") {
-    description = "Download the built-in speech model (GGUF)"
+    description = "Download the built-in speech model (GGUF) and package MODEL_LICENSE.md"
     group = "build"
 
     // The GGUF -> asset pack (separate install-time delivery)
     val packAssetsDir = rootProject.file("model_assets/src/main/assets/builtin-model")
+    val packRootDir = rootProject.file("model_assets/src/main/assets")
+    val licenseSrc = rootProject.file("MODEL_LICENSE.md")
 
     outputs.dir(packAssetsDir)
+    outputs.file(File(packRootDir, "MODEL_LICENSE.md"))
 
     doLast {
         downloadToDir(packAssetsDir, modelPackFiles)
+        if (licenseSrc.exists()) {
+            licenseSrc.copyTo(File(packRootDir, "MODEL_LICENSE.md"), overwrite = true)
+        }
     }
 }
 
@@ -863,12 +885,21 @@ val isVerificationOnlyRun = requestedTaskNames.isNotEmpty() && requestedTaskName
         name.contains("test", ignoreCase = true) ||
         name.contains("checkModels", ignoreCase = true)
 }
+val copyModelLicense = tasks.register<Copy>("copyModelLicense") {
+    description = "Copies MODEL_LICENSE.md into model_assets assets directory for release packaging"
+    group = "build"
+    from(rootProject.file("MODEL_LICENSE.md"))
+    into(rootProject.file("model_assets/src/main/assets"))
+}
+
 val buildsReleaseArtifact = requestedTaskNames.any { name ->
     name.contains("Release", ignoreCase = true) || name.contains("bundle", ignoreCase = true)
 }
+
 if (buildsReleaseArtifact && !isVerificationOnlyRun) {
     tasks.named("preBuild") {
         dependsOn(downloadModels)
+        dependsOn(copyModelLicense)
     }
 }
 
@@ -1401,4 +1432,64 @@ fun runPackagingDecisionGate(workDir: File) {
     )
 
     println("  verifyPackagingDecision: 15 archive cases verified (accept and reject)")
+
+    // ---- 4. Task selection for native compilation (needsNativeBuild) --------
+    val nativeBuildCases = listOf(
+        Pair(listOf("testDebugUnitTest"), false),
+        Pair(listOf("lintDebug"), false),
+        Pair(listOf("testDebugUnitTest", "lintDebug"), false),
+        Pair(listOf(":app:testDebugUnitTest"), false),
+        Pair(listOf("checkModels"), false),
+        Pair(listOf("assembleDebug"), true),
+        Pair(listOf(":app:assembleRelease"), true),
+        Pair(listOf("bundleRelease"), true),
+        Pair(listOf("assembleDebug", "testDebugUnitTest"), true),
+        Pair(listOf("lintDebug", "packageRelease"), true),
+        Pair(listOf("connectedDebugAndroidTest"), true),
+        Pair(listOf("installDebug"), true),
+        Pair(listOf("build"), true),
+        Pair(listOf("assemble"), true),
+        Pair(emptyList<String>(), true)
+    )
+    for ((taskNames, expectedNeedsNative) in nativeBuildCases) {
+        val actual = needsNativeBuild(taskNames)
+        if (actual != expectedNeedsNative) {
+            throw GradleException(
+                "verifyPackagingDecision: needsNativeBuild($taskNames) was $actual but expected $expectedNeedsNative. " +
+                    "Mixed invocations must trigger native compilation if any task produces/runs native artifacts, " +
+                    "while pure test/lint runs must skip it."
+            )
+        }
+    }
+    println("  verifyPackagingDecision: ${nativeBuildCases.size} native task selection cases verified")
+}
+
+/**
+ * Determines whether the Gradle invocation requires building the native Rust library.
+ *
+ * Test-only, lint-only, and model-check invocations skip heavy native compilation to conserve CPU.
+ * However, mixed invocations (e.g. `assembleDebug testDebugUnitTest`) MUST compile native code because
+ * an APK/AAB is being produced.
+ *
+ * If no task names are given (e.g. IDE sync/tooling) or any build/assembly/install/packaging/device-test task
+ * is requested, returns true.
+ */
+fun needsNativeBuild(taskNames: List<String>): Boolean {
+    if (taskNames.isEmpty()) return true
+    val bare = taskNames.map { it.substringAfterLast(':') }
+    val isVerificationOnly = bare.all { name ->
+        name.contains("lint", ignoreCase = true) ||
+            name.contains("test", ignoreCase = true) ||
+            name.contains("check", ignoreCase = true) ||
+            name.contains("verify", ignoreCase = true)
+    }
+    val requestsBuildArtifact = bare.any { name ->
+        name.startsWith("assemble") ||
+            name.startsWith("bundle") ||
+            name.startsWith("install") ||
+            name.startsWith("package") ||
+            name.contains("AndroidTest", ignoreCase = true) ||
+            name == "build"
+    }
+    return requestsBuildArtifact || !isVerificationOnly
 }

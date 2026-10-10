@@ -56,3 +56,7 @@ benchmark_results.json
 .ai_context/
 .agents/
 .omg/
+.opencode/
+*.lock
+!Cargo.lock
+!crates/**/Cargo.lock

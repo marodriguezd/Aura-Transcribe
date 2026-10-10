@@ -96,4 +96,39 @@ public class MarkerFileHelperPersistenceTest {
         MarkerFileHelper.writeStringToFile(tempDirectory, "stream_context_right", "0");
         assertEquals("0", MarkerFileHelper.readStringFromFile(tempDirectory, "stream_context_right", "13"));
     }
+
+    @Test
+    public void firstTimeCreationReturnsTrueAndWritesValue() {
+        File marker = new File(tempDirectory, "first_create.txt");
+        assertFalse(marker.exists());
+        boolean ok = MarkerFileHelper.writeStringToFile(tempDirectory, "first_create.txt", "initial_val");
+        assertTrue(ok);
+        assertTrue(marker.exists());
+        assertEquals("initial_val", MarkerFileHelper.readStringFromFile(tempDirectory, "first_create.txt", ""));
+    }
+
+    @Test
+    public void replacementOfExistingValueAtomicallyUpdatesContent() {
+        boolean ok1 = MarkerFileHelper.writeStringToFile(tempDirectory, "replace.txt", "v1");
+        assertTrue(ok1);
+        assertEquals("v1", MarkerFileHelper.readStringFromFile(tempDirectory, "replace.txt", ""));
+
+        boolean ok2 = MarkerFileHelper.writeStringToFile(tempDirectory, "replace.txt", "v2");
+        assertTrue(ok2);
+        assertEquals("v2", MarkerFileHelper.readStringFromFile(tempDirectory, "replace.txt", ""));
+    }
+
+    @Test
+    public void promotionFailurePreservesExistingDestination() throws IOException {
+        File existing = new File(tempDirectory, "target_conflict");
+        assertTrue(existing.mkdir());
+        File sub = new File(existing, "sub.txt");
+        assertTrue(sub.createNewFile());
+
+        // Attempting to overwrite a directory with a file will fail promotion
+        boolean ok = MarkerFileHelper.writeStringToFile(tempDirectory, "target_conflict", "new_content");
+        assertFalse(ok);
+        assertTrue(existing.isDirectory());
+        assertTrue(sub.exists());
+    }
 }
