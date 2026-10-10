@@ -14,4 +14,28 @@
     <dimen name="content_horizontal_margin">16dp</dimen>
     <!-- Minimum interactive size (Material 3 / WCAG 2.5.5 touch target). -->
     <dimen name="min_touch_target">48dp</dimen>
+
+    <!--
+      Material 3 Shape Corner Radius Scale (including M3 Expressive update).
+    -->
+    <dimen name="m3_shape_corner_none">0dp</dimen>
+    <dimen name="m3_shape_corner_extra_small">4dp</dimen>
+    <dimen name="m3_shape_corner_small">8dp</dimen>
+    <dimen name="m3_shape_corner_medium">12dp</dimen>
+    <dimen name="m3_shape_corner_large">16dp</dimen>
+    <dimen name="m3_shape_corner_large_increased">20dp</dimen>
+    <dimen name="m3_shape_corner_extra_large">28dp</dimen>
+    <dimen name="m3_shape_corner_extra_large_increased">32dp</dimen>
+    <dimen name="m3_shape_corner_extra_extra_large">48dp</dimen>
+    <dimen name="m3_shape_corner_full">9999dp</dimen>
+
+    <!--
+      Material 3 Elevation Tokens (DP values for surface tonal/shadow elevations).
+    -->
+    <dimen name="m3_elevation_level0">0dp</dimen>
+    <dimen name="m3_elevation_level1">1dp</dimen>
+    <dimen name="m3_elevation_level2">3dp</dimen>
+    <dimen name="m3_elevation_level3">6dp</dimen>
+    <dimen name="m3_elevation_level4">8dp</dimen>
+    <dimen name="m3_elevation_level5">12dp</dimen>
 </resources>

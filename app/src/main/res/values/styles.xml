@@ -29,4 +29,70 @@
         <item name="android:windowAnimationStyle">@android:style/Animation.InputMethod</item>
         <item name="android:windowSoftInputMode">stateUnchanged</item>
     </style>
+
+    <!--
+      Material 3 Shape Appearance Scales (matching tokens).
+    -->
+    <style name="ShapeAppearance.M3.Corner.None" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/m3_shape_corner_none</item>
+    </style>
+    <style name="ShapeAppearance.M3.Corner.ExtraSmall" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/m3_shape_corner_extra_small</item>
+    </style>
+    <style name="ShapeAppearance.M3.Corner.Small" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/m3_shape_corner_small</item>
+    </style>
+    <style name="ShapeAppearance.M3.Corner.Medium" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/m3_shape_corner_medium</item>
+    </style>
+    <style name="ShapeAppearance.M3.Corner.Large" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/m3_shape_corner_large</item>
+    </style>
+    <style name="ShapeAppearance.M3.Corner.LargeIncreased" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/m3_shape_corner_large_increased</item>
+    </style>
+    <style name="ShapeAppearance.M3.Corner.ExtraLarge" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/m3_shape_corner_extra_large</item>
+    </style>
+    <style name="ShapeAppearance.M3.Corner.ExtraLargeIncreased" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/m3_shape_corner_extra_large_increased</item>
+    </style>
+    <style name="ShapeAppearance.M3.Corner.ExtraExtraLarge" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/m3_shape_corner_extra_extra_large</item>
+    </style>
+    <style name="ShapeAppearance.M3.Corner.Full" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">@dimen/m3_shape_corner_full</item>
+    </style>
+
+    <!--
+      Material 3 Expressive Typography: Emphasized styles.
+    -->
+    <style name="TextAppearance.M3.Emphasized.TitleLarge" parent="TextAppearance.Material3.TitleLarge">
+        <item name="android:textStyle">bold</item>
+    </style>
+    <style name="TextAppearance.M3.Emphasized.TitleMedium" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:textStyle">bold</item>
+    </style>
+    <style name="TextAppearance.M3.Emphasized.TitleSmall" parent="TextAppearance.Material3.TitleSmall">
+        <item name="android:textStyle">bold</item>
+    </style>
+    <style name="TextAppearance.M3.Emphasized.BodyLarge" parent="TextAppearance.Material3.BodyLarge">
+        <item name="android:textStyle">bold</item>
+    </style>
+    <style name="TextAppearance.M3.Emphasized.BodyMedium" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:textStyle">bold</item>
+    </style>
+    <style name="TextAppearance.M3.Emphasized.LabelLarge" parent="TextAppearance.Material3.LabelLarge">
+        <item name="android:textStyle">bold</item>
+    </style>
 </resources>

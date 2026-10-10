@@ -101,7 +101,7 @@
                         android:layout_marginBottom="16dp"/>
 
                     <!-- Shown only when RECORD_AUDIO is missing. -->
-                    <Button
+                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_voice_grant"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -110,7 +110,7 @@
                         android:layout_marginBottom="8dp"/>
 
                     <!-- One-tap self-test: fires the real RECOGNIZE_SPEECH intent. -->
-                    <Button
+                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_voice_try"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -179,7 +179,7 @@
                         android:orientation="horizontal"
                         android:gravity="center_vertical">
 
-                        <Button
+                        <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_floating_overlay_permission"
                             style="@style/Widget.Material3.Button.OutlinedButton"
                             android:layout_width="0dp"
@@ -188,7 +188,7 @@
                             android:layout_marginEnd="8dp"
                             android:text="@string/btn_overlay_permission"/>
 
-                        <Button
+                        <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_floating_accessibility_permission"
                             style="@style/Widget.Material3.Button.OutlinedButton"
                             android:layout_width="0dp"
@@ -229,13 +229,13 @@
                         android:textColor="?attr/colorOnSurfaceVariant"
                         android:layout_marginBottom="16dp"/>
 
-                    <Button
+                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_subs_start"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="@string/btn_subs_start"/>
 
-                    <Button
+                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_subs_advanced"
                         style="@style/Widget.Material3.Button.TextButton"
                         android:layout_width="match_parent"
@@ -284,7 +284,7 @@
                         android:textColor="?attr/colorOnSurfaceVariant"
                         android:layout_marginBottom="16dp"/>
 
-                    <Button
+                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_models"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -319,7 +319,7 @@
                         android:textColor="?attr/colorOnSurfaceVariant"
                         android:layout_marginBottom="16dp"/>
 
-                    <Button
+                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_post_process"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -358,7 +358,7 @@
                         android:textColor="?attr/colorOnSurfaceVariant"
                         android:layout_marginBottom="16dp"/>
 
-                    <Button
+                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_custom_words"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"

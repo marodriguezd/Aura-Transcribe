@@ -98,21 +98,21 @@
                             android:layout_height="wrap_content"/>
                     </LinearLayout>
 
-                    <Button
+                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_recommended_packs"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="@string/models_recommended_packs"
                         android:layout_marginBottom="8dp"/>
 
-                    <Button
+                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_import"
                         style="@style/Widget.Material3.Button.OutlinedButton"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="@string/models_import"/>
 
-                    <Button
+                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_model_links"
                         style="@style/Widget.Material3.Button.TextButton"
                         android:layout_width="match_parent"

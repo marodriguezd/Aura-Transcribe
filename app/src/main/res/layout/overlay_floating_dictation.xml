@@ -188,7 +188,7 @@
 
         <!-- Insert result button: full-width action when the transcript is ready
              and accessibility auto-paste is unavailable -->
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/floating_insert_button"
             style="@style/Widget.Material3.Button"
             android:layout_width="match_parent"
