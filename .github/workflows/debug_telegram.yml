@@ -54,6 +54,7 @@ jobs:
     - name: Report Rust test failure details
       if: failure()
       run: |
+        echo "::error title=CargoTestFailure::$(tail -n 25 cargo_test.log | tr '\n' ' ')"
         echo "### Cargo Test Failure Log" >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
         tail -n 100 cargo_test.log >> $GITHUB_STEP_SUMMARY
@@ -119,7 +120,7 @@ jobs:
           --chat-id "$TELEGRAM_CHAT_ID" \
           --mode alert \
           --sha "$COMMIT_SHA" \
-          --logs "gradle_test.log"
+          --logs "cargo_test.log,gradle_test.log"
 
   build:
     name: 🚀 Build & Deploy APK

@@ -17,20 +17,26 @@ fn main() {
     } else {
         // When running tests on non-Android hosts (e.g. Linux x86_64 in CI),
         // android_log-sys requests `-llog` which does not exist in desktop Linux glibc.
-        // Provide a stub archive `liblog.a` so the linker resolves `-llog` and log symbols.
+        // Provide a stub archive `liblog.a` with position-independent code (-fPIC)
+        // so the linker resolves `-llog` and log symbols for PIE test binaries.
         let out = PathBuf::from(env::var("OUT_DIR").unwrap());
         let stub_c = out.join("android_log_stub.c");
-        let _ = fs::write(
-            &stub_c,
-            b"int __android_log_write() { return 0; }\n\
-              int __android_log_buf_write() { return 0; }\n\
-              int __android_log_print() { return 0; }\n\
-              int __android_log_vprint() { return 0; }\n",
-        );
+        let stub_source = b"#include <stdarg.h>\n\
+int __android_log_write(int prio, const char *tag, const char *text) { (void)prio; (void)tag; (void)text; return 0; }\n\
+int __android_log_buf_write(int bufID, int prio, const char *tag, const char *text) { (void)bufID; (void)prio; (void)tag; (void)text; return 0; }\n\
+int __android_log_print(int prio, const char *tag, const char *fmt, ...) { (void)prio; (void)tag; (void)fmt; return 0; }\n\
+int __android_log_vprint(int prio, const char *tag, const char *fmt, va_list ap) { (void)prio; (void)tag; (void)fmt; (void)ap; return 0; }\n\
+void __android_log_assert(const char *cond, const char *tag, const char *fmt, ...) { (void)cond; (void)tag; (void)fmt; }\n\
+int __android_log_is_loggable(int prio, const char *tag, int default_prio) { (void)prio; (void)tag; (void)default_prio; return 1; }\n\
+int __android_log_is_loggable_len(int prio, const char *tag, unsigned long size, int default_prio) { (void)prio; (void)tag; (void)size; (void)default_prio; return 1; }\n\
+void __android_log_write_log_message(void *msg) { (void)msg; }\n";
+        let _ = fs::write(&stub_c, stub_source);
         let stub_o = out.join("android_log_stub.o");
         let cc = env::var("CC").unwrap_or_else(|_| "cc".to_string());
         let compiled = std::process::Command::new(&cc)
             .args([
+                "-fPIC",
+                "-O2",
                 "-c",
                 stub_c.to_str().unwrap(),
                 "-o",
