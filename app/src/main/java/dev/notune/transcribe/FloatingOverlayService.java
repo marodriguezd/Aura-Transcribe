@@ -1426,7 +1426,7 @@ public class FloatingOverlayService extends Service {
 
     // Callbacks from Rust
     public void onAutoStop(int sessionId) {
-        if (sessionId != mCurrentSessionId || mIsDestroyed) return;
+        if (sessionId != mCurrentSessionId) return;
         mMainHandler.post(() -> {
             if (sessionId != mCurrentSessionId || mIsDestroyed) return;
             if (mIsRecording) {
@@ -1436,12 +1436,11 @@ public class FloatingOverlayService extends Service {
     }
 
     public void onStatusUpdate(String status) {
-        if (mIsDestroyed) return;
         onStatusUpdate(status, mCurrentSessionId);
     }
 
     public void onStatusUpdate(String status, int sessionId) {
-        if (sessionId != mCurrentSessionId || mIsDestroyed) return;
+        if (sessionId != mCurrentSessionId) return;
         mMainHandler.post(() -> {
             if (sessionId != mCurrentSessionId || mIsDestroyed) return;
             mLastStatus = status != null ? status : "";
@@ -1462,7 +1461,7 @@ public class FloatingOverlayService extends Service {
     }
 
     public void onAudioLevel(float level, int sessionId) {
-        if (sessionId != mCurrentSessionId || mIsDestroyed) return;
+        if (sessionId != mCurrentSessionId) return;
         mMainHandler.post(() -> {
             if (sessionId == mCurrentSessionId && !mIsDestroyed) {
                 if (mBubbleMicLevel != null) mBubbleMicLevel.setLevel(level);
@@ -1472,7 +1471,7 @@ public class FloatingOverlayService extends Service {
     }
 
     public void onPartialText(String text, int sessionId) {
-        if (sessionId != mCurrentSessionId || mIsDestroyed) return;
+        if (sessionId != mCurrentSessionId) return;
         mMainHandler.post(() -> {
             if (sessionId != mCurrentSessionId || mIsDestroyed) return;
             if (mIsRecording && mPartialText != null && mPartialScroll != null
@@ -1513,7 +1512,7 @@ public class FloatingOverlayService extends Service {
     }
 
     public void onTextTranscribed(String text, int sessionId) {
-        if (sessionId != mCurrentSessionId || mIsDestroyed) return;
+        if (sessionId != mCurrentSessionId) return;
         mMainHandler.post(() -> {
             if (sessionId != mCurrentSessionId || mIsDestroyed) return;
             if (text == null || text.trim().isEmpty()) {

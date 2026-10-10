@@ -639,7 +639,7 @@ public class RustInputMethodService extends InputMethodService {
 
     // Called from Rust (monitor thread) when trailing silence is detected.
     public void onAutoStop(int sessionId) {
-        if (sessionId != currentSessionId || isDestroyed) return;
+        if (sessionId != currentSessionId) return;
         mainHandler.post(() -> {
             if (sessionId != currentSessionId || isDestroyed) return;
             if (isRecording) {
@@ -657,7 +657,6 @@ public class RustInputMethodService extends InputMethodService {
 
     // Called from Rust
     public void onStatusUpdate(String status) {
-        if (isDestroyed) return;
         mainHandler.post(() -> {
             if (isDestroyed) return;
             applyStatus(status);
@@ -665,7 +664,7 @@ public class RustInputMethodService extends InputMethodService {
     }
 
     public void onStatusUpdate(String status, int sessionId) {
-        if (sessionId != currentSessionId || isDestroyed) return;
+        if (sessionId != currentSessionId) return;
         mainHandler.post(() -> {
             if (sessionId != currentSessionId || isDestroyed) return;
             applyStatus(status);
@@ -749,7 +748,7 @@ public class RustInputMethodService extends InputMethodService {
     // onTextTranscribed, so there is no risk of Frankenstein text from
     // revising hypotheses mid-utterance.
     public void onPartialText(String text, int sessionId) {
-        if (sessionId != currentSessionId || isDestroyed) return;
+        if (sessionId != currentSessionId) return;
         mainHandler.post(() -> {
             if (sessionId != currentSessionId || isDestroyed) return;
             if (isRecording && partialTextView != null && partialScroll != null
@@ -796,7 +795,7 @@ public class RustInputMethodService extends InputMethodService {
 
     // Called from Rust
     public void onTextTranscribed(String text, int sessionId) {
-        if (sessionId != currentSessionId || isDestroyed) return;
+        if (sessionId != currentSessionId) return;
         mainHandler.post(() -> {
             if (sessionId != currentSessionId || isDestroyed) return;
             if (text == null || text.trim().isEmpty()) {
@@ -965,14 +964,12 @@ public class RustInputMethodService extends InputMethodService {
         }
     }
     public void onAudioLevel(float level, int sessionId) {
-        if (sessionId != currentSessionId || isDestroyed) return;
-        if (micLevelView != null) {
-            mainHandler.post(() -> {
-                if (sessionId == currentSessionId && !isDestroyed && micLevelView != null) {
-                    micLevelView.setLevel(level);
-                }
-            });
-        }
+        if (sessionId != currentSessionId) return;
+        mainHandler.post(() -> {
+            if (sessionId == currentSessionId && !isDestroyed && micLevelView != null) {
+                micLevelView.setLevel(level);
+            }
+        });
     }
 
     public void onAudioLevel(float level) {

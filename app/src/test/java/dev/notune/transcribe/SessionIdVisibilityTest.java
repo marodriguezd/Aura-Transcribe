@@ -100,13 +100,12 @@ public class SessionIdVisibilityTest {
     @Test
     public void audioLevelFilterDropsStaleOrDestroyedUpdatesBeforePosting() {
         AtomicInteger activeSession = new AtomicInteger(1);
-        AtomicBoolean isDestroyed = new AtomicBoolean(false);
         List<Float> executorQueue = new ArrayList<>();
 
-        // Reusable audio-level dispatch gate matching the production pattern in
+        // Reusable audio-level dispatch gate matching the production pattern across
         // RustInputMethodService, FloatingOverlayService, and RecognizeActivity:
         java.util.function.BiConsumer<Float, Integer> onAudioLevel = (level, sessionId) -> {
-            if (sessionId != activeSession.get() || isDestroyed.get()) return;
+            if (sessionId != activeSession.get()) return;
             executorQueue.add(level);
         };
 
@@ -118,8 +117,8 @@ public class SessionIdVisibilityTest {
         onAudioLevel.accept(0.8f, 0);
         assertEquals("Stale session update must not be enqueued", 1, executorQueue.size());
 
-        // Destroyed owner: dropped before enqueuing work
-        isDestroyed.set(true);
+        // Destroyed owner increments session ID: dropped before enqueuing work
+        activeSession.incrementAndGet();
         onAudioLevel.accept(0.9f, 1);
         assertEquals("Destroyed owner update must not be enqueued", 1, executorQueue.size());
     }
@@ -237,10 +236,10 @@ public class SessionIdVisibilityTest {
         assertTrue("RustInputMethodService must declare onTextTranscribed", methodIndex >= 0);
 
         String methodBody = source.substring(methodIndex, source.indexOf('}', methodIndex) + 200);
-        int guardIndex = methodBody.indexOf("if (sessionId != currentSessionId || isDestroyed) return;");
+        int guardIndex = methodBody.indexOf("if (sessionId != currentSessionId) return;");
         int dispatchIndex = methodBody.indexOf("mainHandler.post");
 
-        assertTrue("onTextTranscribed must check session and destruction before mainHandler.post",
+        assertTrue("onTextTranscribed must check session before mainHandler.post",
                 guardIndex >= 0 && guardIndex < dispatchIndex);
     }
 
@@ -251,11 +250,101 @@ public class SessionIdVisibilityTest {
         assertTrue("FloatingOverlayService must declare onTextTranscribed", methodIndex >= 0);
 
         String methodBody = source.substring(methodIndex, source.indexOf('}', methodIndex) + 200);
-        int guardIndex = methodBody.indexOf("if (sessionId != mCurrentSessionId || mIsDestroyed) return;");
+        int guardIndex = methodBody.indexOf("if (sessionId != mCurrentSessionId) return;");
         int dispatchIndex = methodBody.indexOf("mMainHandler.post");
 
-        assertTrue("onTextTranscribed must check session and destruction before mMainHandler.post",
+        assertTrue("onTextTranscribed must check session before mMainHandler.post",
                 guardIndex >= 0 && guardIndex < dispatchIndex);
+    }
+
+    @Test
+    public void rustInputMethodServiceHasEarlySessionCheckInAudioLevel() throws Exception {
+        String source = readSource("RustInputMethodService.java");
+        int methodIndex = source.indexOf("public void onAudioLevel(float level, int sessionId)");
+        assertTrue("RustInputMethodService must declare onAudioLevel(float, int)", methodIndex >= 0);
+
+        String methodBody = source.substring(methodIndex, source.indexOf('}', methodIndex) + 200);
+        int guardIndex = methodBody.indexOf("if (sessionId != currentSessionId) return;");
+        int dispatchIndex = methodBody.indexOf("mainHandler.post");
+
+        assertTrue("onAudioLevel must check session before mainHandler.post",
+                guardIndex >= 0 && guardIndex < dispatchIndex);
+    }
+
+    @Test
+    public void floatingOverlayServiceHasEarlySessionCheckInAudioLevel() throws Exception {
+        String source = readSource("FloatingOverlayService.java");
+        int methodIndex = source.indexOf("public void onAudioLevel(float level, int sessionId)");
+        assertTrue("FloatingOverlayService must declare onAudioLevel(float, int)", methodIndex >= 0);
+
+        String methodBody = source.substring(methodIndex, source.indexOf('}', methodIndex) + 200);
+        int guardIndex = methodBody.indexOf("if (sessionId != mCurrentSessionId) return;");
+        int dispatchIndex = methodBody.indexOf("mMainHandler.post");
+
+        assertTrue("onAudioLevel must check session before mMainHandler.post",
+                guardIndex >= 0 && guardIndex < dispatchIndex);
+    }
+
+    @Test
+    public void audioLevelSessionReplacementDrainsStaleWorkAndDeliversActiveSessionMeterUpdate() {
+        AtomicInteger activeSession = new AtomicInteger(1);
+        AtomicBoolean isDestroyed = new AtomicBoolean(false);
+        List<Runnable> mainQueue = new ArrayList<>();
+        AtomicReference<Float> currentMeterLevel = new AtomicReference<>(0.0f);
+
+        // Production dispatch logic matching RustInputMethodService / RecognizeActivity / FloatingOverlayService
+        java.util.function.BiConsumer<Float, Integer> onAudioLevel = (level, sessionId) -> {
+            if (sessionId != activeSession.get()) return;
+            mainQueue.add(() -> {
+                if (sessionId == activeSession.get() && !isDestroyed.get()) {
+                    currentMeterLevel.set(level);
+                }
+            });
+        };
+
+        // 1. Session 1 receives audio level and queues UI runnable
+        onAudioLevel.accept(0.42f, 1);
+        assertEquals("Session 1 update should be enqueued", 1, mainQueue.size());
+
+        // 2. Session 1 is cancelled and Session 2 starts before queue executes
+        activeSession.set(2);
+
+        // 3. Callback from stale Session 1 is rejected before enqueue
+        onAudioLevel.accept(0.55f, 1);
+        assertEquals("Stale Session 1 callback must be rejected before enqueue", 1, mainQueue.size());
+
+        // 4. Session 2 receives audio level and queues UI runnable
+        onAudioLevel.accept(0.85f, 2);
+        assertEquals("Session 2 update should be enqueued", 2, mainQueue.size());
+
+        // 5. Drain the queue in FIFO order
+        // First runnable (Session 1): executes after session became stale -> safely dropped, meter unchanged
+        Runnable staleRunnable = mainQueue.remove(0);
+        staleRunnable.run();
+        assertEquals("Stale Session 1 runnable must not update the meter", 0.0f, currentMeterLevel.get(), 0.001f);
+
+        // Second runnable (Session 2): executes normally -> updates meter
+        Runnable activeRunnable = mainQueue.remove(0);
+        activeRunnable.run();
+        assertEquals("Active Session 2 runnable must deliver meter update", 0.85f, currentMeterLevel.get(), 0.001f);
+
+        // 6. Active Session 2 continues updating responsively after stale drain
+        onAudioLevel.accept(0.92f, 2);
+        assertEquals(1, mainQueue.size());
+        mainQueue.remove(0).run();
+        assertEquals("Active Session 2 continues responsive updates", 0.92f, currentMeterLevel.get(), 0.001f);
+
+        // 7. Verify destruction: owner destroyed increments active session and sets isDestroyed
+        onAudioLevel.accept(0.99f, 2);
+        assertEquals(1, mainQueue.size());
+        isDestroyed.set(true);
+        activeSession.incrementAndGet();
+        mainQueue.remove(0).run();
+        assertEquals("Destroyed owner must not receive UI meter update", 0.92f, currentMeterLevel.get(), 0.001f);
+
+        // 8. Subsequent callbacks after destruction are rejected before enqueue via volatile session ID
+        onAudioLevel.accept(0.10f, 2);
+        assertEquals("Destroyed owner must reject callbacks before enqueue", 0, mainQueue.size());
     }
 
     private static String readSource(String filename) throws Exception {
