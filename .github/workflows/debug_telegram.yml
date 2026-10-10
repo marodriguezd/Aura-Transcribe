@@ -47,7 +47,18 @@ jobs:
       run: sudo apt-get update && sudo apt-get install -y cmake ninja-build pkg-config libasound2-dev build-essential
 
     - name: Rust workspace tests (hard gate)
-      run: cargo test --workspace
+      run: |
+        set -o pipefail
+        cargo test --workspace 2>&1 | tee cargo_test.log
+
+    - name: Report Rust test failure details
+      if: failure()
+      run: |
+        echo "### Cargo Test Failure Log" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        tail -n 100 cargo_test.log >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        cat cargo_test.log || true
 
     - name: Set up Python
       uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
