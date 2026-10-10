@@ -43,8 +43,8 @@ jobs:
     - name: Rust format check (hard gate)
       run: cargo fmt --all -- --check
 
-    - name: Install CMake & Ninja
-      run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
+    - name: Install native build dependencies
+      run: sudo apt-get update && sudo apt-get install -y cmake ninja-build pkg-config libasound2-dev build-essential
 
     - name: Rust workspace tests (hard gate)
       run: cargo test --workspace
