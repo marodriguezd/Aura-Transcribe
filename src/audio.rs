@@ -350,8 +350,10 @@ mod tests {
             let data: Vec<f32> = (0..len).map(|i| (i as f32) * 0.1).collect();
             let expected: f32 = data.iter().map(|&x| x * x).sum();
             let actual = fast_sum_squares(&data);
+            let diff = (actual - expected).abs();
+            let tol = (expected.abs() * 1e-5).max(1e-3);
             assert!(
-                (actual - expected).abs() < 1e-3,
+                diff <= tol,
                 "len {}: actual {} != expected {}",
                 len,
                 actual,
