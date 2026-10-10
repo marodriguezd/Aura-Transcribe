@@ -26,7 +26,7 @@
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:background="@drawable/bg_voice_panel"
-        android:elevation="8dp"
+        android:elevation="@dimen/m3_elevation_level4"
         android:paddingStart="12dp"
         android:paddingEnd="4dp"
         android:paddingTop="10dp"
