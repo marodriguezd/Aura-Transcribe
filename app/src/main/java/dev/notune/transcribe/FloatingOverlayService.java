@@ -393,6 +393,11 @@ public class FloatingOverlayService extends Service {
                         int dx = (int) (event.getRawX() - initialTouchX);
                         int dy = (int) (event.getRawY() - initialTouchY);
                         if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+                            if (isClick && v != null) {
+                                try {
+                                    v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                                } catch (Throwable ignored) {}
+                            }
                             isClick = false;
                         }
                         mParams.x = initialX + dx;
@@ -1257,8 +1262,8 @@ public class FloatingOverlayService extends Service {
         }
 
         mSnapAnimator = ValueAnimator.ofInt(startX, targetX);
-        mSnapAnimator.setDuration(250);
-        mSnapAnimator.setInterpolator(new android.view.animation.DecelerateInterpolator());
+        mSnapAnimator.setDuration(300);
+        mSnapAnimator.setInterpolator(new android.view.animation.OvershootInterpolator(0.8f));
         mSnapAnimator.addUpdateListener(animation -> {
             if (mIsDestroyed || mWindowManager == null || mOverlayView == null || mParams == null) {
                 return;
@@ -1285,6 +1290,11 @@ public class FloatingOverlayService extends Service {
                 if (mIsDestroyed || mCanceled) return;
                 mParams.x = targetX;
                 mBubbleX = targetX;
+                if (mBubbleRoot != null) {
+                    try {
+                        mBubbleRoot.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                    } catch (Throwable ignored) {}
+                }
                 saveBubblePosition();
                 if (onEnd != null) onEnd.run();
                 scheduleInactivityTimer();
