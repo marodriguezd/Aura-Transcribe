@@ -1,6 +1,28 @@
-# 🛠️ Unreleased — Android 17 (API 37) Platform & Quality Pass
+# 🚀 Aura Transcribe v0.3.0-pre — Material 3 Expressive, Bubble Physics & Advanced Dictation
 
-> **Not yet tagged.** These notes describe work that is in the tree but has **not** been released: the version is still **0.2.2 (`versionCode 41`)** and no new version number or release date has been assigned. The CI workflow uses this whole file as the GitHub release body, so this block is what will ship once a `vX.Y.Z` tag is cut.
+`versionCode 42` (`v0.3.0-pre`) — Pre-release update introducing the Material 3 Expressive token system, refined floating overlay physics, and an updated real-time thought-dictation post-processing engine.
+
+### 🎨 Material 3 Expressive & Interface Modernization
+- **Shape & Elevation Scale Tokens:** Added comprehensive M3 shape corner tokens (`dimens.xml`: none through extra-extra-large 48dp) and elevation level tokens (Level 0 through Level 5).
+- **M3 Motion & Interpolators:** Introduced standard and emphasized motion durations (`integers.xml`) alongside canonical cubic-bezier path interpolators in `res/interpolator/` (Emphasized, Emphasized Decelerate/Accelerate, Standard).
+- **Component Standardization:** Replaced legacy `<Button>` widgets across all activities (Main, Models, Custom Words, Post-Processing Settings, File Transcribe, Floating Overlay) with `com.google.android.material.button.MaterialButton` using appropriate styles (Filled, Outlined, Tonal, Text, Icon).
+- **Consistent Surfaces:** Connected drawable corners (`bg_card.xml`, `bg_voice_panel.xml`, `bg_result.xml`, `bg_ime_key.xml`) to the unified token scale.
+- **IME Streaming Display:** Added the M3 result surface (`bg_result.xml`) to the live transcription hypothesis window in the keyboard.
+
+### 🫧 Floating Bubble Overlay Physics
+- **Dynamic Snap-to-Edge:** Replaced linear/decelerating stops with an `OvershootInterpolator(0.8f)` (300ms duration) creating a natural spring settle when releasing the bubble near screen boundaries.
+- **Tactile Haptic Feedback:** Integrated subtle haptic responses (`KEYBOARD_TAP`) upon breaking the touch-slop threshold to begin dragging, and upon completing the snap dock against screen edges.
+
+### 🧠 Advanced Thought-Dictation AI Post-Processing
+- **New Real-Time Default Prompt:** Updated the default post-processing system prompt modeled after conversational thought-dictation engines:
+  - Strict language fidelity preserving code-switching without unsolicited translations.
+  - Granular verbal tic, hesitation, and colloquial filler stripping across supported languages.
+  - Smooth resolution of mid-sentence false starts and self-corrections.
+  - Contextual formatting with intelligent punctuation, capitalization, and logical paragraph breaks.
+  - Full content integrity without artificial summaries or hallucinations.
+
+---
+
 
 ### 🎯 Platform: Android 17 / API 37
 

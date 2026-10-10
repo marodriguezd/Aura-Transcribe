@@ -1,0 +1,4 @@
+- Material 3 Expressive modernization: shape corner tokens, elevation scale, motion duration & easing interpolators.
+- UI button upgrade across all screens to native MaterialButton variants (Filled, Outlined, Tonal, Text, Icon).
+- Enhanced floating bubble physics: dynamic spring/overshoot snap-to-edge docking and haptic feedback.
+- Updated default AI thought-dictation post-processing prompt with multilingual balance and smart formatting.

@@ -34,8 +34,8 @@ android {
         // `connectedDebugAndroidTest` runs them on a connected device. Without this runner
         // the platform default would silently skip AndroidJUnit4 classes.
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 41
-        versionName = "0.2.2"
+        versionCode = 42
+        versionName = "0.3.0-pre"
         ndk {
             // Android 17 requires 16 KB page-size alignment, which the native
             // build already produces (see RUSTFLAGS below). Only arm64-v8a is
