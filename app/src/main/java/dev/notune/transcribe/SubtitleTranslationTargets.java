@@ -25,7 +25,7 @@ public final class SubtitleTranslationTargets {
      */
     public static final List<String> TAGS = Arrays.asList(
             AUTO,
-            "en-US", "es-ES", "fr-FR", "de-DE", "it-IT", "pt-PT", "ru-RU");
+            "en-US", "es-ES", "fr-FR", "de-DE", "it-IT", "pt-PT", "ru-RU", "fa-IR");
 
     private SubtitleTranslationTargets() {}
 
@@ -43,8 +43,8 @@ public final class SubtitleTranslationTargets {
         String primary = primaryTag(tag);
         if (primary == null) return null;
         switch (primary) {
-            case "en": case "es": case "fr": case "de": case "it": case "pt":
-            case "ru":
+            case "en": case "es": case "fr": case "de": case "it": case "pt": case "ru":
+            case "fa":
                 return primary;
             default:
                 return null;

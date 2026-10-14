@@ -39,6 +39,7 @@ public class SubtitleTranslationTargetsTest {
         assertEquals("it", SubtitleTranslationTargets.mlKitCode("it-IT"));
         assertEquals("pt", SubtitleTranslationTargets.mlKitCode("pt-PT"));
         assertEquals("ru", SubtitleTranslationTargets.mlKitCode("ru-RU"));
+        assertEquals("fa", SubtitleTranslationTargets.mlKitCode("fa-IR"));
     }
 
     @Test

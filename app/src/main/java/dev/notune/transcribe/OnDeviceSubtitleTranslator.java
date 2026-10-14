@@ -49,6 +49,7 @@ public final class OnDeviceSubtitleTranslator implements SubtitleTranslator {
             case "it": return TranslateLanguage.ITALIAN;
             case "pt": return TranslateLanguage.PORTUGUESE;
             case "ru": return TranslateLanguage.RUSSIAN;
+            case "fa": return TranslateLanguage.PERSIAN;
             case "zh": return TranslateLanguage.CHINESE;
             case "ja": return TranslateLanguage.JAPANESE;
             case "ko": return TranslateLanguage.KOREAN;
