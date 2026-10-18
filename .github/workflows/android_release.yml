@@ -103,7 +103,7 @@ jobs:
       uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4.4.1
 
     - name: Generate resolved Gradle dependency license report
-      run: ./gradlew generateLicenseReport
+      run: ./gradlew --no-parallel generateLicenseReport
 
     - name: Upload dependency license inventories
       if: always()
