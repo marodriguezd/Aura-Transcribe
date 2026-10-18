@@ -26,7 +26,7 @@ The currently declared Rust runtime dependencies include:
 - `transcribe-cpp` 0.1.3 — MIT; see [`licenses/transcribe-cpp-MIT.txt`](licenses/transcribe-cpp-MIT.txt).
 - `ggml`, supplied by the `transcribe-cpp` dependency — MIT; see [`licenses/ggml-MIT.txt`](licenses/ggml-MIT.txt).
 - `cpal` — Apache-2.0; see [`licenses/Apache-2.0.txt`](licenses/Apache-2.0.txt).
-- Other direct crates declared in `Cargo.toml` (`anyhow`, `log`, `android_logger`, `jni`, `libc`, `once_cell`, `crossbeam-channel`, `strsim`) use permissive upstream license options, commonly MIT and/or Apache-2.0. Their exact transitive versions and license metadata must be rechecked from `Cargo.lock`/Cargo metadata when dependencies change.
+- Other direct crates declared in `Cargo.toml` (`anyhow`, `log`, `android_logger`, `jni`, `libc`, `once_cell`, `crossbeam-channel`, `strsim`) use permissive upstream license options, commonly MIT and/or Apache-2.0. The workflow generates `build/reports/cargo-licenses.md` from Cargo's resolved metadata and uploads it with the Gradle dependency-license report as the `aura-transcribe-dependency-license-inventories` artifact. Review the report for missing declarations and verify the license text at the actual dependency version; Cargo manifest metadata alone is not proof of license compatibility.
 
 The Android runtime dependencies declared in `gradle/libs.versions.toml` and `app/build.gradle.kts` include AndroidX libraries, Material Components, OkHttp, Kotlin standard-library artifacts, and Google ML Kit Translate. Their upstream notices and any transitive notices must be retained according to their actual resolved artifact metadata. Google ML Kit Translate also has separate [usage and attribution guidelines](https://developers.google.com/ml-kit/language/translation/translation-terms); those provider requirements are not replaced by the application license.
 
@@ -43,4 +43,4 @@ The application assets include copies of the root GPL-3.0-only license, the upst
 
 ## 6. Re-audit rule
 
-Whenever a model, crate, Gradle dependency, corpus, fixture or bundled resource changes, update this notice and review the exact license and provenance at the version actually distributed. A source-level metadata match alone is not a complete license scan of resolved dependencies; run the license checks and inspect resolved runtime dependency reports before each release.
+Whenever a model, crate, Gradle dependency, corpus, fixture or bundled resource changes, update this notice and review the exact license and provenance at the version actually distributed. A source-level metadata match alone is not complete license clearance. The CI workflow runs the Gradle dependency-license-report plugin and `scripts/report_cargo_licenses.py`, and retains both inventories as an artifact. Review the resolved reports before each release, verify any unknown or non-standard license statements manually, and keep them aligned with the runtime configurations actually packaged.
