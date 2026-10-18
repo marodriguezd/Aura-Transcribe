@@ -4,14 +4,56 @@
 //! (`onStatusUpdate`, `onTextTranscribed`, `onPartialText`, `onAudioLevel`, `onSubtitleText`, `onAutoStop`)
 //! safely from Rust code across all surfaces.
 
-use jni::objects::JObject;
+use jni::objects::{JObject, JValue};
 use jni::JNIEnv;
 
+/// Clears a pending Java exception, if there is one, and reports whether one
+/// was present. A pending exception must never survive into the next JNI call
+/// on the same thread: `call_method` returns `Err(JavaException)` without
+/// clearing it, and later calls on a thread with a pending exception fail (or
+/// are undefined for non-exception-safe functions).
 #[inline]
-fn clear_pending_exception(env: &mut JNIEnv) {
+fn clear_pending_exception(env: &mut JNIEnv) -> bool {
     if env.exception_check().unwrap_or(false) {
         let _ = env.exception_clear();
+        true
+    } else {
+        false
     }
+}
+
+/// Invokes a void Java callback and clears any exception it leaves pending, so
+/// the calling native thread (for example a cpal audio callback) can keep
+/// issuing JNI calls. Logs the failure and returns `false` when the callback
+/// could not be delivered; the caller's native flow must continue regardless
+/// (recognition state lives in Rust, not in the callback).
+pub fn call_and_clear(
+    env: &mut JNIEnv,
+    obj: &JObject,
+    method: &str,
+    sig: &str,
+    args: &[JValue<'_, '_>],
+) -> bool {
+    let called = env.call_method(obj, method, sig, args).is_ok();
+    let pending = clear_pending_exception(env);
+    if !called || pending {
+        log::warn!("JNI callback {} failed; its exception was cleared", method);
+        false
+    } else {
+        true
+    }
+}
+
+/// Reports a failed JNI operation and clears any exception it left pending
+/// (for example `new_string` returning `Err` on a large payload). Use it after
+/// an `Err` result, before the next JNI call on the same thread; use
+/// [`call_and_clear`] for callbacks.
+pub fn clear_exception(env: &mut JNIEnv, context: &str) {
+    clear_pending_exception(env);
+    log::warn!(
+        "JNI operation {} failed; its exception was cleared",
+        context
+    );
 }
 
 /// Invokes `onStatusUpdate(String)` on the target Java object.

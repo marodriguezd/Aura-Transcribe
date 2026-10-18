@@ -106,6 +106,37 @@ pub fn init_session(env: JNIEnv, target: JObject) -> VoiceSessionState {
     state
 }
 
+/// Deterministically ends the session after a capture failure (no input
+/// device, stream build error, stream did not start): deactivates it so the
+/// auto-stop monitor and a pump still waiting for the engine exit, and marks
+/// it cancelled so a pump already streaming drops any late result.
+/// `session_active` alone cannot wake a pump blocked inside the native
+/// streaming loop, so the pump is sent Cancel; taking the sender also makes a
+/// repeated termination a no-op. Split from [`terminate_session`] so the
+/// contract is unit-testable without a device or a JNI env.
+fn terminate_session_latches(
+    active: &AtomicBool,
+    cancelled: &AtomicBool,
+    cmd_tx: &Mutex<Option<crossbeam_channel::Sender<crate::engine::StreamCmd>>>,
+) {
+    active.store(false, Ordering::SeqCst);
+    cancelled.store(true, Ordering::SeqCst);
+    if let Some(tx) = cmd_tx.lock().unwrap_or_else(|p| p.into_inner()).take() {
+        let _ = tx.send(crate::engine::StreamCmd::Cancel);
+    }
+}
+
+/// Applies the capture-failure termination to a full session state, also
+/// dropping the capture stream if one exists.
+fn terminate_session(state: &mut VoiceSessionState) {
+    state.stream = None;
+    terminate_session_latches(
+        &state.session_active,
+        &state.session_cancelled,
+        &state.stream_cmd_tx,
+    );
+}
+
 /// Begin microphone capture. With `auto_stop` set, a monitor thread watches
 /// for trailing silence after speech (or a no-speech timeout) and invokes the
 /// Java-side `onAutoStop()` callback, which is expected to stop the recording
@@ -248,6 +279,9 @@ pub fn start_recording(
     let device = match host.default_input_device() {
         Some(d) => d,
         None => {
+            // End the session before reporting: the failed capture must not
+            // leave the monitor or a pump alive next to an error UI.
+            terminate_session(state);
             notify_status_with_session(
                 &mut env,
                 state.target_ref.as_obj(),
@@ -330,10 +364,20 @@ pub fn start_recording(
 
     match stream {
         Ok(s) => {
-            s.play().ok();
+            if let Err(e) = s.play() {
+                terminate_session(state);
+                notify_status_with_session(
+                    &mut env,
+                    state.target_ref.as_obj(),
+                    &format!("Error: failed to start microphone: {}", e),
+                    state.session_id,
+                );
+                return;
+            }
             state.stream = Some(SendStream(s));
         }
         Err(e) => {
+            terminate_session(state);
             notify_status_with_session(
                 &mut env,
                 state.target_ref.as_obj(),
@@ -665,5 +709,34 @@ mod tests {
         assert_eq!(ep.speech_run_samples.load(Ordering::SeqCst), 1600);
         ep.speech_started.store(true, Ordering::SeqCst);
         assert_eq!(ep.speech_started.load(Ordering::SeqCst), true);
+    }
+
+    #[test]
+    fn capture_failure_latches_end_session_and_wake_pump() {
+        let active = AtomicBool::new(true);
+        let cancelled = AtomicBool::new(false);
+        let (tx, rx) = crossbeam_channel::unbounded::<crate::engine::StreamCmd>();
+        let cmd_tx = Mutex::new(Some(tx));
+
+        terminate_session_latches(&active, &cancelled, &cmd_tx);
+
+        // The auto-stop monitor and a pump still waiting for the engine observe
+        // the ended session (pump wait loop checks session_active each tick) and
+        // exit instead of re-arming.
+        assert!(!active.load(Ordering::SeqCst));
+        // A pump already streaming must drop any late result: the delivery
+        // checks reject a terminated session.
+        assert!(cancelled.load(Ordering::SeqCst));
+        // A pump blocked inside the native streaming loop cannot see the flag;
+        // it must be woken with the Cancel command.
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(crate::engine::StreamCmd::Cancel)
+        ));
+        assert!(cmd_tx.lock().unwrap_or_else(|p| p.into_inner()).is_none());
+
+        // Repeated termination is idempotent: no second command, no panic.
+        terminate_session_latches(&active, &cancelled, &cmd_tx);
+        assert!(rx.try_recv().is_err());
     }
 }

@@ -460,18 +460,25 @@ public class RustInputMethodService extends InputMethodService {
             // text area); never auto-start a recording from here.
             return;
         }
-        if (new File(getFilesDir(), "auto_record").exists()) {
-            if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
-                    == PackageManager.PERMISSION_GRANTED) {
-                if (isPauseAudioEnabled()) {
+        final SettingsManager smFinal = sm;
+        new Thread(() -> {
+            final boolean autoRecord = new File(getFilesDir(), "auto_record").exists();
+            final boolean pause = autoRecord && isPauseAudioEnabled();
+            final boolean autoStop = autoRecord && isAutoStopEnabled();
+            if (mainHandler != null) mainHandler.post(() -> {
+                if (isDestroyed || !windowVisible) return;
+                if (!autoRecord) return;
+                if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+                        != PackageManager.PERMISSION_GRANTED) return;
+                if (pause) {
                     audioPauser.request(this);
                     pauseAudioActive = true;
                 }
-                AudioDeviceManager.acquireMicrophone(this, sm.getMicMode());
-                startRecording(isAutoStopEnabled(), ++currentSessionId);
+                AudioDeviceManager.acquireMicrophone(this, smFinal.getMicMode());
+                startRecording(autoStop, ++currentSessionId);
                 updateRecordButtonUI(true);
-            }
-        }
+            });
+        }, "marker-read").start();
     }
 
     @Override
@@ -613,9 +620,12 @@ public class RustInputMethodService extends InputMethodService {
         currentSessionId++;
         try { cancelRecording(); } catch (Throwable ignored) { }
         AudioDeviceManager.releaseMicrophone(this);
+        if (mainHandler != null) {
+            if (backspaceRepeatRunnable != null) mainHandler.removeCallbacks(backspaceRepeatRunnable);
+            if (spaceRepeatRunnable != null) mainHandler.removeCallbacks(spaceRepeatRunnable);
+        }
         super.onDestroy();
         isDestroyed = true;
-        currentSessionId++;
         // Defensive: the native side may already be gone (wrong-ABI
         // emulator, service killed during teardown); never crash the IME
         // process while cleaning up.
@@ -628,7 +638,7 @@ public class RustInputMethodService extends InputMethodService {
         // dies (owner-scoped; the cross-process CANCEL_PP receiver keeps the
         // global cancelAll for the "PP disabled" event).
         PostProcessor.cancelAllFor(this);
-        unregisterReceiver(cancelReceiver);
+        try { unregisterReceiver(cancelReceiver); } catch (Throwable ignored) { }
     }
 
     // Native methods: JNI bridge into the Rust voice session (see AGENTS.md S4.3)
@@ -675,8 +685,17 @@ public class RustInputMethodService extends InputMethodService {
     private void applyStatus(String status) {
         Log.d(TAG, "Status: " + status);
         lastStatus = status;
-        // A terminal error ends the transcription without a text callback:
-        // clear the pending flag so the Cancel button does not stay visible
+        // A terminal error ends the transcription without a text callback.
+        // If this surface owns the session, cancel the native capture first —
+        // before releasing the microphone/UI — so the capture stream, the
+        // streaming pump and the auto-stop monitor actually stop. Bumping the
+        // session id first drops the native "Canceled" echo and any late
+        // callback for the failed session, keeping the error text visible.
+        if (NativeSessionPolicy.shouldCancelOnTerminalError(status, isRecording, resultPending)) {
+            currentSessionId++;
+            try { cancelRecording(); } catch (Throwable ignored) { }
+        }
+        // Clear the pending flag so the Cancel button does not stay visible
         // with nothing to cancel.
         if (status != null && status.startsWith("Error")) {
             resultPending = false;
@@ -732,8 +751,7 @@ public class RustInputMethodService extends InputMethodService {
             // from mic release until the result is committed or cancelled —
             // so it never blinks when "Ready" lands between ASR and
             // post-processing.
-            cancelButton.setVisibility(isRecording || resultPending
-                    || isTranscribing || isWaiting ? View.VISIBLE : View.GONE);
+            cancelButton.setVisibility(isRecording || resultPending ? View.VISIBLE : View.GONE);
             cancelButton.setEnabled(!isDestroyed);
         }
 

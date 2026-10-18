@@ -953,24 +953,14 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
      * synchronise, so no listener of this class ever waits on the UI thread.
      */
     private static void writeMarkerIfAbsent(File filesDir, String fileName, String value) {
-        File f = new File(filesDir, fileName);
-        if (f.exists()) return;
-        if (value == null || value.isEmpty()) {
-            f.delete();
-            return;
-        }
-        File temp = new File(filesDir, fileName + ".tmp");
-        try (FileOutputStream os = new FileOutputStream(temp)) {
-            os.write(value.getBytes(StandardCharsets.UTF_8));
-            os.getFD().sync();
-            if (!temp.renameTo(f)) {
-                Log.e(TAG, "Failed to rename marker file " + fileName);
-            }
-        } catch (IOException e) {
-            Log.e(TAG, "Failed to write marker file " + fileName, e);
-        } finally {
-            temp.delete();
-        }
+        // Unique-temp + fsync + non-replacing promotion via MarkerFileHelper so
+        // concurrent writers never share a temp path and never overwrite an
+        // existing marker (P1.2).
+        // Empty values are intentionally ignored: the marker is only ever
+        // created, never deleted here. The previous delete-on-empty branch was a
+        // no-op (the exists() guard above already returned when present), and
+        // deleting a marker from a migration path could clobber a user value.
+        MarkerFileHelper.writeStringIfAbsentToFile(filesDir, fileName, value);
     }
 
 

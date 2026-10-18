@@ -34,8 +34,8 @@ android {
         // `connectedDebugAndroidTest` runs them on a connected device. Without this runner
         // the platform default would silently skip AndroidJUnit4 classes.
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 48
-        versionName = "0.3.3"
+        versionCode = 49
+        versionName = "0.3.4"
         ndk {
             // Android 17 requires 16 KB page-size alignment, which the native
             // build already produces (see RUSTFLAGS below). Only arm64-v8a is
@@ -805,9 +805,40 @@ val verifyPackagingDecision = tasks.register("verifyPackagingDecision") {
 // The original bug was exactly this: `checkNativeAlignment` was registered
 // below `verifyNativeAlignment()`, so it never existed as a task at all and
 // `check` silently did not depend on it.
+//
+// The project's own arm64-v8a libraries, as produced by cargoNdkBuild: the Rust
+// engine and the dynamically linked NDK C++ runtime (Bionic does not bundle
+// libc++, and transcribe-cpp links it dynamically). Both are required for every
+// variant - an APK/AAB missing either fails at load time. Dependency-contributed
+// .so files exist only in AGP's merged output and are never a substitute.
+val REQUIRED_PROJECT_NATIVE_LIBS =
+    listOf("libandroid_transcribe_app.so", "libc++_shared.so")
+
+/** Outcome of one native-alignment pass (see [nativeAlignmentVerdict]). */
+data class NativeAlignmentReport(
+    val missingRequired: List<String>,
+    val verified: List<String>,
+    val failures: List<String>,
+) {
+    val ok: Boolean get() = missingRequired.isEmpty() && failures.isEmpty()
+}
+
 val checkNativeAlignment = tasks.register("checkNativeAlignment") {
     description = "QA gate: verify native libraries are 16 KB page-size aligned"
     group = "verification"
+
+    // Self-sufficient by design: the gate pulls in the native build so it can
+    // never verify an empty set. It used to inventory `src/main/jniLibs` at
+    // CONFIGURATION time, which is empty on a fresh checkout (jniLibs is
+    // gitignored) and stayed empty even after cargoNdkBuild wrote the .so files
+    // later in the same invocation; the old `checked == 0` guard was then
+    // satisfied by dependency libraries from the merged output. The release
+    // workflow ran exactly that way - gate before the first build - and greened
+    // on mlkit's libtranslate_jni.so while the Rust engine did not exist yet.
+    // cargoNdkBuild is registered unconditionally above; on an invocation whose
+    // build already produced the .so files this dependency is UP-TO-DATE and
+    // costs nothing.
+    dependsOn(cargoNdkBuild)
 
     // The gate inspects AGP's *merged* native libraries rather than a previously
     // packaged APK. The merged output is the exact set of .so files that gets
@@ -816,44 +847,45 @@ val checkNativeAlignment = tasks.register("checkNativeAlignment") {
     // would fail the gate for a reason unrelated to the artifact being built
     // now - which is precisely what happened when mlkit-translate was upgraded:
     // the leftover debug APK still contained the old 4 KB-aligned library.
-    val projectLibs = file("src/main/jniLibs/arm64-v8a")
-        .listFiles { f -> f.extension == "so" }
-        ?.sorted()
-        ?: emptyList()
     val mergedNativeLibs = layout.buildDirectory.dir("intermediates/merged_native_libs")
 
     doLast {
-        var checked = 0
+        // Recompute at EXECUTION time, not configuration time: the directory is
+        // written by cargoNdkBuild, which may only run after configuration.
+        val projectLibs = file("src/main/jniLibs/arm64-v8a")
+            .listFiles { f -> f.isFile && f.extension == "so" }
+            ?.sortedBy { it.name }
+            ?: emptyList()
 
-        // 1. Project-built libraries (the Rust engine and the NDK libc++). A
-        //    failure here is a build-configuration bug. This source needs no
-        //    freshness guard: it is written by cargoNdkBuild immediately before
-        //    anything packages it.
-        projectLibs.forEach { so ->
-            verifyNativeAlignment(so, so.name)
-            checked++
-        }
-
-        // 2. Dependency-contributed libraries, taken from the merged output of
-        //    every variant (the merge tasks are forced to run first, below).
-        //    This is the source that caught mlkit-translate 17.0.2 shipping a
-        //    4 KB-aligned libtranslate_jni.so (fixed in 17.0.3).
-        mergedNativeLibs.get().asFile.listFiles()?.forEach { variant ->
+        // Dependency-contributed libraries, taken from the merged output of
+        // every variant (the merge tasks are forced to run first, below). This
+        // is the source that caught mlkit-translate 17.0.2 shipping a 4 KB
+        // aligned libtranslate_jni.so (fixed in 17.0.3).
+        val mergedLibs = mutableListOf<Pair<File, String>>()
+        val mergedRoot = mergedNativeLibs.get().asFile
+        if (mergedRoot.exists()) {
+            mergedRoot.listFiles()?.forEach { variant ->
             variant.listFiles()?.forEach { mergeTask ->
                 val arm64 = File(mergeTask, "out/lib/arm64-v8a")
-                arm64.listFiles { f -> f.extension == "so" }?.forEach { so ->
-                    verifyNativeAlignment(so, "${variant.name}/arm64-v8a/${so.name}")
-                    checked++
-                }
+                arm64.listFiles { f -> f.isFile && f.extension == "so" }
+                    ?.sortedBy { it.name }
+                    ?.forEach { so ->
+                        mergedLibs.add(so to "${variant.name}/arm64-v8a/${so.name}")
+                    }
             }
         }
-
-        if (checked == 0) {
-            throw GradleException(
-                "checkNativeAlignment: no native libraries found to verify. " +
-                    "The Rust engine is required; run a build that invokes cargoNdkBuild first."
-            )
         }
+
+        val report = nativeAlignmentVerdict(projectLibs, mergedLibs) { so, label ->
+            verifyNativeAlignment(so, label)
+        }
+        if (!report.ok) {
+            throw GradleException(nativeAlignmentFailureMessage(report))
+        }
+        println(
+            "  checkNativeAlignment: ${report.verified.size} native libraries verified " +
+                "(project: ${projectLibs.joinToString(", ") { it.name }})"
+        )
     }
 }
 
@@ -862,17 +894,41 @@ val checkNativeAlignment = tasks.register("checkNativeAlignment") {
 // failure of the current one. This is also what makes a plain `assembleDebug` /
 // `assembleRelease` verify its own package (the merge tasks are direct inputs of
 // the packaging tasks).
-val mergeNativeLibsTasks = tasks.matching {
-    it.name.startsWith("merge") && it.name.endsWith("NativeLibs")
+
+// Project-built libraries are provided by cargoNdkBuild above. Dependency-
+// contributed libraries are scanned from the merged output when it exists
+// (it does after a real build); we deliberately do NOT force the merge tasks
+// to run here, because their implicit read of cargoNdkBuild's output
+// directory trips Gradle's configuration validation. In CI the gate runs
+// after the packaging build, so the merged output is fresh.
+checkNativeAlignment.configure {
+    dependsOn(cargoNdkBuild)
 }
 
-checkNativeAlignment.configure {
-    dependsOn(mergeNativeLibsTasks)
+// The merged output must be snapshotted after cargoNdkBuild has finished
+// writing `src/main/jniLibs`: in a standalone `checkNativeAlignment` run
+// nothing else orders the two, and a merge racing the native build could copy
+// a partially written project library that the gate would then verify.
+
+// Regression gate for the native-alignment logic above. Like
+// verifyPackagingDecision it drives the REAL production functions
+// (missingRequiredProjectLibs + nativeAlignmentVerdict) against synthetic
+// inputs, so it needs no native build, no SDK and no model download - it is a
+// hard gate in the cheap validate jobs of both workflows.
+val verifyNativeAlignmentGate = tasks.register("verifyNativeAlignmentGate") {
+    description =
+        "QA gate: exercise the required project-library set and the native-alignment verdict"
+    group = "verification"
+
+    doLast {
+        runNativeAlignmentGate(layout.buildDirectory.dir("tmp/native-alignment-gate").get().asFile)
+    }
 }
 
 tasks.named("check") {
     dependsOn(checkNativeAlignment)
     dependsOn(verifyPackagingDecision)
+    dependsOn(verifyNativeAlignmentGate)
 }
 
 // Only download the bundled model when the invocation actually produces a
@@ -962,6 +1018,233 @@ fun verifyNativeAlignment(so: File, label: String) {
         )
     }
     println("  checkNativeAlignment: OK $label LOAD alignment ${min}B")
+}
+
+/**
+ * Returns the required project libraries that [presentLibNames] does not
+ * contain. Pure so the regression gate drives the exact rule the task uses: an
+ * empty or partial `src/main/jniLibs/arm64-v8a` directory must fail, no matter
+ * which dependency libraries exist in the merged output.
+ */
+fun missingRequiredProjectLibs(presentLibNames: List<String>): List<String> =
+    REQUIRED_PROJECT_NATIVE_LIBS.filterNot { it in presentLibNames }
+
+/**
+ * Runs [verifier] over every project library (labeled with its file name) and
+ * over every merged dependency library (labeled by the caller, e.g.
+ * `debug/arm64-v8a/libtranslate_jni.so`), collecting failures instead of
+ * stopping at the first one.
+ *
+ * The report fails when a required project library is absent or when the
+ * verifier rejects any library. Checking the required set by name is what
+ * replaces the old `checked == 0` count: a count was satisfiable by an
+ * unrelated dependency .so while the Rust engine had not even been built -
+ * exactly how this gate used to pass in the release workflow, where it ran
+ * before the first build. Callers must hand in the directory listings taken at
+ * execution time.
+ */
+fun nativeAlignmentVerdict(
+    projectLibs: List<File>,
+    mergedLibs: List<Pair<File, String>>,
+    verifier: (File, String) -> Unit,
+): NativeAlignmentReport {
+    val missing = missingRequiredProjectLibs(projectLibs.map { it.name })
+    val verified = mutableListOf<String>()
+    val failures = mutableListOf<String>()
+    projectLibs.forEach { so ->
+        try {
+            verifier(so, so.name)
+            verified.add(so.name)
+        } catch (e: Exception) {
+            failures.add("${so.name}: ${e.message}")
+        }
+    }
+    mergedLibs.forEach { (so, label) ->
+        try {
+            verifier(so, label)
+            verified.add(label)
+        } catch (e: Exception) {
+            failures.add("$label: ${e.message}")
+        }
+    }
+    return NativeAlignmentReport(missing, verified, failures)
+}
+
+/** Builds the failure message for a rejected [NativeAlignmentReport]. */
+fun nativeAlignmentFailureMessage(report: NativeAlignmentReport): String {
+    val parts = mutableListOf<String>()
+    if (report.missingRequired.isNotEmpty()) {
+        parts.add(
+            "checkNativeAlignment: the project's own native libraries are missing from " +
+                "src/main/jniLibs/arm64-v8a: ${report.missingRequired.joinToString(", ")}. " +
+                "Both the Rust engine (libandroid_transcribe_app.so) and the NDK C++ runtime " +
+                "(libc++_shared.so) are required for every variant; dependency .so files from " +
+                "the merged output never satisfy this gate. cargoNdkBuild is a dependency of " +
+                "this task, so a missing file means that build did not produce it (e.g. the " +
+                "NDK's libc++_shared.so was not found)."
+        )
+    }
+    if (report.failures.isNotEmpty()) {
+        parts.add(
+            "checkNativeAlignment: 16 KB alignment failures: " +
+                report.failures.joinToString("; ")
+        )
+    }
+    return parts.joinToString("\n")
+}
+
+/**
+ * Asserts one [nativeAlignmentVerdict] outcome in BOTH directions: a gate that
+ * suddenly accepts a missing Engine is as broken as one that rejects a correct
+ * pair, and only the happy path would hide the first.
+ */
+fun expectNativeAlignmentOutcome(
+    caseLabel: String,
+    projectLibs: List<File>,
+    mergedLibs: List<Pair<File, String>>,
+    failingLabels: Set<String>,
+    shouldPass: Boolean,
+    expectedMissing: List<String>,
+    expectedFailureLabels: List<String> = emptyList(),
+    expectedVerified: List<String> = emptyList(),
+) {
+    val verifier: (File, String) -> Unit = { _, label ->
+        if (label in failingLabels) {
+            throw GradleException("synthetic misalignment: $label")
+        }
+    }
+    val report = nativeAlignmentVerdict(projectLibs, mergedLibs, verifier)
+    if (report.ok != shouldPass) {
+        throw GradleException(
+            "verifyNativeAlignmentGate: '$caseLabel' must " +
+                (if (shouldPass) "pass" else "fail") +
+                " but was ${if (report.ok) "accepted" else "rejected"} " +
+                "(missing=${report.missingRequired}, failures=${report.failures})."
+        )
+    }
+    if (report.missingRequired != expectedMissing) {
+        throw GradleException(
+            "verifyNativeAlignmentGate: '$caseLabel' reported missing " +
+                "${report.missingRequired} but expected $expectedMissing."
+        )
+    }
+    for (expected in expectedFailureLabels) {
+        if (report.failures.none { it.startsWith("$expected:") }) {
+            throw GradleException(
+                "verifyNativeAlignmentGate: '$caseLabel' must name $expected in its failures, " +
+                    "but reported ${report.failures}."
+            )
+        }
+    }
+    for (expected in expectedVerified) {
+        if (expected !in report.verified) {
+            throw GradleException(
+                "verifyNativeAlignmentGate: '$caseLabel' must verify $expected, " +
+                    "but verified only ${report.verified}."
+            )
+        }
+    }
+    if (!report.ok) {
+        // A gate that fails without naming what is wrong is barely a gate: the
+        // message the task throws must mention every missing/failed library.
+        val message = nativeAlignmentFailureMessage(report)
+        for (named in report.missingRequired + expectedFailureLabels) {
+            if (named !in message) {
+                throw GradleException(
+                    "verifyNativeAlignmentGate: '$caseLabel' failure message does not name " +
+                        "$named: $message"
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Body of the `verifyNativeAlignmentGate` gate: drives the real
+ * [missingRequiredProjectLibs] and [nativeAlignmentVerdict] over a fixed table
+ * of synthetic inputs. Everything is microscopic (a handful of stub files in
+ * the build directory), so it runs in every CI job with no native build.
+ */
+fun runNativeAlignmentGate(workDir: File) {
+    workDir.mkdirs()
+
+    val engine = "libandroid_transcribe_app.so"
+    val cppShared = "libc++_shared.so"
+    val unrelated = "libtranslate_jni.so"
+
+    val lib: (String) -> File = { name ->
+        File(workDir, name).apply {
+            parentFile?.mkdirs()
+            writeText("synthetic")
+        }
+    }
+
+    // 1. Empty project dir: fail deterministically, naming BOTH required libs.
+    expectNativeAlignmentOutcome(
+        "empty project dir", emptyList(), emptyList(), emptySet(), false, listOf(engine, cppShared),
+    )
+
+    // 2. Only libc++_shared.so present: the Engine is what must be demanded,
+    //    even though another project lib exists.
+    expectNativeAlignmentOutcome(
+        "only libc++_shared.so", listOf(lib(cppShared)), emptyList(), emptySet(), false,
+        listOf(engine),
+    )
+
+    // 3. Only the Engine present: libc++_shared is not optional (transcribe-cpp
+    //    links it dynamically; Bionic does not bundle it).
+    expectNativeAlignmentOutcome(
+        "only the Rust engine", listOf(lib(engine)), emptyList(), emptySet(), false, listOf(cppShared),
+    )
+
+    // 4. This is the original defect: dependency .so files from the merged
+    //    output exist and verify fine, but the project's own libs were never
+    //    built. Unrelated libraries must never satisfy the gate.
+    val mergedOnly = listOf(lib(unrelated) to "debug/arm64-v8a/$unrelated")
+    expectNativeAlignmentOutcome(
+        "unrelated dependency libraries only", emptyList(), mergedOnly, emptySet(), false,
+        listOf(engine, cppShared),
+    )
+
+    // 5. Both project libraries present and aligned: pass, and the dependency
+    //    libraries from the merged output keep being verified (mlkit-translate
+    //    regression coverage).
+    expectNativeAlignmentOutcome(
+        "both project libraries present", listOf(lib(engine), lib(cppShared)), mergedOnly,
+        emptySet(), true, emptyList(),
+        expectedVerified = listOf(engine, cppShared, "debug/arm64-v8a/$unrelated"),
+    )
+
+    // 6. The verifier rejects one project lib: fail naming it (the other lib is
+    //    still verified instead of aborting the whole pass).
+    expectNativeAlignmentOutcome(
+        "misaligned Rust engine", listOf(lib(engine), lib(cppShared)), emptyList(),
+        setOf(engine), false, emptyList(),
+        expectedFailureLabels = listOf(engine),
+        expectedVerified = listOf(cppShared),
+    )
+
+    // 7. The verifier rejects a merged dependency lib: fail naming its variant
+    //    label, while both project libs were verified.
+    val mergedMisaligned = listOf(lib(unrelated) to "release/arm64-v8a/$unrelated")
+    expectNativeAlignmentOutcome(
+        "misaligned dependency library", listOf(lib(engine), lib(cppShared)), mergedMisaligned,
+        setOf("release/arm64-v8a/$unrelated"), false, emptyList(),
+        expectedFailureLabels = listOf("release/arm64-v8a/$unrelated"),
+        expectedVerified = listOf(engine, cppShared),
+    )
+
+    // 8. Every project library is verified, not just the required pair.
+    expectNativeAlignmentOutcome(
+        "extra project library", listOf(lib(engine), lib(cppShared), lib("libextra.so")),
+        emptyList(), emptySet(), true, emptyList(),
+        expectedVerified = listOf(engine, cppShared, "libextra.so"),
+    )
+
+    println(
+        "  verifyNativeAlignmentGate: 8 required-lib and verdict cases verified " +
+            "(accept and reject)"
+    )
 }
 
 /**
@@ -1453,6 +1736,10 @@ fun runPackagingDecisionGate(workDir: File) {
         Pair(listOf("installDebug"), true),
         Pair(listOf("build"), true),
         Pair(listOf("assemble"), true),
+        Pair(listOf("verifyPackagingDecision"), false),
+        Pair(listOf("packageRelease"), true),
+        Pair(listOf(":app:assembleDebugAndroidTest"), true),
+        Pair(listOf("customTask"), true),
         Pair(emptyList<String>(), true)
     )
     for ((taskNames, expectedNeedsNative) in nativeBuildCases) {

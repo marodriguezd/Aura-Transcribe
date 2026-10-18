@@ -302,10 +302,16 @@ final class CredentialMigration {
      *         concerned, and a later pass finishes the removal
      */
     boolean forget() {
-        writeTombstone();
+        boolean tombstoneWritten = writeTombstone();
         boolean complete = store.delete();
         if (!deleteLegacyCopies()) complete = false;
-        if (complete) {
+        // A tombstone that could not be verifiably written leaves readers with no
+        // way to observe the deletion: even a successful removal below would be
+        // invisible if any copy survived, and a failed removal would resurrect
+        // the key. So the deletion is only complete when the tombstone is in
+        // place (and is then lifted) — never report success otherwise.
+        if (!tombstoneWritten) complete = false;
+        if (complete && tombstoneWritten) {
             clearTombstone();
         }
         return complete;
@@ -401,8 +407,20 @@ final class CredentialMigration {
         return deletionPending(filesDir);
     }
 
-    private void writeTombstone() {
-        MarkerFileHelper.writeStringToFile(filesDir, SENTINEL_NAME, TOMBSTONE);
+    private boolean writeTombstone() {
+        boolean written = MarkerFileHelper.writeStringToFile(filesDir, SENTINEL_NAME, TOMBSTONE);
+        if (written) {
+            // Verify the promotion actually landed (write-verify, like the store):
+            // a rename that silently no-ops must not be treated as a tombstone.
+            String read = MarkerFileHelper.readStringFromFile(filesDir, SENTINEL_NAME, null);
+            if (!TOMBSTONE.equals(read)) {
+                written = false;
+            }
+        }
+        if (!written) {
+            diagnostics.warn("API key deletion tombstone could not be written; deletion not reported as complete");
+        }
+        return written;
     }
 
     /** Drops a deletion tombstone that is no longer needed. */

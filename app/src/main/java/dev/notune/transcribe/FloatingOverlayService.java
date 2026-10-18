@@ -158,7 +158,6 @@ public class FloatingOverlayService extends Service {
     private String mLastRawTranscript = null;
     private String mTranscribedResult = null;
     private boolean mIsDestroyed = false;
-    private final AudioRecordBridge mAudioRecordBridge = new AudioRecordBridge();
 
     @Override
     public void onCreate() {
@@ -921,23 +920,6 @@ public class FloatingOverlayService extends Service {
         SettingsManager sm = new SettingsManager(this);
         AudioDeviceManager.acquireMicrophone(this, sm.getMicMode());
         startRecording(new File(getFilesDir(), "auto_stop").exists(), ++mCurrentSessionId);
-        int sid = mCurrentSessionId;
-        boolean started = mAudioRecordBridge.start(this, sm.getMicMode(), new AudioRecordBridge.Callback() {
-            @Override
-            public void onAudioChunk(java.nio.ByteBuffer directBuffer, int bytesRead) {
-                pushAudioDirect(directBuffer, bytesRead, sid);
-            }
-            @Override
-            public void onAudioLevel(float level) {}
-            @Override
-            public void onError(String message) {
-                Log.e(TAG, "AudioRecord error: " + message);
-            }
-        });
-        if (!started) {
-            cancelCurrentTranscription();
-            return;
-        }
         boolean isBt = AudioDeviceManager.shouldShowHeadsetIcon(this);
         if (mBubbleIcon != null) mBubbleIcon.setImageResource(isBt ? R.drawable.ic_headset : R.drawable.ic_mic);
         if (mMicIcon != null) mMicIcon.setImageResource(isBt ? R.drawable.ic_headset : R.drawable.ic_mic);
@@ -946,7 +928,6 @@ public class FloatingOverlayService extends Service {
     private void stopRecordingSession() {
         cancelInactivityTimer();
         undockAndRestoreOpacity(false);
-        mAudioRecordBridge.stop();
         mIsRecording = false;
         mResultPending = true;
         mStatusText.setText(getString(R.string.floating_status_transcribing));
@@ -959,7 +940,6 @@ public class FloatingOverlayService extends Service {
 
     private void cancelCurrentTranscription() {
         mCurrentSessionId++;
-        mAudioRecordBridge.stop();
         mIsRecording = false;
         mResultPending = false;
         mLastRawTranscript = null;
@@ -1209,7 +1189,6 @@ public class FloatingOverlayService extends Service {
         if (mOverlayView != null) {
             saveBubblePosition();
         }
-        mAudioRecordBridge.stop();
         try { cancelRecording(); } catch (Throwable ignored) { }
         AudioDeviceManager.releaseMicrophone(this);
         try { cleanupNative(); } catch (Throwable ignored) { }
@@ -1676,7 +1655,6 @@ public class FloatingOverlayService extends Service {
     private native void startRecording(boolean autoStop, int sessionId);
     private native void stopRecording();
     private native void cancelRecording();
-    private native void pushAudioDirect(java.nio.ByteBuffer buffer, int byteCount, int sessionId);
 
     // Callbacks from Rust via JNI: session-guarded, posted to the main thread
     public void onAutoStop(int sessionId) {
@@ -1699,10 +1677,19 @@ public class FloatingOverlayService extends Service {
             if (sessionId != mCurrentSessionId || mIsDestroyed) return;
             mLastStatus = status != null ? status : "";
             if (mLastStatus.startsWith("Error")) {
+                // Terminal error: cancel the native session before releasing
+                // the microphone, so the capture stream, pump and auto-stop
+                // monitor actually stop. Bumping the session id drops the
+                // native "Canceled" echo and late callbacks of the failed
+                // session, keeping the error text visible.
+                if (NativeSessionPolicy.shouldCancelOnTerminalError(
+                        mLastStatus, mIsRecording, mResultPending)) {
+                    mCurrentSessionId++;
+                    try { cancelRecording(); } catch (Throwable ignored) { }
+                }
                 mResultPending = false;
                 if (mIsRecording) {
                     mIsRecording = false;
-                    mAudioRecordBridge.stop();
                     AudioDeviceManager.releaseMicrophone(FloatingOverlayService.this);
                 }
                 stopPulseAnimation();

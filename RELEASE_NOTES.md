@@ -1,9 +1,11 @@
-# Aura Transcribe v0.3.3 — AI Fix Keyboard & Overlay Toggle Reliability
+# Aura Transcribe v0.3.4 — Hardening Pass
 
-`versionCode 48` (`v0.3.3`) — Maintenance and reliability release resolving a state-persistence issue in AI post-processing controls across the on-screen keyboard (`RustInputMethodService`) and floating overlay (`FloatingOverlayService`).
+`versionCode 49` (`v0.3.4`) — Stability and release-readiness hardening across the native bridge, overlay capture, subtitles, and CI gates. No new user-facing features.
 
 ### Key Highlights
-- **Persistent AI Fix Toggle State:** Fixed an issue where disabling the AI Fix switch from the keyboard or floating overlay removed the disk marker (`pp_enabled`) and subsequently blocked users from reactivating it without reopening the main settings activity.
-- **Decoupled Configuration & Enablement Checks:** Introduced `resolvePostProcessConfigured` and `readPostProcessConfigured` in `SettingsManager`. The toggle listener now asynchronously validates provider credential and local model readiness on the credential lane independently of whether the global switch is currently toggled on.
-- **Race Condition Prevention:** Added defensive checks ensuring late asynchronous credential callbacks never overwrite user intent if the toggle state was modified during an in-flight check.
-- **Unit Test Coverage:** Added automated test cases in `PostProcessConfigurationGuardTest` verifying that provider configuration evaluation functions consistently regardless of switch state.
+- **Overlay single-capture:** removed the redundant `pushAudioDirect` path so the floating overlay consumes the shared cpal stream only, eliminating duplicate microphone capture.
+- **Terminal-error cleanup:** recording sessions reset their state on terminal errors instead of staying stuck in "Processing".
+- **16 KB alignment gate:** `checkNativeAlignment` is now self-sufficient and `verifyNativeAlignmentGate` exercises the real verdict logic against synthetic inputs.
+- **Subtitle teardown + JNI safety:** fixed teardown ordering for subtitle resources and clear JNI exceptions at the boundary.
+- **JNI parity gate:** added `check_jni_parity.py` to catch Java `native` declarations whose Rust exports drifted.
+- **Test infra and docs:** corrected flaky harness assumptions and synced README/AGENTS factual drift.

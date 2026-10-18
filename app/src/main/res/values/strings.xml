@@ -254,6 +254,8 @@ Core Directives:
     <string name="file_error_no_audio">Error: No audio file</string>
     <string name="file_error_no_speech">Error: no speech detected in the audio file</string>
     <string name="file_error_format">Error: %1$s</string>
+    <string name="file_error_decode">Error: could not decode the audio file.</string>
+    <string name="file_error_timeout">Timed out waiting for a transcription chunk</string>
 
     <!-- Live subtitles (permission toasts, overlay, notification) -->
     <string name="subs_grant_overlay_permission">Please grant \'Display over other apps\' permission</string>
@@ -344,4 +346,5 @@ Core Directives:
     <!-- App UI language (auto = follow system) -->
     <string name="setting_language">App language</string>
     <string name="language_auto">Automatic (system)</string>
+    <string name="ime_subtype_voice">Voice</string>
 </resources>

@@ -20,7 +20,7 @@ Aura Transcribe 是一款设备端语音转文字应用与 Android 语音输入�
 
 ## 主要功能
 
-- **设备端语音识别：**转写 100% 本地运行，使用量化 [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) 模型（Q8_0 GGUF）。录音永不离开你的设备。
+- **设备端语音识别：**转写 100% 本地运行，使用量化 [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) 模型（Q5_K_M GGUF）。录音永不离开你的设备。
 - **系统级语音输入：**响应 Android `RecognizerIntent.ACTION_RECOGNIZE_SPEECH`，在兼容键盘（如 Microsoft SwiftKey）与浏览器语音输入框中弹出底部听写面板。
 - **专用语音键盘（IME）：**内置独立语音键盘，经标准输入法切换，在任意应用中一触听写。
 - **语音识别服务：**实现系统 `SpeechRecognizer` 服务 API，供第三方键盘与应用集成。
@@ -29,7 +29,7 @@ Aura Transcribe 是一款设备端语音转文字应用与 Android 语音输入�
 - **音频文件转写：**直接在设备上转写预录制的音频文件。
 - **多设备音频路由：**动态检测并路由内部麦克风、USB 音频接口与蓝牙耳机（SCO 与 BLE Audio），自动切换并支持手动覆盖。
 - **语言覆盖：**
-  - **用户界面：**支持 7 种语言（英语基础、德语、西班牙语、法语、意大利语、葡萄牙语与俄语）。
+  - **用户界面：**支持 8 种语言（英语基础、德语、西班牙语、法语、意大利语、葡萄牙语、俄语与简体中文）。
   - **语音识别：**内置 Nemotron 模型原生支持 40 种语言 locale 并流式自动检测；33 种地区 locale 可直接选择。用户导入的 GGUF 模型（如 Whisper）最多支持 99 种语言。
 - **可选文本后处理：**经外部 OpenAI 兼容 API 提供方（OpenAI、Groq、Cerebras、OpenRouter、Mistral、Together、Ollama）可配置格式化与清理，或使用原样 *Verbatim* 预设。
 
@@ -38,7 +38,7 @@ Aura Transcribe 是一款设备端语音转文字应用与 Android 语音输入�
 ## 隐私与处理行为
 
 - **语音识别 100% 本地：**所有声学模型推理、音频处理与转写完全在你的设备上执行。麦克风输入与音频文件永不上传到远程服务器。
-- **可选远程文本后处理：**AI 后处理默认**关闭**。若启用外部 API 提供方（如 Groq 或 OpenAI），仅将识别出的**文本**（绝非音频）经 HTTPS 发送到你配置的端点。API 密钥存于应用私有存储。
+- **可选远程文本后处理：**AI 后处理默认**关闭**。若启用外部 API 提供方（如 Groq 或 OpenAI），仅将识别出的**文本**（绝非音频）发送到你配置的端点（远程提供方使用 HTTPS；仅允许到 loopback localhost/127.0.0.1 的明文 HTTP，用于本地 Ollama 服务器）。API 密钥存于应用私有存储。
 - **Verbatim 与离线模式：**关闭后处理或设为 *Verbatim* 时，没有任何文本经过网络。
 - **发布版遥测与日志：**发布构建中已去除转写原文与敏感错误详情的日志记录。
 
@@ -103,8 +103,8 @@ Aura Transcribe 是一款设备端语音转文字应用与 Android 语音输入�
 
 ### 1. 克隆仓库
 ```bash
-git clone https://github.com/marodriguezd/android_transcribe_app.git
-cd android_transcribe_app
+git clone https://github.com/marodriguezd/Aura-Transcribe.git
+cd Aura-Transcribe
 ```
 
 ### 2. 下载并验证内置模型
@@ -136,14 +136,14 @@ cargo ndk -t arm64-v8a -o app/src/main/jniLibs build --release
 ./gradlew :app:verifyPackagingDecision  # APK/AAB 决策 + 模型门禁（合成归档）
 ./gradlew :benchmark:assembleBenchmark  # 编译 Macrobenchmark 模块（无需设备）
 
-python3 scripts/check_translations.py          # 7 个 locale 的翻译 parity
+python3 scripts/check_translations.py          # 8 个 locale 的翻译 parity
 python3 scripts/test_verify_release_artifact.py # 发布产物验证器的自测
 python3 scripts/bench_performance.py           # 参考算法微基准
 cargo fmt --all -- --check                     # Rust 格式
 ```
 
 `verifyPackagingDecision` 与 `test_verify_release_artifact.py` 是保护内置模型交付的两道门禁：
-它们无需下载 750 MB 模型即可运行，因为它们针对合成归档演练决策逻辑与验证器。
+它们无需下载 560 MB 模型即可运行，因为它们针对合成归档演练决策逻辑与验证器。
 `bench_performance.py` 计时音频/纠错热路径的纯 Python 替身，并**断言**每条快速路径仍与
 朴素参考一致——它是正确性门禁，而非设备端性能测量。
 
@@ -176,7 +176,7 @@ cargo fmt --all -- --check                     # Rust 格式
 
 APK 与 AAB 对同一发布变体需要不同的 asset 布局。AGP 打包 APK 时忽略 asset 包，
 因此 APK 必须把 GGUF 放在 base 模块；AAB 则只能放在 `:model_assets` 安装期 asset 包，
-否则 Play 会收到约 750 MB 的两份。`app/build.gradle.kts` 仅在 APK 路径下把
+否则 Play 会收到约 560 MB 的两份。`app/build.gradle.kts` 仅在 APK 路径下把
 `model_assets/src/main/assets/` 加入 release source set。一次 Gradle 调用同时索取两种产物
 会在配置期被拒绝，并指明违规任务。
 
@@ -262,6 +262,6 @@ bundle→APK 重复布局会被检出，因为 AAB 按 `assets/builtin-model/…
 
 ### 第三方致谢
 
-- **语音模型架构：**NVIDIA [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b)，由 [handy-computer](https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf) 量化为 GGUF（Q8_0）（CC-BY 4.0 许可）。
+- **语音模型架构：**NVIDIA [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b)，由 [handy-computer](https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf) 量化为 GGUF（Q5_K_M）（CC-BY 4.0 许可）。
 - **推理内核：**CJ Pais 与 Georgi Gerganov 的 [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp) 与 [ggml](https://github.com/ggerganov/ggml)。
 - **音频采集：**[cpal](https://github.com/RustAudio/cpal)（跨平台音频库）。

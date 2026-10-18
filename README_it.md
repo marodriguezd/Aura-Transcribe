@@ -20,7 +20,7 @@ L'applicazione opera su più punti di integrazione Android: dettatura vocale nel
 
 ## Funzionalità principali
 
-- **Riconoscimento vocale on-device:** la trascrizione gira al 100% in locale con un modello quantizzato [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) (Q8_0 GGUF). Le registrazioni audio non lasciano mai il tuo dispositivo.
+- **Riconoscimento vocale on-device:** la trascrizione gira al 100% in locale con un modello quantizzato [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) (Q5_K_M GGUF). Le registrazioni audio non lasciano mai il tuo dispositivo.
 - **Dettatura vocale di sistema:** risponde a `RecognizerIntent.ACTION_RECOGNIZE_SPEECH` di Android per mostrare un pannello di dettatura inferiore nelle tastiere compatibili (come Microsoft SwiftKey) e nei campi di ricerca vocale del browser.
 - **Tastiera vocale dedicata (IME):** include una tastiera vocale autonoma per dettare con un tocco in qualsiasi app tramite il cambio standard del metodo di input.
 - **Servizio di riconoscimento vocale:** implementa l'API di sistema `SpeechRecognizer` per integrazioni di tastiere e app terze.
@@ -29,7 +29,7 @@ L'applicazione opera su più punti di integrazione Android: dettatura vocale nel
 - **Trascrizione file audio:** trascrive file audio preregistrati direttamente sul dispositivo.
 - **Routing audio multi-dispositivo:** rileva e instrada l'audio da microfoni interni, interfacce USB e headset Bluetooth (SCO e BLE Audio) dinamicamente, con commutazione automatica e override manuali.
 - **Copertura lingue:**
-  - **Interfaccia utente:** disponibile in 7 lingue (inglese base, tedesco, spagnolo, francese, italiano, portoghese e russo).
+  - **Interfaccia utente:** disponibile in 8 lingue (inglese base, tedesco, spagnolo, francese, italiano, portoghese, russo e cinese semplificato).
   - **Riconoscimento vocale:** il modello Nemotron integrato supporta 40 locale di lingua nativamente con auto-rilevamento in streaming; 33 locale regionali sono direttamente selezionabili. Modelli GGUF importati dall'utente (es. Whisper) possono supportare fino a 99 lingue.
 - **Post-elaborazione testo opzionale:** formattazione e pulizia configurabili con provider esterni compatibili API OpenAI (OpenAI, Groq, Cerebras, OpenRouter, Mistral, Together, Ollama) o il preset intatto *Verbatim*.
 
@@ -38,7 +38,7 @@ L'applicazione opera su più punti di integrazione Android: dettatura vocale nel
 ## Privacy e comportamento di elaborazione
 
 - **Il riconoscimento vocale è 100% locale:** tutta l'inferenza acustica, l'elaborazione audio e la trascrizione sono eseguite interamente sul tuo dispositivo. Microfono e file audio non sono mai caricati su server remoti.
-- **Post-elaborazione remota opzionale:** la post-elaborazione IA è **disattivata di default**. Se attivi un provider esterno (come Groq o OpenAI), solo il **testo** riconosciuto (mai l'audio) è trasmesso via HTTPS al tuo endpoint configurato. Le API key sono salvate localmente nello storage privato dell'app.
+- **Post-elaborazione remota opzionale:** la post-elaborazione IA è **disattivata di default**. Se attivi un provider esterno (come Groq o OpenAI), solo il **testo** riconosciuto (mai l'audio) è trasmesso al tuo endpoint configurato (HTTPS per provider remoti; HTTP in chiaro solo verso il loopback localhost/127.0.0.1 per un server Ollama locale). Le API key sono salvate localmente nello storage privato dell'app.
 - **Modalità Verbatim e offline:** con la post-elaborazione spenta o su *Verbatim*, nessun testo esce in rete.
 - **Telemetria e log in release:** nelle build release, la registrazione del testo trascritto e dei dettagli sensibili di errore è rimossa.
 
@@ -103,8 +103,8 @@ La cross-compilazione funziona su host `linux-x86_64`, `linux-aarch64`, `darwin-
 
 ### 1. Clonare il repository
 ```bash
-git clone https://github.com/marodriguezd/android_transcribe_app.git
-cd android_transcribe_app
+git clone https://github.com/marodriguezd/Aura-Transcribe.git
+cd Aura-Transcribe
 ```
 
 ### 2. Scaricare e verificare i modelli inclusi
@@ -136,7 +136,7 @@ L'APK è generato in `app/build/outputs/apk/debug/app-debug.apk`.
 ./gradlew :app:verifyPackagingDecision  # Decisione APK/AAB + gate del modello, su archivi sintetici
 ./gradlew :benchmark:assembleBenchmark  # Compila il modulo Macrobenchmark (senza dispositivo)
 
-python3 scripts/check_translations.py          # Parità traduzioni sui 7 locale
+python3 scripts/check_translations.py          # Parità traduzioni sui 8 locale
 python3 scripts/test_verify_release_artifact.py # Autotest del verificatore dell'artefatto release
 python3 scripts/bench_performance.py           # Micro-benchmark di algoritmi di riferimento
 cargo fmt --all -- --check                     # Formattazione Rust
@@ -144,7 +144,7 @@ cargo fmt --all -- --check                     # Formattazione Rust
 
 `verifyPackagingDecision` e `test_verify_release_artifact.py` sono i due gate
 che proteggono la consegna del modello incluso: girano senza scaricare il modello da
-750 MB, perché esercitano la logica di decisione e il verificatore contro archivi
+560 MB, perché esercitano la logica di decisione e il verificatore contro archivi
 sintetici. `bench_performance.py` misura sostituti Python puri dei percorsi caldi
 audio/correttore e **asserisce** che ogni percorso veloce coincida con il suo
 riferimento ingenuo — è un gate di correttezza, non una misura di performance
@@ -182,7 +182,7 @@ Compila gli artefatti release in **invocazioni separate** per un packaging corre
 Un APK e un AAB richiedono layout di asset distinti per la stessa variante release. AGP
 ignora gli asset pack nel packaging di un APK, quindi l'APK deve portare il GGUF nel
 modulo base; l'AAB deve portarlo solo nell'asset pack di installazione `:model_assets`,
-altrimenti Play riceverebbe ~750 MB due volte. `app/build.gradle.kts` aggiunge
+altrimenti Play riceverebbe ~560 MB due volte. `app/build.gradle.kts` aggiunge
 `model_assets/src/main/assets/` al source set release solo sul percorso APK. Un'invocazione
 Gradle che chieda entrambi gli artefatti insieme è rifiutata in configurazione con un messaggio
 che nomina i task colpevoli.
@@ -272,6 +272,6 @@ Le aggiunte e i cambiamenti architetturali successivi di questo fork — inclusi
 
 ### Crediti di terze parti
 
-- **Architettura del modello vocale:** [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) di NVIDIA, quantizzato in GGUF (Q8_0) da [handy-computer](https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf) (licenza CC-BY 4.0).
+- **Architettura del modello vocale:** [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) di NVIDIA, quantizzato in GGUF (Q5_K_M) da [handy-computer](https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf) (licenza CC-BY 4.0).
 - **Kernel di inferenza:** [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp) e [ggml](https://github.com/ggerganov/ggml) di CJ Pais e Georgi Gerganov.
 - **Cattura audio:** [cpal](https://github.com/RustAudio/cpal) (Cross-Platform Audio Library).

@@ -50,6 +50,16 @@ public class PostProcessor {
             "API key required; open post-processing settings";
 
     /**
+     * Stable callback error for a credential that exists on disk but could not be
+     * read (corrupt or tampered ciphertext, unavailable Keystore key, undecodable
+     * legacy marker). Distinct from {@link #MISSING_API_KEY_ERROR} so callers
+     * can tell "not configured" from "configured but unreadable"; no network
+     * call is made in either case.
+     */
+    public static final String UNREADABLE_API_KEY_ERROR =
+            "Stored API key could not be read; re-enter it in post-processing settings";
+
+    /**
      * Stable callback error for the on-device provider, which has no inference
      * engine in this build (see
      * {@link SettingsManager#LOCAL_S1_INFERENCE_AVAILABLE}). Delivered through
@@ -71,6 +81,25 @@ public class PostProcessor {
     private static final int CONNECT_TIMEOUT_SECONDS = 30;
     private static final int READ_TIMEOUT_SECONDS = 60;
     private static final int WRITE_TIMEOUT_SECONDS = 60;
+
+    /**
+     * Hard upper bound on a single post-processing response body. Refined
+     * transcripts are short; a larger payload is either a misbehaving or
+     * hostile endpoint and must never be buffered into memory (or committed to
+     * the editor). The cap is enforced by streaming, never by trusting
+     * {@code Content-Length}: exactly this many bytes succeed, one byte more
+     * fails without using the partial data.
+     */
+    public static final int MAX_RESPONSE_BODY_BYTES = 1024 * 1024;
+    /** Alias kept for callers/tests that name the limit differently. */
+    public static final int MAX_RESPONSE_BODY_SIZE = MAX_RESPONSE_BODY_BYTES;
+    public static final int MAX_RESPONSE_BYTES = MAX_RESPONSE_BODY_BYTES;
+    public static final int MAX_BODY_BYTES = MAX_RESPONSE_BODY_BYTES;
+    public static final int MAX_RESPONSE_BODY_LIMIT = MAX_RESPONSE_BODY_BYTES;
+    public static final int RESPONSE_BODY_CAP = MAX_RESPONSE_BODY_BYTES;
+    public static final int RESPONSE_BODY_LIMIT = MAX_RESPONSE_BODY_BYTES;
+    public static final int BODY_CAP = MAX_RESPONSE_BODY_BYTES;
+    public static final int BODY_LIMIT = MAX_RESPONSE_BODY_BYTES;
 
     private static volatile OkHttpClient sharedClient;
     private static final Object CLIENT_LOCK = new Object();
@@ -341,7 +370,9 @@ public class PostProcessor {
                 return;
             }
             runRequest(rawText, callback, forceRequest,
-                    credential != null ? credential.key() : "");
+                    credential != null ? credential.key() : "",
+                    credential != null
+                            && credential.status() == ApiKeyRead.Status.UNREADABLE);
         });
     }
 
@@ -350,7 +381,8 @@ public class PostProcessor {
      * continuation executor — never with a credential gathered elsewhere.
      */
     private void runRequest(final String rawText, final PostProcessCallback callback,
-                            boolean forceRequest, final String apiKey) {
+                            boolean forceRequest, final String apiKey,
+                            final boolean credentialUnreadable) {
         if (PROVIDER_LOCAL_S1.equals(settings.getProviderId())) {
             if (!SettingsManager.LOCAL_S1_INFERENCE_AVAILABLE) {
                 // Defensive: the settings UI refuses to enable this provider, but
@@ -372,8 +404,10 @@ public class PostProcessor {
             // touching the network so release builds do not look like a broken
             // provider and the raw transcript is delivered immediately by every
             // caller. The diagnostic button uses the same guard, so it never sends
-            // an unauthenticated probe.
-            dispatchToUi(() -> callback.onError(MISSING_API_KEY_ERROR));
+            // an unauthenticated probe. Distinguish the two cases so a corrupt
+            // store is not misreported as "not configured".
+            dispatchToUi(() -> callback.onError(credentialUnreadable
+                    ? UNREADABLE_API_KEY_ERROR : MISSING_API_KEY_ERROR));
             return;
         }
         final String model = settings.getModelName();
@@ -468,7 +502,7 @@ public class PostProcessor {
                                 dispatchToUi(() -> callback.onError("Empty response body"));
                                 return;
                             }
-                            String responseData = responseResource.body().string();
+                            String responseData = readBoundedResponseBody(responseResource.body());
                             JSONObject responseJson = new JSONObject(responseData);
                             JSONArray choices = responseJson.getJSONArray("choices");
                             if (choices.length() == 0) {
@@ -548,6 +582,38 @@ public class PostProcessor {
         });
     }
 
+    /**
+     * Reads a response body into memory with a hard upper bound. Never trusts
+     * {@code Content-Length}; streams the bytes and fails as soon as the cap is
+     * exceeded, so an oversized (or chunked, length-less) payload is never
+     * buffered in full and never reaches the parser/commit path. Exactly
+     * {@link #MAX_RESPONSE_BODY_BYTES} bytes succeed; one byte more throws.
+     */
+    private static String readBoundedResponseBody(okhttp3.ResponseBody body) throws IOException {
+        if (body == null) {
+            throw new IOException("Empty response body");
+        }
+        java.io.InputStream in = body.byteStream();
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        int total = 0;
+        int read;
+        while ((read = in.read(buffer)) != -1) {
+            total += read;
+            if (total > MAX_RESPONSE_BODY_BYTES) {
+                throw new IOException("Response body exceeds " + MAX_RESPONSE_BODY_BYTES + " bytes");
+            }
+            out.write(buffer, 0, read);
+        }
+        java.nio.charset.Charset charset = java.nio.charset.StandardCharsets.UTF_8;
+        okhttp3.MediaType contentType = body.contentType();
+        if (contentType != null) {
+            java.nio.charset.Charset parsed = contentType.charset(charset);
+            if (parsed != null) charset = parsed;
+        }
+        return new String(out.toByteArray(), charset);
+    }
+
     /** Returns a release-safe explanation for common provider failures. */
     private static String describeHttpError(Response response) throws IOException {
         int code = response.code();
@@ -578,7 +644,7 @@ public class PostProcessor {
 
         if (BuildConfig.DEBUG && response.body() != null) {
             try {
-                String body = response.body().string();
+                String body = readBoundedResponseBody(response.body());
                 String providerMessage = extractProviderErrorMessage(body);
                 if (!providerMessage.isEmpty()) {
                     message += ": " + providerMessage;
@@ -679,8 +745,11 @@ public class PostProcessor {
             // model-list request either.
             if (validator != null && !validator.getAsBoolean()) return;
             String apiKey = credential != null ? credential.key() : "";
+            boolean unreadable = credential != null
+                    && credential.status() == ApiKeyRead.Status.UNREADABLE;
             if (apiKey.trim().isEmpty()) {
-                dispatchToUi(() -> callback.onError(MISSING_API_KEY_ERROR));
+                dispatchToUi(() -> callback.onError(unreadable
+                        ? UNREADABLE_API_KEY_ERROR : MISSING_API_KEY_ERROR));
                 return;
             }
             runFetchModels(resolvedModelsUrl, callback, apiKey);
@@ -728,7 +797,7 @@ public class PostProcessor {
                             dispatchToUi(() -> callback.onError("Empty response body"));
                             return;
                         }
-                        String data = responseResource.body().string();
+                        String data = readBoundedResponseBody(responseResource.body());
                         JSONObject json = new JSONObject(data);
                         JSONArray array = json.getJSONArray("data");
                         java.util.List<String> models = new java.util.ArrayList<>();

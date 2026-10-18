@@ -661,7 +661,7 @@ public class PostProcessorTest {
         newProcessor(settings, new Object()).testConnection(diagnostic);
 
         assertTrue(failed.await(2, TimeUnit.SECONDS));
-        assertEquals("err:" + PostProcessor.MISSING_API_KEY_ERROR, diagnostic.outcome.get());
+        assertEquals("err:" + PostProcessor.UNREADABLE_API_KEY_ERROR, diagnostic.outcome.get());
         assertEquals(1, diagnostic.deliveries.get());
         assertEquals("one ordered read per call", 2, settings.reads.get());
         assertEquals("the diagnostic must not probe without a credential", null,
@@ -891,4 +891,71 @@ public class PostProcessorTest {
         }
         return count;
     }
+    @Test
+    public void aResponseBodyAtExactlyTheCapIsAccepted() throws Exception {
+        int cap = PostProcessor.MAX_RESPONSE_BODY_BYTES;
+        String prefix = "{\"choices\":[{\"message\":{\"content\":\"";
+        String suffix = "\"}}]}";
+        int contentLen = cap - prefix.getBytes(java.nio.charset.StandardCharsets.UTF_8).length
+                - suffix.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+        assertTrue(contentLen > 0);
+        StringBuilder body = new StringBuilder(cap);
+        body.append(prefix);
+        for (int i = 0; i < contentLen; i++) body.append('x');
+        body.append(suffix);
+        byte[] bytes = body.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        assertEquals("body must be exactly the cap", cap, bytes.length);
+
+        FakeSettings settings = new FakeSettings();
+        settings.url = server.url("/").toString();
+        server.enqueue(new MockResponse().setBody(body.toString()));
+
+        CountDownLatch done = new CountDownLatch(1);
+        CountingCallback callback = new CountingCallback(done);
+        newProcessor(settings, new Object()).process("raw", callback);
+
+        assertTrue(done.await(5, TimeUnit.SECONDS));
+        assertEquals("ok:" + new String(new char[contentLen]).replace('\0', 'x'), callback.outcome.get());
+        assertEquals(1, callback.deliveries.get());
+    }
+
+    @Test
+    public void aResponseBodyOneByteOverTheCapFailsAndDeliversRawOnce() throws Exception {
+        int cap = PostProcessor.MAX_RESPONSE_BODY_BYTES;
+        // cap + 1 bytes of 'a' (not valid JSON): the read must fail before parse.
+        StringBuilder body = new StringBuilder(cap + 1);
+        for (int i = 0; i < cap + 1; i++) body.append('a');
+        FakeSettings settings = new FakeSettings();
+        settings.url = server.url("/").toString();
+        server.enqueue(new MockResponse().setBody(body.toString()));
+
+        CountDownLatch done = new CountDownLatch(1);
+        CountingCallback callback = new CountingCallback(done);
+        newProcessor(settings, new Object()).process("raw", callback);
+
+        assertTrue(done.await(5, TimeUnit.SECONDS));
+        assertTrue("oversized body must not be committed as refined text",
+                callback.outcome.get().startsWith("err:"));
+        assertEquals(1, callback.deliveries.get());
+    }
+
+    @Test
+    public void aChunkedBodyWithNoContentLengthOverTheCapFails() throws Exception {
+        int cap = PostProcessor.MAX_RESPONSE_BODY_BYTES;
+        StringBuilder body = new StringBuilder(cap + 1);
+        for (int i = 0; i < cap + 1; i++) body.append('b');
+        FakeSettings settings = new FakeSettings();
+        settings.url = server.url("/").toString();
+        // Chunked transfer: no Content-Length header.
+        server.enqueue(new MockResponse().setChunkedBody(body.toString(), 4096));
+
+        CountDownLatch done = new CountDownLatch(1);
+        CountingCallback callback = new CountingCallback(done);
+        newProcessor(settings, new Object()).process("raw", callback);
+
+        assertTrue(done.await(10, TimeUnit.SECONDS));
+        assertTrue("chunked oversized body must fail", callback.outcome.get().startsWith("err:"));
+        assertEquals(1, callback.deliveries.get());
+    }
+
 }

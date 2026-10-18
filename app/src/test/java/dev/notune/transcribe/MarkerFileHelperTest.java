@@ -59,4 +59,48 @@ public class MarkerFileHelperTest {
         MarkerFileHelper.writeStringToFile(tempDirectory, "delete_me.txt", "");
         assertFalse(file.exists());
     }
+
+
+    @Test
+    public void testWriteIfAbsentDoesNotOverwriteExisting() {
+        MarkerFileHelper.writeStringToFile(tempDirectory, "marker.txt", "original");
+        boolean won = MarkerFileHelper.writeStringIfAbsentToFile(tempDirectory, "marker.txt", "new-value");
+        assertFalse(won);
+        assertEquals("original", MarkerFileHelper.readStringFromFile(tempDirectory, "marker.txt", ""));
+    }
+
+    @Test
+    public void testWriteIfAbsentCreatesWhenAbsent() {
+        boolean won = MarkerFileHelper.writeStringIfAbsentToFile(tempDirectory, "absent.txt", "value");
+        assertTrue(won);
+        assertEquals("value", MarkerFileHelper.readStringFromFile(tempDirectory, "absent.txt", ""));
+    }
+
+    @Test
+    public void testWriteIfAbsentConcurrentAtMostOneWins() throws Exception {
+        final String name = "race.txt";
+        final int threads = 8;
+        final java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.atomic.AtomicInteger wins = new java.util.concurrent.atomic.AtomicInteger();
+        final java.util.List<Thread> list = new java.util.ArrayList<>();
+        for (int i = 0; i < threads; i++) {
+            final String value = "v" + i;
+            Thread t = new Thread(() -> {
+                try { start.await(); } catch (InterruptedException ignored) {}
+                if (MarkerFileHelper.writeStringIfAbsentToFile(tempDirectory, name, value)) {
+                    wins.incrementAndGet();
+                }
+            });
+            list.add(t);
+            t.start();
+        }
+        start.countDown();
+        for (Thread t : list) t.join();
+        assertTrue("at most one winner", wins.get() <= 1);
+        String content = MarkerFileHelper.readStringFromFile(tempDirectory, name, "");
+        assertTrue("content is one of the submitted values", content.startsWith("v"));
+        // never partial: full value
+        assertEquals(2, content.length());
+    }
+
 }

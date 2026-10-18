@@ -175,7 +175,17 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_ini
             });
         };
 
-        while let Ok(job) = rx.recv() {
+        // A final that did not fit the current merged group is stashed here
+        // and processed as the next group, so no queued final is dropped.
+        let mut pending_job: Option<Job> = None;
+        loop {
+            let job = match pending_job.take() {
+                Some(j) => j,
+                None => match rx.recv() {
+                    Ok(j) => j,
+                    Err(_) => break,
+                },
+            };
             let mut job = job;
             // A job from a previous session (cleanup + new initNative) must
             // never be transcribed nor delivered: the overlay may be torn
@@ -190,23 +200,34 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_ini
             // queued final already covers, and a fresh one follows anyway.
             if job.is_final {
                 let mut merged = 0usize;
-                while job.samples.len() < MAX_MERGED_SAMPLES {
+                'merge: loop {
+                    if job.samples.len() >= MAX_MERGED_SAMPLES {
+                        break 'merge;
+                    }
                     match rx.try_recv() {
                         Ok(next) if next.is_final => {
                             // Never merge work from another generation into
                             // this job: everything queued behind a stale
                             // final belongs to an older session anyway.
                             if next.generation != job.generation {
-                                break;
+                                break 'merge;
                             }
-                            job.samples.extend_from_slice(&next.samples);
-                            job.end_sample = next.end_sample;
-                            pending_finals.fetch_sub(1, Ordering::SeqCst);
-                            merged += 1;
+                            // Only append while the combined audio fits the
+                            // cap; otherwise this final starts the next group.
+                            if merge_fits(job.samples.len(), next.samples.len(), MAX_MERGED_SAMPLES)
+                            {
+                                job.samples.extend_from_slice(&next.samples);
+                                job.end_sample = next.end_sample;
+                                pending_finals.fetch_sub(1, Ordering::SeqCst);
+                                merged += 1;
+                            } else {
+                                pending_job = Some(next);
+                                break 'merge;
+                            }
                         }
                         // A queued partial: drop it and keep merging finals.
                         Ok(_) => {}
-                        Err(_) => break,
+                        Err(_) => break 'merge,
                     }
                 }
                 if merged > 0 {
@@ -331,7 +352,7 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_pus
     data: jni::objects::JFloatArray,
     length: jni::sys::jint,
 ) {
-    let len = length as usize;
+    let len = usize::try_from(length).unwrap_or(0);
     if len == 0 {
         return;
     }
@@ -447,4 +468,47 @@ fn partial_affordable(state: &LiveSubtitleState) -> bool {
     let rtf = state.rtf_milli.load(Ordering::SeqCst) as f32 / 1000.0;
     let segment_secs = state.segment.len() as f32 / SAMPLE_RATE as f32;
     segment_secs * rtf <= MAX_PARTIAL_COST_SECS
+}
+
+/// Pure decision: may `next_len` samples be appended to a merged group that
+/// already holds `current_len` samples without exceeding `cap`?
+/// An empty group always takes the first segment (provided it fits on its
+/// own, which holds for every real segment).
+pub fn merge_fits(current_len: usize, next_len: usize, cap: usize) -> bool {
+    if current_len == 0 {
+        next_len <= cap
+    } else {
+        current_len.saturating_add(next_len) <= cap
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exact_fit_appended() {
+        assert!(merge_fits(100, 50, 150));
+    }
+
+    #[test]
+    fn one_sample_over_starts_new_group() {
+        assert!(!merge_fits(100, 51, 150));
+    }
+
+    #[test]
+    fn empty_group_takes_first_segment() {
+        assert!(merge_fits(0, 150, 150));
+        assert!(merge_fits(0, 1, 150));
+    }
+
+    #[test]
+    fn order_preserved_single_merge() {
+        // A group that cannot fit the next segment leaves it for the next
+        // group; the decision is purely a function of lengths, so repeated
+        // calls in order yield stable results.
+        assert!(merge_fits(0, 60, 100));
+        assert!(merge_fits(60, 40, 100));
+        assert!(!merge_fits(60, 41, 100));
+    }
 }
