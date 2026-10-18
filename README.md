@@ -2,9 +2,11 @@
 
 [![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B%20(API%2026--37)-blue.svg)](https://developer.android.com)
 [![Architecture](https://img.shields.io/badge/ABI-arm64--v8a-orange.svg)](#requirements--compatibility)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License: GPL-3.0-only](https://img.shields.io/badge/License-GPL--3.0--only-blue.svg)](LICENSE)
 
 English · [Español](README_es.md) · [Deutsch](README_de.md) · [Français](README_fr.md) · [Italiano](README_it.md) · [中文](README_zh.md)
+
+The application source is licensed under GPL-3.0-only. Third-party components and the bundled speech model retain their own terms; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [MODEL_LICENSE.md](MODEL_LICENSE.md).
 
 Aura Transcribe is an on-device speech-to-text application and voice input service for Android. Powered by Rust, ARM NEON SIMD optimizations, and GGML inference kernels, it performs speech recognition locally on the device CPU without requiring an active network connection.
 
@@ -272,6 +274,6 @@ Subsequent additions and architectural changes in this fork—including multi-de
 
 ### Third-Party Credits
 
-- **Speech Model Architecture:** [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) by NVIDIA, quantized to GGUF (Q5_K_M) by [handy-computer](https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf) (licensed under CC-BY 4.0).
+- **Speech Model Architecture:** [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) by NVIDIA, quantized to GGUF (Q5_K_M) by [handy-computer](https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf) (model terms: OpenMDW-1.1; see [MODEL_LICENSE.md](MODEL_LICENSE.md)).
 - **Inference Kernels:** [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp) and [ggml](https://github.com/ggerganov/ggml) by CJ Pais and Georgi Gerganov.
 - **Audio Capture:** [cpal](https://github.com/RustAudio/cpal) (Cross-Platform Audio Library).

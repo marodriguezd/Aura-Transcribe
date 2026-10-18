@@ -2,9 +2,11 @@
 
 [![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B%20(API%2026--37)-blue.svg)](https://developer.android.com)
 [![Architecture](https://img.shields.io/badge/ABI-arm64--v8a-orange.svg)](#exigences-et-compatibilité)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License: GPL-3.0-only](https://img.shields.io/badge/License-GPL--3.0--only-blue.svg)](LICENSE)
 
 [English](README.md) · [Español](README_es.md) · [Deutsch](README_de.md) · Français · [Italiano](README_it.md) · [中文](README_zh.md)
+
+Le code source de l’application est distribué sous GPL-3.0-only. Les composants tiers et le modèle vocal inclus conservent leurs propres conditions ; voir [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) et [MODEL_LICENSE.md](MODEL_LICENSE.md).
 
 Aura Transcribe est une application de voix vers texte sur l'appareil et un service de saisie vocale pour Android. Propulsée par Rust, des optimisations SIMD ARM NEON et des noyaux d'inférence GGML, elle effectue la reconnaissance vocale localement sur le CPU de l'appareil sans nécessiter de connexion réseau active.
 
@@ -272,6 +274,6 @@ Les ajouts et changements architecturaux ultérieurs de ce fork — incluant rou
 
 ### Crédits tiers
 
-- **Architecture du modèle vocal :** [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) de NVIDIA, quantisé en GGUF (Q5_K_M) par [handy-computer](https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf) (licence CC-BY 4.0).
+- **Architecture du modèle vocal :** [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) de NVIDIA, quantisé en GGUF (Q5_K_M) par [handy-computer](https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf) (licence du modèle : OpenMDW-1.1 ; voir [MODEL_LICENSE.md](MODEL_LICENSE.md)).
 - **Noyaux d'inférence :** [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp) et [ggml](https://github.com/ggerganov/ggml) de CJ Pais et Georgi Gerganov.
 - **Capture audio :** [cpal](https://github.com/RustAudio/cpal) (Cross-Platform Audio Library).

@@ -2,9 +2,11 @@
 
 [![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B%20(API%2026--37)-blue.svg)](https://developer.android.com)
 [![Architecture](https://img.shields.io/badge/ABI-arm64--v8a-orange.svg)](#要求与兼容性)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License: GPL-3.0-only](https://img.shields.io/badge/License-GPL--3.0--only-blue.svg)](LICENSE)
 
 [English](README.md) · [Español](README_es.md) · [Deutsch](README_de.md) · [Français](README_fr.md) · [Italiano](README_it.md) · 中文
+
+应用程序源代码采用 GPL-3.0-only 许可。第三方组件和随附语音模型仍受各自许可条款约束；请参阅 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 和 [MODEL_LICENSE.md](MODEL_LICENSE.md)。
 
 Aura Transcribe 是一款设备端语音转文字应用与 Android 语音输入服务。基于 Rust、ARM NEON SIMD 优化与 GGML 推理内核，在设备 CPU 上本地完成语音识别，无需联网。
 
@@ -262,6 +264,6 @@ bundle→APK 重复布局会被检出，因为 AAB 按 `assets/builtin-model/…
 
 ### 第三方致谢
 
-- **语音模型架构：**NVIDIA [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b)，由 [handy-computer](https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf) 量化为 GGUF（Q5_K_M）（CC-BY 4.0 许可）。
+- **语音模型架构：**NVIDIA [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b)，由 [handy-computer](https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf) 量化为 GGUF（Q5_K_M）（模型许可：OpenMDW-1.1；参见 [MODEL_LICENSE.md](MODEL_LICENSE.md)）。
 - **推理内核：**CJ Pais 与 Georgi Gerganov 的 [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp) 与 [ggml](https://github.com/ggerganov/ggml)。
 - **音频采集：**[cpal](https://github.com/RustAudio/cpal)（跨平台音频库）。

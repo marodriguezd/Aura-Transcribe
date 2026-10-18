@@ -2,9 +2,11 @@
 
 [![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B%20(API%2026--37)-blue.svg)](https://developer.android.com)
 [![Architecture](https://img.shields.io/badge/ABI-arm64--v8a-orange.svg)](#requisiti-e-compatibilità)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License: GPL-3.0-only](https://img.shields.io/badge/License-GPL--3.0--only-blue.svg)](LICENSE)
 
 [English](README.md) · [Español](README_es.md) · [Deutsch](README_de.md) · [Français](README_fr.md) · Italiano · [中文](README_zh.md)
+
+Il codice sorgente dell’applicazione è distribuito con GPL-3.0-only. I componenti di terze parti e il modello vocale incluso mantengono le proprie condizioni; consulta [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) e [MODEL_LICENSE.md](MODEL_LICENSE.md).
 
 Aura Transcribe è un'applicazione speech-to-text on-device e un servizio di input vocale per Android. Basata su Rust, ottimizzazioni SIMD ARM NEON e kernel di inferenza GGML, esegue il riconoscimento vocale localmente sulla CPU del dispositivo senza richiedere una connessione di rete attiva.
 
@@ -272,6 +274,6 @@ Le aggiunte e i cambiamenti architetturali successivi di questo fork — inclusi
 
 ### Crediti di terze parti
 
-- **Architettura del modello vocale:** [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) di NVIDIA, quantizzato in GGUF (Q5_K_M) da [handy-computer](https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf) (licenza CC-BY 4.0).
+- **Architettura del modello vocale:** [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) di NVIDIA, quantizzato in GGUF (Q5_K_M) da [handy-computer](https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf) (licenza del modello: OpenMDW-1.1; consulta [MODEL_LICENSE.md](MODEL_LICENSE.md)).
 - **Kernel di inferenza:** [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp) e [ggml](https://github.com/ggerganov/ggml) di CJ Pais e Georgi Gerganov.
 - **Cattura audio:** [cpal](https://github.com/RustAudio/cpal) (Cross-Platform Audio Library).
