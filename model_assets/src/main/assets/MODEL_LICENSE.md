@@ -12,11 +12,9 @@ This document provides the license terms and notices of origin for the bundled s
 
 ## License Scope and Separation
 
-- **Application Source Code:** Aura Transcribe application software (Java, Rust, Gradle scripts, resources) is licensed under the [MIT License](LICENSE).
-- **Native Runtime Dependencies:**
-  - `transcribe.cpp` and `ggml`: MIT / Apache-2.0 licenses (CJ Pais, Georgi Gerganov and contributors).
-  - `cpal` (Cross-Platform Audio Library): Apache-2.0 license.
-- **Model Weights & Architecture Artifacts:** The bundled model parameters, weights, and associated architecture definitions are distributed under the **OpenMDW License Agreement, version 1.1 (OpenMDW-1.1)** reproduced below.
+- **Aura Transcribe application source:** The code authored for this fork is licensed under the GNU GPL version 3.0 only; see the repository-root `LICENSE`. Code inherited or adapted from `notune/android_transcribe_app` retains the upstream copyright and MIT-license conditions; a copy of that license is preserved in `licenses/UPSTREAM-MIT.txt`. Third-party components and exceptions are itemized in `THIRD_PARTY_NOTICES.md`.
+- **Native runtime dependencies:** `transcribe-cpp` 0.1.3 and the `ggml` code supplied by that dependency are MIT-licensed; `cpal` is Apache-2.0-licensed. Their license notices are included in `licenses/` and summarized in `THIRD_PARTY_NOTICES.md`.
+- **Model weights and architecture artifacts:** The bundled Nemotron GGUF model and its model materials remain under the OpenMDW License Agreement, version 1.1 (OpenMDW-1.1). The model is a separately licensed asset and is not relicensed by the application source-code license. Retain this notice and the complete OpenMDW terms when redistributing it.
 
 ---
 
