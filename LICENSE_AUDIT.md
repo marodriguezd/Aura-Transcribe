@@ -26,7 +26,7 @@ This does **not** mean every artifact in the repository is GPL-licensed. The bun
 - The six README translations link to the scope/third-party notices and no longer describe the Nemotron GGUF as CC-BY 4.0.
 - The model license and third-party license asset copies are checked for consistency.
 - `scripts/check_license_docs.py` runs in debug/PR and release validation workflows.
-- Gradle's dependency-license-report plugin generates a report of resolved Maven/Gradle dependency licenses; `scripts/report_cargo_licenses.py` inventories license declarations from Cargo's resolved graph. Both reports are uploaded as the `aura-transcribe-dependency-license-inventories` CI artifact.
+- Gradle's dependency-license-report plugin runs from the `:app` project and scans `releaseRuntimeClasspath` into `app/build/reports/dependency-license/`; `scripts/report_cargo_licenses.py` inventories license declarations from Cargo's resolved graph. Both reports are uploaded as the `aura-transcribe-dependency-license-inventories` CI artifact.
 
 ## Status
 

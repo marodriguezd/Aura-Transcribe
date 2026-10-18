@@ -1,3 +1,4 @@
+import com.github.jk1.license.render.*
 import java.io.FileInputStream
 import java.io.File
 import java.io.IOException
@@ -9,6 +10,19 @@ import java.util.zip.ZipOutputStream
 
 plugins {
     alias(libs.plugins.android.application)
+    id("com.github.jk1.dependency-license-report") version "3.1.4"
+}
+
+// Generate the report in the same project that owns the release runtime
+// configuration. This avoids asking the root-project task to resolve :app's
+// configuration across project boundaries under Gradle 9.
+licenseReport {
+    configurations = arrayOf("releaseRuntimeClasspath")
+    renderers = arrayOf<ReportRenderer>(
+        InventoryHtmlReportRenderer("index.html", "Aura Transcribe"),
+        JsonReportRenderer("dependencies.json", false),
+        TextReportRenderer("THIRD-PARTY-NOTICES.txt")
+    )
 }
 
 android {
