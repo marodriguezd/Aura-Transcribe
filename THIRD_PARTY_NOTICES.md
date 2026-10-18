@@ -32,10 +32,25 @@ The Android runtime dependencies declared in `gradle/libs.versions.toml` and `ap
 
 The current build declares `org.json:json`, JUnit, and MockWebServer as test-only dependencies. In particular, `org.json:json` is confined to `testImplementation`; do not move it into the shipped runtime without a separate license review. The Android application uses the platform's `org.json` API at runtime. Build tools, test frameworks and test-only libraries are not intended to be bundled in the release APK/AAB.
 
-## 4. Benchmark data and audio fixtures
+## 4. Inherited visual assets, benchmark data and audio fixtures
 
-- The benchmark manifest identifies the external [Google FLEURS corpus](https://huggingface.co/datasets/google/fleurs) as **CC BY 4.0**, with attribution to Google LLC and FLEURS dataset contributors. The benchmark manifests document this external source; raw FLEURS clips are not committed in the repository tree and are obtained separately for benchmarking. The data license does not apply to Aura Transcribe source code.
-- `app/src/main/assets/bench.wav` is byte-identical to the file at the same path in the upstream repository (Git blob `3184d372cd2f8b804d3a540c70ec50d927b335d2`). It is included in the application assets, but the repository has no file-specific recording provenance or audio-rights statement. The upstream repository-level MIT notice is preserved, but that alone is not proof of separate rights in the recording. **This item remains an evidence gap for complete rights clearance:** obtain confirmation that the recording can be redistributed or replace it with an independently created/licensed fixture before treating the audit as fully closed.
+### Byte-identical assets carried over from upstream
+
+A Git blob comparison against `notune/android_transcribe_app` identifies the following visual assets in this fork as byte-for-byte identical to files in the upstream repository. They should retain their upstream attribution and license context rather than being presented as newly created Aura assets:
+
+- Screenshots: `.screenshots/screenshot_home.png`, `.screenshots/screenshot_recording.png`, `.screenshots/screenshot_subtitles.png`.
+- Store artwork: `fastlane/metadata/android/en-US/images/icon.png` and `fastlane/metadata/android/en-US/images/phoneScreenshots/1.png`, `2.png`, and `3.png`.
+- Drawable icons: `app/src/main/res/drawable/ic_backspace.xml`, `ic_check_circle.xml`, `ic_close.xml`, `ic_delete.xml`, `ic_error.xml`, `ic_mic.xml`, `ic_model.xml`, `ic_palette.xml`, `ic_settings.xml`, and `ic_subtitles.xml`.
+
+The same blob comparison also identifies inherited non-image files, including `src/models.rs`, `app/src/main/res/layout/item_model_link.xml`, `app/src/main/res/xml/recognition_service.xml`, `.cargo/config.toml.example`, and upstream Fastlane changelogs. These are still upstream-derived, even when subsequently modified files nearby are part of the fork's own work. The original MIT license is preserved in `licenses/UPSTREAM-MIT.txt`.
+
+### Benchmark data
+
+- The benchmark manifest identifies the external [Google FLEURS corpus](https://huggingface.co/datasets/google/fleurs) as **CC BY 4.0**, with attribution to Google LLC and FLEURS dataset contributors. Raw FLEURS clips are not committed in the repository tree and are obtained separately for benchmarking. This data license does not apply to Aura Transcribe source code.
+
+### Audio fixture — unresolved rights evidence
+
+- `app/src/main/assets/bench.wav` is byte-identical to the file at the same path in the upstream repository (Git blob `3184d372cd2f8b804d3a540c70ec50d927b335d2`), added upstream in commit [`8a45999`](https://github.com/notune/android_transcribe_app/commit/8a45999bc21ae5ca25815f11463e2d1a67f3d160). It is included in the application assets, but neither the file nor that commit identifies the recording's underlying source, speaker permissions or a separate audio-rights grant. The upstream repository MIT notice is preserved, but that is not conclusive proof that the uploader controlled all rights in the recording. **This remains an evidence gap for complete rights clearance:** obtain confirmation that the recording can be redistributed or replace it with an independently created/licensed fixture before treating the asset audit as closed.
 
 ## 5. License texts included with the application
 
