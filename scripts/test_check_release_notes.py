@@ -43,27 +43,27 @@ class ReleaseNotesGateTest(unittest.TestCase):
         self.assertIn("empty", out.lower())
 
     def test_too_short_fails(self) -> None:
-        self.write("# Aura Transcribe v0.3.4 — Test\n\n" + " ".join(["word"] * 10))
+        self.write("# Aura Transcribe v1.0.0 — Test\n\n" + " ".join(["word"] * 10))
         code, out = run_gate(self.tmp)
         self.assertEqual(1, code, out)
         self.assertIn("below the minimum", out)
 
     def test_too_long_fails(self) -> None:
-        self.write("# Aura Transcribe v0.3.4 — Test\n\n" + " ".join(["word"] * 300))
+        self.write("# Aura Transcribe v1.0.0 — Test\n\n" + " ".join(["word"] * 300))
         code, out = run_gate(self.tmp)
         self.assertEqual(1, code, out)
         self.assertIn("exceeds the maximum", out)
 
     def test_in_range_passes(self) -> None:
         body = " ".join(["hardening"] * 150)
-        self.write("# Aura Transcribe v0.3.4 — Test\n\n" + body)
+        self.write("# Aura Transcribe v1.0.0 — Test\n\n" + body)
         code, out = run_gate(self.tmp)
         self.assertEqual(0, code, out)
 
     def test_multiple_version_headers_fails(self) -> None:
         body = " ".join(["word"] * 150)
         self.write(
-            "## v0.3.4 — A\n\n" + body + "\n\n## v0.3.3 — B\n"
+            "## v1.0.0 — A\n\n" + body + "\n\n## v1.0.0 — B\n"
         )
         code, out = run_gate(self.tmp)
         self.assertEqual(1, code, out)

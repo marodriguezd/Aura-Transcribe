@@ -1,0 +1,6 @@
+• First stable release of Aura Transcribe (v1.0.0).
+• Fully offline, on-device voice transcription via Rust/GGML engine.
+• Voice popup, SpeechRecognizer service, and IME keyboard surfaces.
+• Floating overlay dictation, live subtitles, and file transcription.
+• Optional AI post-processing with encrypted API key storage.
+• Eight supported locales and 16 KB-aligned native libraries for Android 17.

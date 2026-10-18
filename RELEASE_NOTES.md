@@ -1,11 +1,3 @@
-# Aura Transcribe v0.3.4 — Hardening Pass
+# Aura Transcribe v1.0.0 — First Stable Release
 
-`versionCode 49` (`v0.3.4`) — Stability and release-readiness hardening across the native bridge, overlay capture, subtitles, and CI gates. No new user-facing features.
-
-### Key Highlights
-- **Overlay single-capture:** removed the redundant `pushAudioDirect` path so the floating overlay consumes the shared cpal stream only, eliminating duplicate microphone capture.
-- **Terminal-error cleanup:** recording sessions reset their state on terminal errors instead of staying stuck in "Processing".
-- **16 KB alignment gate:** `checkNativeAlignment` is now self-sufficient and `verifyNativeAlignmentGate` exercises the real verdict logic against synthetic inputs.
-- **Subtitle teardown + JNI safety:** fixed teardown ordering for subtitle resources and clear JNI exceptions at the boundary.
-- **JNI parity gate:** added `check_jni_parity.py` to catch Java `native` declarations whose Rust exports drifted.
-- **Test infra and docs:** corrected flaky harness assumptions and synced README/AGENTS factual drift.
+Aura Transcribe 1.0.0 is the first stable release of the offline voice transcription app. It runs entirely on-device: a Rust and GGML native engine captures audio, segments and transcribes speech, and delivers text without a network connection. Recognition is exposed through three surfaces — a voice popup triggered by RecognizerIntent, an Android SpeechRecognizer service, and a full input method editor keyboard — so it works with SwiftKey-style keyboards, web voice search, and any app that calls SpeechRecognizer. A floating overlay bubble offers dictation over other apps, live subtitles caption system audio in real time, and a file transcription screen handles audio shared from other apps. Optional AI post-processing refines transcripts through any OpenAI-compatible endpoint, with the API key stored encrypted at rest using AES-256-GCM and an AndroidKeyStore-backed key. Eight locales are supported: English, Spanish, German, French, Italian, Portuguese, Russian, and Simplified Chinese. Reliability work includes a single shared audio stream across surfaces, terminal-error session cleanup, 16 KB page-aligned native libraries for Android 17, R8 minification with resource shrinking, encrypted credential migration with verify-before-delete, and packaging gates that verify the bundled model is present exactly once in both APK and AAB artifacts. The bundled Nemotron streaming model is quantized to Q5_K_M for a smaller footprint and lower memory use." 

@@ -2,6 +2,20 @@
 
 Change log of **Aura Transcribe** (Next-Gen evolution of [notune/android_transcribe_app](https://github.com/notune/android_transcribe_app)).
 
+## [1.0.0] - 2026-10-18
+
+### Added
+- First stable release of Aura Transcribe: offline on-device voice transcription built on a Rust/GGML native engine.
+- Voice popup (RecognizerIntent), Android SpeechRecognizer service, and full IME keyboard surfaces.
+- Floating overlay dictation bubble, live subtitles over system audio, and file transcription for shared audio.
+- Optional AI post-processing via any OpenAI-compatible endpoint, with AES-256-GCM encrypted API key storage backed by AndroidKeyStore.
+- Eight locales: English, Spanish, German, French, Italian, Portuguese, Russian, Simplified Chinese.
+
+### Changed
+- Version bumped to 1.0.0 (versionCode 50); release artifact is no longer a prerelease.
+- Bundled Nemotron streaming model quantized to Q5_K_M for smaller footprint and lower memory use.
+- Release pipeline now verifies the pushed tag matches the Gradle version before publishing.
+
 # v0.3.4 — hardening
 
 Hardening pass on the `hardening/aura-transcribe-v0.3.4` branch; version bump to 0.3.4 (versionCode 49).
