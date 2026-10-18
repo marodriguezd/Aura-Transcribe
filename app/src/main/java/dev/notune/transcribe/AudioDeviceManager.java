@@ -22,6 +22,24 @@ import java.util.List;
  * <p>Handles seamless switching between Bluetooth SCO headsets, Bluetooth LE Audio,
  * USB external microphones, wired headsets, and built-in microphones.
  * Provides pre-warming handshake for zero-latency capture and dedicated AudioRecord creation.</p>
+ *
+ * <p>Routing correctness contract (2026-10 audit, Phase 2):</p>
+ * <ul>
+ *   <li>Only input-capable (source) devices are ever selected as capture targets.
+ *       {@code TYPE_BLE_SPEAKER} is an output-only LE Audio speaker and is
+ *       deliberately excluded everywhere a microphone candidate is considered
+ *       (decision logic centralized in {@link AudioRoutingPolicy}).</li>
+ *   <li>{@link #acquireMicrophone(Context, String)} returns {@code true} only when the
+ *       requested routing really succeeded. It returns {@code false} exclusively when the
+ *       user explicitly selected "Bluetooth only" and no Bluetooth microphone could be
+ *       routed — the AUTO and built-in modes keep their documented built-in fallback.</li>
+ *   <li>{@code isRoutingActive}/{@code isPrewarmed} never claim success that the platform
+ *       did not confirm ({@code setCommunicationDevice()} returning {@code false} counts
+ *       as failure).</li>
+ *   <li>The audio mode in effect before routing is saved and restored by
+ *       {@link #releaseMicrophone(Context)} instead of unconditionally forcing
+ *       {@code MODE_NORMAL}.</li>
+ * </ul>
  */
 public final class AudioDeviceManager {
     private static final String TAG = "AudioDeviceManager";
@@ -36,6 +54,9 @@ public final class AudioDeviceManager {
 
     private static volatile boolean isRoutingActive = false;
     private static volatile boolean isPrewarmed = false;
+
+    /** Audio mode captured before the first routing change; restored on release. */
+    private static Integer savedAudioMode = null;
 
     private AudioDeviceManager() {
         // Utility class: static routing helpers only, never instantiated
@@ -59,6 +80,11 @@ public final class AudioDeviceManager {
      * Pre-warms the Bluetooth communication channel in the background when the
      * keyboard window or floating bubble appears, so tapping "Record" begins
      * capturing immediately (0 ms latency) without clipping the speaker's first syllables.
+     *
+     * <p>{@code isPrewarmed} is only set when the platform confirmed the route
+     * (a Bluetooth input candidate existed and {@code setCommunicationDevice()}
+     * returned true, or the legacy SCO activation completed without error). A failed
+     * attempt rolls the audio mode back and leaves the state untouched.</p>
      */
     public static synchronized void prewarmMicrophone(Context context, String micPreference) {
         if (context == null || isRoutingActive || isPrewarmed) return;
@@ -72,28 +98,31 @@ public final class AudioDeviceManager {
             }
 
             if (isBluetoothConnected(context)) {
+                rememberAudioMode(am);
                 am.setMode(AudioManager.MODE_IN_COMMUNICATION);
                 try {
                     am.setSpeakerphoneOn(false);
-                } catch (Throwable ignored) {}
+                } catch (Exception ignored) {}
 
+                boolean routed;
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     AudioDeviceInfo target = findTargetDevice(context, micPreference);
-                    if (target != null) {
-                        am.setCommunicationDevice(target);
-                    }
+                    routed = target != null && setCommunicationDeviceVerified(am, target);
                 } else {
-                    try {
-                        am.startBluetoothSco();
-                        am.setBluetoothScoOn(true);
-                    } catch (Throwable ignored) {}
+                    routed = startLegacyBluetoothSco(am);
                 }
 
-                isPrewarmed = true;
-                Log.d(TAG, "Bluetooth communication channel pre-warmed successfully");
+                if (routed) {
+                    isPrewarmed = true;
+                    Log.d(TAG, "Bluetooth communication channel pre-warmed successfully");
+                } else {
+                    Log.w(TAG, "Pre-warm routing was not confirmed by the platform; rolling back");
+                    restoreAudioMode(am);
+                }
             }
-        } catch (Throwable t) {
+        } catch (Exception t) {
             Log.w(TAG, "Error pre-warming microphone routing", t);
+            restoreAudioMode(am);
         }
     }
 
@@ -109,61 +138,114 @@ public final class AudioDeviceManager {
     /**
      * Acquires the best audio input device based on user preference and hardware state.
      * Must be called immediately before opening the audio capture stream.
+     *
+     * @return {@code true} when the requested routing is in effect (or the built-in
+     *         fallback was taken, which is the documented AUTO/built-in behavior);
+     *         {@code false} only when the user explicitly selected "Bluetooth only"
+     *         and no Bluetooth microphone could be routed. On {@code false} no routing
+     *         state is left behind.
      */
-    public static synchronized void acquireMicrophone(Context context, String micPreference) {
-        if (context == null) return;
+    public static synchronized boolean acquireMicrophone(Context context, String micPreference) {
+        if (context == null) return false;
         AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
-        if (am == null) return;
+        if (am == null) return false;
 
         try {
+            boolean ok;
             if (MIC_MODE_BUILTIN_ONLY.equals(micPreference)) {
                 routeToBuiltinMic(am);
+                ok = true;
             } else if (MIC_MODE_BLUETOOTH_ONLY.equals(micPreference)) {
-                routeToBluetoothMic(context, am);
+                ok = routeToBluetoothMic(context, am);
             } else {
                 // AUTO: Prefer Bluetooth / USB / Wired if connected, otherwise fallback to builtin
-                routeAuto(context, am);
+                ok = routeAuto(context, am);
             }
-            isRoutingActive = true;
-            isPrewarmed = false;
-        } catch (Throwable t) {
+            if (ok) {
+                isRoutingActive = true;
+                isPrewarmed = false;
+            } else {
+                // Never leave partial state behind a failed explicit request.
+                releaseRoutingState(am);
+            }
+            return ok;
+        } catch (Exception t) {
             Log.e(TAG, "Error acquiring microphone routing", t);
+            releaseRoutingState(am);
+            return false;
         }
     }
 
     /**
-     * Releases communication device routing and restores normal audio mode.
-     * Must be called immediately when speech recording ends.
+     * Releases communication device routing and restores the audio mode that was
+     * in effect before routing began. Idempotent: repeated calls are safe and
+     * restore nothing the second time.
      */
     public static synchronized void releaseMicrophone(Context context) {
         if (context == null) return;
         AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
-        if (am == null) return;
+        if (am == null) {
+            // AudioManager is unavailable; still clear the flags so a later release
+            // does not believe routing is active.
+            isRoutingActive = false;
+            isPrewarmed = false;
+            savedAudioMode = null;
+            return;
+        }
+        releaseRoutingState(am);
+    }
 
+    /** Clears all routing state and restores the saved audio mode. */
+    private static void releaseRoutingState(AudioManager am) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 clearCommunicationDeviceApi31(am);
             }
             try {
                 am.stopBluetoothSco();
-            } catch (Throwable ignored) {}
+            } catch (Exception ignored) {}
             try {
                 am.setBluetoothScoOn(false);
-            } catch (Throwable ignored) {}
+            } catch (Exception ignored) {}
             try {
                 am.setSpeakerphoneOn(false);
-            } catch (Throwable ignored) {}
-            am.setMode(AudioManager.MODE_NORMAL);
-        } catch (Throwable t) {
+            } catch (Exception ignored) {}
+            restoreAudioMode(am);
+        } catch (Exception t) {
             Log.e(TAG, "Error releasing microphone routing", t);
         } finally {
             isRoutingActive = false;
             isPrewarmed = false;
+            savedAudioMode = null;
+        }
+    }
+
+    /** Remembers the current audio mode once, before the first routing change. */
+    private static void rememberAudioMode(AudioManager am) {
+        if (savedAudioMode != null) return;
+        try {
+            savedAudioMode = am.getMode();
+        } catch (Exception t) {
+            // getMode() can throw SecurityException in exotic states; treat the
+            // prior mode as unknown (falls back to MODE_NORMAL on restore).
+            Log.w(TAG, "Could not read current audio mode", t);
+        }
+    }
+
+    /** Restores the saved audio mode, or MODE_NORMAL when none was captured. */
+    private static void restoreAudioMode(AudioManager am) {
+        int mode = savedAudioMode != null ? savedAudioMode : AudioManager.MODE_NORMAL;
+        try {
+            am.setMode(mode);
+        } catch (Exception t) {
+            Log.w(TAG, "Error restoring audio mode " + mode, t);
         }
     }
 
     /**
-     * Resolves the target AudioDeviceInfo according to user preference and hardware connectivity.
+     * Resolves the target AudioDeviceInfo according to user preference and hardware
+     * connectivity. Only input-capable (source) devices are considered; output-only
+     * devices such as {@code TYPE_BLE_SPEAKER} are never returned.
      */
     public static AudioDeviceInfo findTargetDevice(Context context, String micPreference) {
         if (context == null || MIC_MODE_BUILTIN_ONLY.equals(micPreference)) {
@@ -173,57 +255,100 @@ public final class AudioDeviceManager {
             AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
             if (am == null) return null;
 
+            List<AudioRoutingPolicy.Candidate> candidates;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                List<AudioDeviceInfo> commDevices = am.getAvailableCommunicationDevices();
-                // 1. Bluetooth headsets
-                for (AudioDeviceInfo d : commDevices) {
-                    int type = d.getType();
-                    if (type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                        type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
-                        type == AudioDeviceInfo.TYPE_HEARING_AID ||
-                        type == AudioDeviceInfo.TYPE_BLE_SPEAKER) {
-                        return d;
-                    }
-                }
-                // 2. USB / Wired if in AUTO mode
-                if (MIC_MODE_AUTO.equals(micPreference)) {
-                    for (AudioDeviceInfo d : commDevices) {
-                        int type = d.getType();
-                        if (type == AudioDeviceInfo.TYPE_USB_HEADSET ||
-                            type == AudioDeviceInfo.TYPE_USB_DEVICE ||
-                            type == AudioDeviceInfo.TYPE_WIRED_HEADSET) {
-                            return d;
-                        }
-                    }
-                }
+                candidates = toCandidates(am.getAvailableCommunicationDevices());
             } else {
-                AudioDeviceInfo[] devices = am.getDevices(AudioManager.GET_DEVICES_INPUTS);
-                if (devices != null) {
-                    for (AudioDeviceInfo d : devices) {
-                        int type = d.getType();
-                        if (type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                            type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
-                            type == AudioDeviceInfo.TYPE_HEARING_AID ||
-                            type == AudioDeviceInfo.TYPE_BLE_SPEAKER) {
-                            return d;
-                        }
-                    }
-                    if (MIC_MODE_AUTO.equals(micPreference)) {
-                        for (AudioDeviceInfo d : devices) {
-                            int type = d.getType();
-                            if (type == AudioDeviceInfo.TYPE_USB_HEADSET ||
-                                type == AudioDeviceInfo.TYPE_USB_DEVICE ||
-                                type == AudioDeviceInfo.TYPE_WIRED_HEADSET) {
-                                return d;
-                            }
-                        }
-                    }
-                }
+                candidates = toCandidates(am.getDevices(AudioManager.GET_DEVICES_INPUTS));
             }
-        } catch (Throwable t) {
+            boolean auto = MIC_MODE_AUTO.equals(micPreference);
+            AudioRoutingPolicy.Candidate selected = AudioRoutingPolicy.selectInputCandidate(
+                    candidates, /* bluetoothAllowed= */ true, /* wiredUsbAllowed= */ auto);
+            if (selected == null) return null;
+            return Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                    ? findCommunicationDeviceById(am, selected.id)
+                    : findInputDeviceById(am, selected.id);
+        } catch (Exception t) {
             Log.w(TAG, "Error finding target audio device", t);
         }
         return null;
+    }
+
+    /** Maps platform devices to pure policy candidates. */
+    private static List<AudioRoutingPolicy.Candidate> toCandidates(AudioDeviceInfo[] devices) {
+        List<AudioRoutingPolicy.Candidate> result = new ArrayList<>();
+        if (devices == null) return result;
+        for (AudioDeviceInfo d : devices) {
+            if (d == null) continue;
+            result.add(new AudioRoutingPolicy.Candidate(d.getType(), d.isSource(), d.getId()));
+        }
+        return result;
+    }
+
+    /** Maps platform communication devices (API 31+ list) to pure policy candidates. */
+    @RequiresApi(Build.VERSION_CODES.S)
+    private static List<AudioRoutingPolicy.Candidate> toCandidates(List<AudioDeviceInfo> devices) {
+        List<AudioRoutingPolicy.Candidate> result = new ArrayList<>();
+        if (devices == null) return result;
+        for (AudioDeviceInfo d : devices) {
+            if (d == null) continue;
+            result.add(new AudioRoutingPolicy.Candidate(d.getType(), d.isSource(), d.getId()));
+        }
+        return result;
+    }
+
+    /** Finds the AudioDeviceInfo matching a policy candidate id. */
+    @RequiresApi(Build.VERSION_CODES.S)
+    private static AudioDeviceInfo findCommunicationDeviceById(AudioManager am, int id) {
+        List<AudioDeviceInfo> devices = am.getAvailableCommunicationDevices();
+        if (devices == null) return null;
+        for (AudioDeviceInfo d : devices) {
+            if (d != null && d.getId() == id) return d;
+        }
+        return null;
+    }
+
+    /** Finds the AudioDeviceInfo matching a policy candidate id (legacy input list). */
+    private static AudioDeviceInfo findInputDeviceById(AudioManager am, int id) {
+        AudioDeviceInfo[] devices = am.getDevices(AudioManager.GET_DEVICES_INPUTS);
+        if (devices == null) return null;
+        for (AudioDeviceInfo d : devices) {
+            if (d != null && d.getId() == id) return d;
+        }
+        return null;
+    }
+
+    /**
+     * Calls {@code setCommunicationDevice} and reports whether the platform really
+     * applied the route — no exception is not enough; the boolean result decides.
+     */
+    @RequiresApi(Build.VERSION_CODES.S)
+    private static boolean setCommunicationDeviceVerified(AudioManager am, AudioDeviceInfo target) {
+        try {
+            boolean set = am.setCommunicationDevice(target);
+            String name = String.valueOf(target.getProductName());
+            Log.d(TAG, "setCommunicationDevice(" + name + ") -> " + set);
+            return set;
+        } catch (Exception t) {
+            Log.w(TAG, "setCommunicationDevice failed", t);
+            return false;
+        }
+    }
+
+    /**
+     * Legacy (API 26–30) SCO activation. {@code startBluetoothSco} is asynchronous
+     * and returns void, so "no exception" is the strongest synchronous confirmation
+     * the platform offers on these API levels.
+     */
+    private static boolean startLegacyBluetoothSco(AudioManager am) {
+        try {
+            am.startBluetoothSco();
+            am.setBluetoothScoOn(true);
+            return true;
+        } catch (Exception t) {
+            Log.w(TAG, "Error starting Bluetooth SCO", t);
+            return false;
+        }
     }
 
     /**
@@ -271,14 +396,14 @@ public final class AudioDeviceManager {
                 record.setPreferredDevice(target);
             }
             Log.i("BluetoothSCO", "AudioRecord initialized with source=" + (primarySource == MediaRecorder.AudioSource.VOICE_COMMUNICATION ? "VOICE_COMMUNICATION" : (primarySource == MediaRecorder.AudioSource.VOICE_RECOGNITION ? "VOICE_RECOGNITION" : "MIC")) + " target=" + (target != null ? target.getId() : "default"));
-        } catch (Throwable t) {
+        } catch (Exception t) {
             Log.e(TAG, "Error creating AudioRecord with primary source " + primarySource, t);
         }
 
         // Fallback to alternate audio source if primary failed to initialize
         if (record == null || record.getState() != AudioRecord.STATE_INITIALIZED) {
             if (record != null) {
-                try { record.release(); } catch (Throwable ignored) {}
+                try { record.release(); } catch (Exception ignored) {}
             }
             try {
                 AudioRecord.Builder builder = new AudioRecord.Builder()
@@ -294,7 +419,7 @@ public final class AudioDeviceManager {
                     record.setPreferredDevice(target);
                 }
                 Log.i("BluetoothSCO", "AudioRecord fallback initialized with source=" + (fallbackSource == MediaRecorder.AudioSource.VOICE_COMMUNICATION ? "VOICE_COMMUNICATION" : (fallbackSource == MediaRecorder.AudioSource.VOICE_RECOGNITION ? "VOICE_RECOGNITION" : "MIC")));
-            } catch (Throwable t) {
+            } catch (Exception t) {
                 Log.e(TAG, "Error creating AudioRecord fallback with source " + fallbackSource, t);
             }
         }
@@ -326,7 +451,7 @@ public final class AudioDeviceManager {
                 }
                 return connected.get(0);
             }
-        } catch (Throwable ignored) {}
+        } catch (Exception ignored) {}
         return "📱 " + context.getString(R.string.mic_active_builtin);
     }
 
@@ -334,110 +459,99 @@ public final class AudioDeviceManager {
     private static void clearCommunicationDeviceApi31(AudioManager am) {
         try {
             am.clearCommunicationDevice();
-        } catch (Throwable t) {
+        } catch (Exception t) {
             Log.w(TAG, "Error clearing communication device on API 31+", t);
         }
     }
 
-    private static void routeAuto(Context context, AudioManager am) {
+    /**
+     * AUTO-mode routing. Returns true when a confirmed route is in effect — either a
+     * communication device applied by the platform, or the built-in fallback (the
+     * documented AUTO behavior). Returns false only on an unexpected routing error.
+     */
+    private static boolean routeAuto(Context context, AudioManager am) {
         if (isBluetoothConnected(context)) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                routeAutoApi31(context, am);
-            } else {
-                // Android 8 - 11 legacy SCO activation
-                am.setMode(AudioManager.MODE_IN_COMMUNICATION);
-                try {
-                    am.startBluetoothSco();
-                    am.setBluetoothScoOn(true);
-                } catch (Throwable t) {
-                    Log.w(TAG, "Error activating Bluetooth SCO in routeAuto", t);
-                }
+                return routeAutoApi31(context, am);
             }
-        } else {
-            routeToBuiltinMic(am);
+            // Android 8 - 11 legacy SCO activation
+            rememberAudioMode(am);
+            am.setMode(AudioManager.MODE_IN_COMMUNICATION);
+            return startLegacyBluetoothSco(am);
         }
+        routeToBuiltinMic(am);
+        return true;
     }
 
     @RequiresApi(Build.VERSION_CODES.S)
-    private static void routeAutoApi31(Context context, AudioManager am) {
+    private static boolean routeAutoApi31(Context context, AudioManager am) {
         try {
-            List<AudioDeviceInfo> commDevices = am.getAvailableCommunicationDevices();
-            AudioDeviceInfo target = null;
-
-            // 1. Check for Bluetooth Headset (SCO, BLE Headset, Hearing Aid, BLE Speaker)
-            for (AudioDeviceInfo d : commDevices) {
-                int type = d.getType();
-                if (type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                    type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
-                    type == AudioDeviceInfo.TYPE_HEARING_AID ||
-                    type == AudioDeviceInfo.TYPE_BLE_SPEAKER) {
-                    target = d;
-                    break;
-                }
-            }
-
-            // 2. Check for USB or Wired Headset
-            if (target == null) {
-                for (AudioDeviceInfo d : commDevices) {
-                    int type = d.getType();
-                    if (type == AudioDeviceInfo.TYPE_USB_HEADSET ||
-                        type == AudioDeviceInfo.TYPE_USB_DEVICE ||
-                        type == AudioDeviceInfo.TYPE_WIRED_HEADSET) {
-                        target = d;
-                        break;
-                    }
-                }
-            }
-
-            if (target != null) {
+            AudioRoutingPolicy.Candidate selected = AudioRoutingPolicy.selectInputCandidate(
+                    toCandidates(am.getAvailableCommunicationDevices()),
+                    /* bluetoothAllowed= */ true, /* wiredUsbAllowed= */ true);
+            if (selected != null) {
+                rememberAudioMode(am);
                 am.setMode(AudioManager.MODE_IN_COMMUNICATION);
-                boolean set = am.setCommunicationDevice(target);
-                String name = String.valueOf(target.getProductName());
-                Log.d(TAG, "Auto routed to communication device: " + name + " (success=" + set + ")");
-            } else {
+                AudioDeviceInfo target = findCommunicationDeviceById(am, selected.id);
+                boolean set = target != null && setCommunicationDeviceVerified(am, target);
+                if (set) {
+                    return true;
+                }
+                // Platform rejected the route: fall back to the built-in mic (AUTO contract).
+                Log.w(TAG, "AUTO routing to communication device rejected; falling back to built-in mic");
                 routeToBuiltinMic(am);
+                return true;
             }
-        } catch (Throwable t) {
+            routeToBuiltinMic(am);
+            return true;
+        } catch (Exception t) {
             Log.e(TAG, "Error in routeAutoApi31", t);
             routeToBuiltinMic(am);
+            return true;
         }
     }
 
-    private static void routeToBluetoothMic(Context context, AudioManager am) {
+    /**
+     * Explicit "Bluetooth only" routing. Returns true only when a Bluetooth input
+     * candidate existed and the platform confirmed the route. When it returns false
+     * nothing is left routed and no mode change survives.
+     */
+    private static boolean routeToBluetoothMic(Context context, AudioManager am) {
+        boolean candidateFound = isBluetoothConnected(context);
+        if (!candidateFound) {
+            Log.w(TAG, "Bluetooth-only mode requested but no Bluetooth input device is connected");
+            return false;
+        }
+        rememberAudioMode(am);
         am.setMode(AudioManager.MODE_IN_COMMUNICATION);
         try {
             am.setSpeakerphoneOn(false);
-        } catch (Throwable ignored) {}
+        } catch (Exception ignored) {}
+
+        boolean routed;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            routeToBluetoothMicApi31(am);
+            routed = routeToBluetoothMicApi31(am);
         } else {
-            try {
-                am.startBluetoothSco();
-                am.setBluetoothScoOn(true);
-            } catch (Throwable t) {
-                Log.w(TAG, "Error starting Bluetooth SCO", t);
-            }
+            routed = startLegacyBluetoothSco(am);
         }
+        if (!AudioRoutingPolicy.bluetoothRoutingSucceeded(true, routed)) {
+            return false;
+        }
+        return true;
     }
 
     @RequiresApi(Build.VERSION_CODES.S)
-    private static void routeToBluetoothMicApi31(AudioManager am) {
+    private static boolean routeToBluetoothMicApi31(AudioManager am) {
         try {
-            List<AudioDeviceInfo> commDevices = am.getAvailableCommunicationDevices();
-            for (AudioDeviceInfo d : commDevices) {
-                int type = d.getType();
-                if (type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                    type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
-                    type == AudioDeviceInfo.TYPE_HEARING_AID ||
-                    type == AudioDeviceInfo.TYPE_BLE_SPEAKER) {
-                    boolean set = am.setCommunicationDevice(d);
-                    String name = String.valueOf(d.getProductName());
-                    Log.d(TAG, "Routed to Bluetooth device: " + name + " (success=" + set + ")");
-                    return;
-                }
-            }
-        } catch (Throwable t) {
+            AudioRoutingPolicy.Candidate selected = AudioRoutingPolicy.selectInputCandidate(
+                    toCandidates(am.getAvailableCommunicationDevices()),
+                    /* bluetoothAllowed= */ true, /* wiredUsbAllowed= */ false);
+            if (selected == null) return false;
+            AudioDeviceInfo target = findCommunicationDeviceById(am, selected.id);
+            return target != null && setCommunicationDeviceVerified(am, target);
+        } catch (Exception t) {
             Log.e(TAG, "Error in routeToBluetoothMicApi31", t);
+            return false;
         }
     }
 
@@ -449,21 +563,22 @@ public final class AudioDeviceManager {
             }
             try {
                 am.stopBluetoothSco();
-            } catch (Throwable ignored) {}
+            } catch (Exception ignored) {}
             try {
                 am.setBluetoothScoOn(false);
-            } catch (Throwable ignored) {}
+            } catch (Exception ignored) {}
             try {
                 am.setSpeakerphoneOn(false);
-            } catch (Throwable ignored) {}
+            } catch (Exception ignored) {}
             am.setMode(AudioManager.MODE_NORMAL);
-        } catch (Throwable t) {
+        } catch (Exception t) {
             Log.w(TAG, "Error routing to built-in mic", t);
         }
     }
 
     /**
      * Checks if any Bluetooth microphone input device (SCO, BLE Headset microphone) is connected.
+     * Output-only devices (e.g. TYPE_BLE_SPEAKER) never count as a connected microphone.
      */
     public static boolean isBluetoothConnected(Context context) {
         if (context == null) return false;
@@ -487,7 +602,7 @@ public final class AudioDeviceManager {
                         return true;
                     }
                 }
-            } catch (Throwable ignored) {}
+            } catch (Exception ignored) {}
 
             AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
             if (am == null) return false;
@@ -497,32 +612,15 @@ public final class AudioDeviceManager {
             }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                List<AudioDeviceInfo> commDevices = am.getAvailableCommunicationDevices();
-                for (AudioDeviceInfo device : commDevices) {
-                    int type = device.getType();
-                    if (type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                        type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
-                        type == AudioDeviceInfo.TYPE_HEARING_AID ||
-                        type == AudioDeviceInfo.TYPE_BLE_SPEAKER) {
-                        return true;
-                    }
+                if (AudioRoutingPolicy.hasBluetoothInput(
+                        toCandidates(am.getAvailableCommunicationDevices()))) {
+                    return true;
                 }
             }
 
-            AudioDeviceInfo[] inputDevices = am.getDevices(AudioManager.GET_DEVICES_INPUTS);
-            if (inputDevices != null) {
-                for (AudioDeviceInfo device : inputDevices) {
-                    int type = device.getType();
-                    if (type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                        (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                            (type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
-                             type == AudioDeviceInfo.TYPE_HEARING_AID ||
-                             type == AudioDeviceInfo.TYPE_BLE_SPEAKER))) {
-                        return true;
-                    }
-                }
-            }
-        } catch (Throwable t) {
+            return AudioRoutingPolicy.hasBluetoothInput(
+                    toCandidates(am.getDevices(AudioManager.GET_DEVICES_INPUTS)));
+        } catch (Exception t) {
             Log.w(TAG, "Error checking bluetooth microphone state", t);
         }
         return false;
@@ -565,7 +663,7 @@ public final class AudioDeviceManager {
                         if (name != null && name.length() > 0) {
                             label = name.toString();
                         }
-                    } catch (Throwable ignored) {}
+                    } catch (Exception ignored) {}
                 }
                 int type = d.getType();
                 if (type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
@@ -589,7 +687,7 @@ public final class AudioDeviceManager {
                     if (!result.contains(entry)) result.add(entry);
                 }
             }
-        } catch (Throwable t) {
+        } catch (Exception t) {
             Log.e(TAG, "Error querying connected input devices", t);
         }
         return result;

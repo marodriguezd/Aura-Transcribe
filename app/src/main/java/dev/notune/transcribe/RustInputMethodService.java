@@ -424,7 +424,18 @@ public class RustInputMethodService extends InputMethodService {
                         pauseAudioActive = true;
                     }
                     SettingsManager sm = new SettingsManager(this);
-                    AudioDeviceManager.acquireMicrophone(this, sm.getMicMode());
+                    if (!AudioDeviceManager.acquireMicrophone(this, sm.getMicMode())) {
+                        // Explicit "Bluetooth only" mode but no Bluetooth mic
+                        // could be routed: tell the user instead of silently
+                        // capturing from the built-in microphone.
+                        if (pauseAudioActive) {
+                            audioPauser.abandon(this);
+                            pauseAudioActive = false;
+                        }
+                        AudioDeviceManager.releaseMicrophone(this);
+                        if (statusView != null) statusView.setText(getString(R.string.mic_bluetooth_unavailable));
+                        return;
+                    }
                     startRecording(isAutoStopEnabled(), ++currentSessionId);
                     updateRecordButtonUI(true);
                 }
@@ -474,7 +485,17 @@ public class RustInputMethodService extends InputMethodService {
                     audioPauser.request(this);
                     pauseAudioActive = true;
                 }
-                AudioDeviceManager.acquireMicrophone(this, smFinal.getMicMode());
+                if (!AudioDeviceManager.acquireMicrophone(this, smFinal.getMicMode())) {
+                    // Explicit "Bluetooth only" mode but no Bluetooth mic could
+                    // be routed: never auto-start on a device the user excluded.
+                    if (pauseAudioActive) {
+                        audioPauser.abandon(this);
+                        pauseAudioActive = false;
+                    }
+                    AudioDeviceManager.releaseMicrophone(this);
+                    if (statusView != null) statusView.setText(getString(R.string.mic_bluetooth_unavailable));
+                    return;
+                }
                 startRecording(autoStop, ++currentSessionId);
                 updateRecordButtonUI(true);
             });

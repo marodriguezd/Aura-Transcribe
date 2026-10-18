@@ -291,6 +291,7 @@
     <string name="mic_test_btn_stop">Soundtest stoppen</string>
     <string name="mic_test_active_device">Aktives Gerät: %1$s</string>
     <string name="mic_active_builtin">Internes Mikrofon</string>
+    <string name="mic_bluetooth_unavailable">Angefordertes Bluetooth-Mikrofon nicht verfügbar. Schließe ein Headset an oder ändere den Eingabemodus in den App-Einstellungen.</string>
 
     <!-- App UI language (auto = follow system) -->
     <string name="setting_language">App-Sprache</string>

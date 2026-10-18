@@ -57,6 +57,8 @@ benchmark_results.json
 .agents/
 .omg/
 .opencode/
+.freebuff/
+.pytest_cache/
 *.lock
 !Cargo.lock
 !crates/**/Cargo.lock

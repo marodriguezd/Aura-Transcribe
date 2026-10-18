@@ -1,0 +1,24 @@
+# Production signing certificate SHA-256 fingerprints (trust anchor).
+#
+# Provenance: extracted on 2026-10-18 from the published GitHub Release assets
+#   https://github.com/marodriguezd/Aura-Transcribe/releases/tag/v1.0.0
+#   Aura_Transcribe_v1.0.0.apk  -> apksigner verify --print-certs
+#   Aura_Transcribe_v1.0.0.aab  -> keytool -printcert -jarfile
+# Both artifacts report the same signer certificate:
+#   DN: CN=Android, O=Release, C=US
+#   SHA-256: 2ee6ab002e02310523a3e2565b8128a11952d902a2c748d7c5b869bc17208483
+#
+# Policy (2026-10 corrective audit, Phase 3):
+#   - Every release APK and AAB must be signed by a certificate whose SHA-256
+#     appears on a non-comment line below. The release workflow fails otherwise.
+#   - This file is the *independent* anchor: the expected value is never derived
+#     from the artifact being verified.
+#   - Certificate rotation is a documented policy decision: rotate by adding the
+#     NEW fingerprint as an additional line in a reviewed PR (keeping the old one
+#     during any transition window), never by weakening the check in the workflow.
+#   - Do NOT add the debug keystore fingerprint
+#     (437be41f5719ee1e8c75fb2d005683bd97ce3daccaa615fa53eca89e7ef6e46d):
+#     release artifacts signed with the debug key are rejected by design.
+#
+# Format: one bare hex SHA-256 (64 chars, case-insensitive, no colons) per line.
+2ee6ab002e02310523a3e2565b8128a11952d902a2c748d7c5b869bc17208483

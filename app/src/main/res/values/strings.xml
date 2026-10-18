@@ -342,6 +342,7 @@ Core Directives:
     <string name="mic_test_btn_stop">Stop Sound Test</string>
     <string name="mic_test_active_device">Active device: %1$s</string>
     <string name="mic_active_builtin">Internal Microphone</string>
+    <string name="mic_bluetooth_unavailable">Bluetooth microphone requested but unavailable. Connect a headset or change the input mode in the app settings.</string>
 
     <!-- App UI language (auto = follow system) -->
     <string name="setting_language">App language</string>

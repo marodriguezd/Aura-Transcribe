@@ -312,6 +312,7 @@
     <string name="mic_test_btn_stop">停止声音测试</string>
     <string name="mic_test_active_device">当前设备：%1$s</string>
     <string name="mic_active_builtin">内置麦克风</string>
+    <string name="mic_bluetooth_unavailable">已请求蓝牙麦克风但不可用。请连接耳机或在应用设置中更改输入模式。</string>
 
     <!-- App UI language (auto = follow system) -->
     <string name="setting_language">应用语言</string>

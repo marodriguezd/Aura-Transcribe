@@ -99,6 +99,19 @@ jobs:
     - name: Test the release-notes gate (hard gate)
       run: python3 scripts/test_check_release_notes.py
 
+    # Signing-identity gate: pure Python with synthetic fingerprints, no keystore
+    # and no SDK involved (same gate as the release workflow's validate job).
+    - name: Test the signing-identity verifier (hard gate)
+      run: python3 scripts/test_verify_signing_identity.py
+
+    # Repository-hygiene gate: fails if agent-session state, build outputs,
+    # models, oversized files or secret-shaped tokens are tracked (same gate as
+    # the release workflow's validate job).
+    - name: Check repository hygiene (hard gate)
+      run: |
+        python3 scripts/test_check_repo_hygiene.py
+        python3 scripts/check_repo_hygiene.py
+
     - name: Set up JDK 17
       uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.7.1
       with:

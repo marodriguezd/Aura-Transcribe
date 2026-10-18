@@ -168,8 +168,12 @@
         <!-- Live Subtitles Service.
              foregroundServiceType="mediaProjection" matches what the service
              actually does (system audio capture through a user-granted
-             MediaProjection). LiveSubtitleService obtains the projection BEFORE
-             calling startForeground with this type, which Android 14+ requires. -->
+             MediaProjection). Android 14+ requires the OPPOSITE order of the
+             pre-14 pattern: consent (createScreenCaptureIntent) → startForeground
+             with FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION → only then
+             MediaProjectionManager.getMediaProjection(); calling
+             getMediaProjection() first throws SecurityException. That is exactly
+             what LiveSubtitleService does (see its onStartCommand comment). -->
         <service
             android:name=".LiveSubtitleService"
             android:foregroundServiceType="mediaProjection"
