@@ -258,9 +258,10 @@ fn copy_asset_file(
             let stream_obj = stream_val.l()?;
             let target_file_path = target_root.join(asset_path);
 
+            const CHUNK_SIZE: usize = 64 * 1024;
             let mut file = std::fs::File::create(&target_file_path)?;
-            let mut buffer = [0u8; 8192];
-            let buffer_j = env.new_byte_array(8192)?;
+            let mut buffer = vec![0u8; CHUNK_SIZE];
+            let buffer_j = env.new_byte_array(CHUNK_SIZE as jni::sys::jsize)?;
 
             loop {
                 let bytes_read = env

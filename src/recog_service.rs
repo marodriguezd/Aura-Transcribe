@@ -668,11 +668,13 @@ fn finalize(shared: Arc<Endpoint>, stream: Arc<Mutex<Option<SendStream>>>) {
     }
 
     // Whole-buffer path (non-streaming models, or the pump never started).
-    let buffer = shared
-        .audio_buffer
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .clone();
+    let buffer = {
+        let mut guard = shared
+            .audio_buffer
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        std::mem::take(&mut *guard)
+    };
     match engine::get_engine() {
         Some(eng_arc) => {
             let res = engine::transcribe_shared(&eng_arc, buffer);

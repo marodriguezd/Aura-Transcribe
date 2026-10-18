@@ -22,7 +22,7 @@ pub struct Term {
     /// Phonetic key of the lowercased term.
     pub key: String,
     /// Precomputed character-bigram counts for zero-allocation cosine tiebreaking.
-    pub bigrams: HashMap<String, u32>,
+    pub bigrams: HashMap<(char, char), u32>,
     /// Precomputed L2 norm of bigram vector.
     pub bigram_norm: f64,
 }
@@ -94,7 +94,7 @@ pub fn best_term(word_lower: &str, terms: &[Term]) -> Option<String> {
     let key = phonetic_key(word_lower);
     let key_len = key.len();
     let mut best: Option<(usize, f64, usize)> = None; // (distance, -cosine, index)
-    let mut word_bigrams: Option<(HashMap<String, u32>, f64)> = None;
+    let mut word_bigrams: Option<(HashMap<(char, char), u32>, f64)> = None;
 
     for (idx, t) in terms.iter().enumerate() {
         let max_dist = if key_len <= 4 || t.key.len() <= 4 {

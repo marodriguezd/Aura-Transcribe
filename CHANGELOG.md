@@ -2,26 +2,6 @@
 
 Change log of **Aura Transcribe** (Next-Gen evolution of [notune/android_transcribe_app](https://github.com/notune/android_transcribe_app)).
 
-## [1.0.1] - 2026-10-18
-
-### Fixed
-- Output-only LE Audio speakers (`TYPE_BLE_SPEAKER`) are no longer treated as microphone candidates in any routing path (`findTargetDevice`, AUTO routing, Bluetooth-only routing, connection checks); only input-capable devices are selected (`AudioRoutingPolicy`, unit-tested).
-- `acquireMicrophone`/`prewarmMicrophone` no longer report success when the platform rejected the route (`setCommunicationDevice()` returning false now counts as failure); partial routing state is rolled back.
-- The audio mode in effect before routing is saved and restored on release instead of unconditionally forcing `MODE_NORMAL`.
-- Explicit "Bluetooth only" mode now fails with a localized, user-visible message on every surface (IME, popup, overlay, recognition service, mic test) instead of silently capturing from the built-in microphone; AUTO keeps its documented built-in fallback.
-- Corrected the Android 14+ media-projection comment in `AndroidManifest.xml`: the mandatory order is consent → `startForeground(mediaProjection)` → `getMediaProjection()` (the code already did this; the comment described the opposite).
-
-### Added
-- Release-signing identity pinning: `keystore/release-cert.sha256` records the production certificate fingerprint extracted from the published v1.0.0 APK/AAB; the release workflow verifies the release keystore (before building), the APK, and the AAB against it via `scripts/verify_signing_identity.py` (25 synthetic-fingerprint tests).
-- Repository-hygiene gate (`scripts/check_repo_hygiene.py` + 20 tests): fails if agent-session state (`.opencode/`, `.omg/`), build outputs, models, keystores other than the debug key, oversized files or secret-shaped tokens are tracked; wired into both workflows.
-- Branch ruleset protecting `main`: pull requests required, the two debug-workflow checks required, force pushes and deletion prohibited.
-- Regression tests pinning the cross-host redirect policy: the API key is never forwarded to another origin (same-host redirects keep it, by documented policy).
-- New localized string `mic_bluetooth_unavailable` in all 8 locales.
-
-### Changed
-- Untracked transient agent-session files (`.opencode/`, `.omg/`) from version control; `.gitignore` now also covers `.freebuff/` and `.pytest_cache/`. No secrets were found in those files or in git history (no rotation needed).
-- Narrowed blanket `catch (Throwable)` in the audio-routing paths to `Exception`, so fatal VM errors are no longer swallowed there.
-
 ## [1.0.0] - 2026-10-18
 
 ### Added
@@ -30,11 +10,16 @@ Change log of **Aura Transcribe** (Next-Gen evolution of [notune/android_transcr
 - Floating overlay dictation bubble, live subtitles over system audio, and file transcription for shared audio.
 - Optional AI post-processing via any OpenAI-compatible endpoint, with AES-256-GCM encrypted API key storage backed by AndroidKeyStore.
 - Eight locales: English, Spanish, German, French, Italian, Portuguese, Russian, Simplified Chinese.
+- Release-signing identity pinning: `keystore/release-cert.sha256` records the production certificate fingerprint.
+- Repository-hygiene gate (`scripts/check_repo_hygiene.py`).
 
-### Changed
-- Version bumped to 1.0.0 (versionCode 50); release artifact is no longer a prerelease.
+### Fixed & Optimized
+- Native Rust audio capture: zero-copy buffer transfers (`mem::take`) and allocation-free bigram tuples `(char, char)`.
+- FFI boundary hardening: eliminated `.expect()` panics across JNI and wrapped streaming callbacks in `with_local_frame`.
+- Neon SIMD vector processing: safe deterministic vector initialization.
+- Android audio capture bridge: cached buffer views in high-frequency loops and eliminated redundant microphone acquisitions.
+- Output-only LE Audio speakers (`TYPE_BLE_SPEAKER`) are no longer treated as microphone candidates.
 - Bundled Nemotron streaming model quantized to Q5_K_M for smaller footprint and lower memory use.
-- Release pipeline now verifies the pushed tag matches the Gradle version before publishing.
 
 # v0.3.4 — hardening
 

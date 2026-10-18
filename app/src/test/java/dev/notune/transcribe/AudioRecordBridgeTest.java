@@ -135,4 +135,109 @@ public class AudioRecordBridgeTest {
         assertTrue(rms > 0f);
         assertTrue(rms <= 1.0f);
     }
+
+    @Test
+    public void testShortBufferCachingFullAndPartialReadCycle() {
+        ByteBuffer directBuffer = ByteBuffer.allocateDirect(AudioRecordBridge.CHUNK_SIZE_BYTES).order(ByteOrder.nativeOrder());
+        java.nio.ShortBuffer nativeShortBuffer = directBuffer.asShortBuffer();
+        assertEquals(AudioRecordBridge.SAMPLES_PER_CHUNK, nativeShortBuffer.capacity());
+
+        short[] pcmBuffer = new short[AudioRecordBridge.SAMPLES_PER_CHUNK];
+
+        // 1. Full chunk write (1600 samples)
+        for (int i = 0; i < pcmBuffer.length; i++) {
+            pcmBuffer[i] = (short) (i + 1);
+        }
+        int samplesRead = 1600;
+        int bytesRead = samplesRead * 2;
+        nativeShortBuffer.clear();
+        nativeShortBuffer.put(pcmBuffer, 0, samplesRead);
+        directBuffer.position(0);
+        directBuffer.limit(bytesRead);
+
+        assertEquals(0, directBuffer.position());
+        assertEquals(3200, directBuffer.limit());
+        assertEquals(3200, directBuffer.remaining());
+        for (int i = 0; i < samplesRead; i++) {
+            assertEquals((short) (i + 1), directBuffer.getShort(i * 2));
+        }
+
+        // 2. Partial chunk write (500 samples)
+        for (int i = 0; i < 500; i++) {
+            pcmBuffer[i] = (short) -(i + 1);
+        }
+        samplesRead = 500;
+        bytesRead = samplesRead * 2;
+        nativeShortBuffer.clear();
+        nativeShortBuffer.put(pcmBuffer, 0, samplesRead);
+        directBuffer.position(0);
+        directBuffer.limit(bytesRead);
+
+        assertEquals(0, directBuffer.position());
+        assertEquals(1000, directBuffer.limit());
+        assertEquals(1000, directBuffer.remaining());
+        for (int i = 0; i < samplesRead; i++) {
+            assertEquals((short) -(i + 1), directBuffer.getShort(i * 2));
+        }
+
+        // 3. Full chunk write immediately following partial chunk write
+        for (int i = 0; i < pcmBuffer.length; i++) {
+            pcmBuffer[i] = (short) (i * 2);
+        }
+        samplesRead = 1600;
+        bytesRead = samplesRead * 2;
+        nativeShortBuffer.clear(); // Must restore limit to capacity (1600)
+        assertEquals(1600, nativeShortBuffer.limit());
+        nativeShortBuffer.put(pcmBuffer, 0, samplesRead);
+        directBuffer.position(0);
+        directBuffer.limit(bytesRead);
+
+        assertEquals(0, directBuffer.position());
+        assertEquals(3200, directBuffer.limit());
+        assertEquals(3200, directBuffer.remaining());
+        for (int i = 0; i < samplesRead; i++) {
+            assertEquals((short) (i * 2), directBuffer.getShort(i * 2));
+        }
+    }
+
+    @Test
+    public void testShortBufferResilienceAgainstConsumerMutations() {
+        ByteBuffer directBuffer = ByteBuffer.allocateDirect(AudioRecordBridge.CHUNK_SIZE_BYTES).order(ByteOrder.nativeOrder());
+        java.nio.ShortBuffer nativeShortBuffer = directBuffer.asShortBuffer();
+        short[] pcmBuffer = new short[AudioRecordBridge.SAMPLES_PER_CHUNK];
+
+        // Simulate callback mutating position and limit
+        directBuffer.position(123);
+        directBuffer.limit(456);
+
+        // Next iteration must recover completely
+        int samplesRead = 800;
+        int bytesRead = samplesRead * 2;
+        nativeShortBuffer.clear();
+        nativeShortBuffer.put(pcmBuffer, 0, samplesRead);
+        directBuffer.position(0);
+        directBuffer.limit(bytesRead);
+
+        assertEquals(0, directBuffer.position());
+        assertEquals(1600, directBuffer.limit());
+        assertEquals(1600, directBuffer.remaining());
+    }
+
+    @Test
+    public void testShortBufferByteOrderPreservation() {
+        ByteBuffer directBuffer = ByteBuffer.allocateDirect(AudioRecordBridge.CHUNK_SIZE_BYTES).order(ByteOrder.nativeOrder());
+        java.nio.ShortBuffer nativeShortBuffer = directBuffer.asShortBuffer();
+        assertEquals(ByteOrder.nativeOrder(), directBuffer.order());
+        assertEquals(ByteOrder.nativeOrder(), nativeShortBuffer.order());
+
+        short[] pcmBuffer = new short[] { (short) 0x1234 };
+        nativeShortBuffer.clear();
+        nativeShortBuffer.put(pcmBuffer, 0, 1);
+        directBuffer.position(0);
+        directBuffer.limit(2);
+
+        short readBack = directBuffer.getShort(0);
+        assertEquals((short) 0x1234, readBack);
+    }
 }
+

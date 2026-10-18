@@ -10,6 +10,7 @@ import android.util.Log;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.ShortBuffer;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -89,6 +90,7 @@ public class AudioRecordBridge {
             isRecording.set(true);
 
             final ByteBuffer nativeBuffer = directBuffer;
+            final ShortBuffer nativeShortBuffer = nativeBuffer.asShortBuffer();
             captureThread = new Thread(() -> {
                 Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO);
                 final short[] pcmBuffer = new short[SAMPLES_PER_CHUNK];
@@ -101,8 +103,8 @@ public class AudioRecordBridge {
                         int samplesRead = record.read(pcmBuffer, 0, pcmBuffer.length);
                         if (samplesRead > 0) {
                             int bytesRead = samplesRead * 2;
-                            nativeBuffer.clear();
-                            nativeBuffer.asShortBuffer().put(pcmBuffer, 0, samplesRead);
+                            nativeShortBuffer.clear();
+                            nativeShortBuffer.put(pcmBuffer, 0, samplesRead);
                             nativeBuffer.position(0);
                             nativeBuffer.limit(bytesRead);
 

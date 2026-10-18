@@ -27,21 +27,36 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_TranscribeFileActivity_
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
 
-    let vm = env.get_java_vm().expect("Failed to get JavaVM");
-    let vm_arc = Arc::new(vm);
-    let target_ref = env
-        .new_global_ref(&activity)
-        .expect("Failed to ref activity");
+    let vm = match env.get_java_vm() {
+        Ok(vm) => Arc::new(vm),
+        Err(e) => {
+            log::error!(
+                "TranscribeFileActivity_initNative: failed to get JavaVM: {:?}",
+                e
+            );
+            return;
+        }
+    };
+    let target_ref = match env.new_global_ref(&activity) {
+        Ok(r) => r,
+        Err(e) => {
+            log::error!(
+                "TranscribeFileActivity_initNative: failed to ref activity: {:?}",
+                e
+            );
+            return;
+        }
+    };
 
     let state = TranscribeFileState {
-        jvm: vm_arc.clone(),
+        jvm: vm.clone(),
         target_ref: target_ref.clone(),
         current_cancel: Mutex::new(None),
     };
     *STATE.lock().unwrap_or_else(|p| p.into_inner()) = Some(state);
 
     // Load engine in background: decode setup must not wait for model I/O
-    let vm_clone = vm_arc.clone();
+    let vm_clone = vm.clone();
     let target_ref_clone = target_ref.clone();
 
     std::thread::spawn(move || {

@@ -3,12 +3,14 @@
 use std::collections::HashMap;
 
 /// Computes character-bigram frequencies and the L2 norm for a string.
-pub fn compute_bigrams(s: &str) -> (HashMap<String, u32>, f64) {
-    let chars: Vec<char> = s.chars().collect();
+pub fn compute_bigrams(s: &str) -> (HashMap<(char, char), u32>, f64) {
     let mut m = HashMap::new();
-    for w in chars.windows(2) {
-        let bg: String = w.iter().collect();
-        *m.entry(bg).or_insert(0u32) += 1;
+    let mut chars = s.chars();
+    if let Some(mut prev) = chars.next() {
+        for curr in chars {
+            *m.entry((prev, curr)).or_insert(0u32) += 1;
+            prev = curr;
+        }
     }
     let norm = m.values().map(|&v| (v as f64).powi(2)).sum::<f64>().sqrt();
     (m, norm)
@@ -26,9 +28,9 @@ pub fn bigram_cosine(a: &str, b: &str) -> f64 {
 /// Fast cosine similarity using precomputed bigram count maps and L2 norms.
 #[inline]
 pub fn cosine_similarity_precomputed(
-    counts_a: &HashMap<String, u32>,
+    counts_a: &HashMap<(char, char), u32>,
     norm_a: f64,
-    counts_b: &HashMap<String, u32>,
+    counts_b: &HashMap<(char, char), u32>,
     norm_b: f64,
 ) -> f64 {
     if norm_a == 0.0 || norm_b == 0.0 {
