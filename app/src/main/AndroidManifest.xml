@@ -233,8 +233,8 @@
              to keep working while you use other apps).
 
              foregroundServiceType="microphone" is required because the service
-             captures audio itself: Java-side AudioRecordBridge feeds the native
-             engine through pushAudioDirect(). The microphone type is held for as
+             captures audio itself: the Rust engine opens the microphone while a
+             recording is active. The microphone type is held for as
              long as the bubble is enabled, on purpose — see the note in
              FloatingOverlayService.onCreate about why the type is established
              while the app is in the foreground rather than added later. -->

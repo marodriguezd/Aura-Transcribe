@@ -215,6 +215,8 @@
     <string name="file_error_no_audio">Ошибка: нет аудиофайла</string>
     <string name="file_error_no_speech">Ошибка: в аудиофайле не обнаружена речь</string>
     <string name="file_error_format">Ошибка: %1$s</string>
+    <string name="file_error_decode">Error: could not decode the audio file.</string>
+    <string name="file_error_timeout">Timed out waiting for a transcription chunk</string>
     <string name="subs_grant_overlay_permission">Разрешите доступ «Поверх других приложений»</string>
     <string name="subs_enable_overlay_app_settings">Включите «Поверх других приложений» в настройках приложения</string>
     <string name="subs_enable_overlay_settings">Включите разрешение на наложение в настройках</string>
@@ -293,4 +295,5 @@
     <!-- App UI language (auto = follow system) -->
     <string name="setting_language">Язык приложения</string>
     <string name="language_auto">Автоматически (система)</string>
+    <string name="ime_subtype_voice">Voice</string>
 </resources>

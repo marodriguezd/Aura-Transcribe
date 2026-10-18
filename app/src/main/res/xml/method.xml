@@ -4,7 +4,7 @@
     android:icon="@drawable/ic_launcher_aura_transcribe"
     android:supportsSwitchingToNextInputMethod="true">
     <subtype
-        android:label="Voice"
+        android:label="@string/ime_subtype_voice"
         android:imeSubtypeMode="voice"
         android:overridesImplicitlyEnabledSubtype="true" />
 </input-method>

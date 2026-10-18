@@ -40,11 +40,33 @@ jobs:
     - name: Check translations (i18n parity gate)
       run: python3 scripts/check_translations.py
 
+    - name: Test Telegram helper
+      run: python3 scripts/test_send_telegram.py
+
+    - name: Test benchmark suite (hard gate)
+      run: python3 scripts/test_benchmark_suite.py
+
     # Pure Python, no Android SDK involved: proves the release-artifact verifier
     # still rejects a missing, duplicated, misplaced, truncated or corrupted
     # bundled model. This is the check that runs before any artifact exists.
     - name: Test the release-artifact verifier (hard gate)
       run: python3 scripts/test_verify_release_artifact.py
+
+    # JNI integrity gate: every Java `native` declaration must have its Rust
+    # export and vice versa (same gate as the debug workflow).
+    - name: Check JNI parity (hard gate)
+      run: python3 scripts/check_jni_parity.py
+
+    - name: Test the JNI parity gate (hard gate)
+      run: python3 scripts/test_check_jni_parity.py
+
+    # Release-notes gate: enforces the 125-250 word limit, single version
+    # header, and no accumulated past-release history in RELEASE_NOTES.md.
+    - name: Check release notes (hard gate)
+      run: python3 scripts/check_release_notes.py
+
+    - name: Test the release-notes gate (hard gate)
+      run: python3 scripts/test_check_release_notes.py
 
     - name: Set up JDK 17
       uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.7.1
@@ -74,11 +96,20 @@ jobs:
         set -e -o pipefail
         ./gradlew :app:verifyPackagingDecision 2>&1 | tee gradle_packaging_gate.log
 
+    # Drives the real native-alignment logic (the required project-library set
+    # and the per-library verdict) against synthetic inputs — no native build,
+    # no SDK. Same logic the artifact gate runs in the build job.
+    - name: Verify native-alignment gate logic (hard gate)
+      run: |
+        set -e -o pipefail
+        ./gradlew :app:verifyNativeAlignmentGate 2>&1 | tee gradle_native_gate.log
+
     - name: Print logs on failure
       if: failure()
       run: |
         cat gradle_test.log || true
         cat gradle_packaging_gate.log || true
+        cat gradle_native_gate.log || true
 
   build-release:
     name: 🚀 Build Signed Release Artifacts
@@ -207,14 +238,6 @@ jobs:
         export PATH="$HOME/.cargo/bin:$PATH"
         ./gradlew :app:lintDebug --stacktrace 2>&1 | tee gradle_lint.log
 
-    # 16 KB page-size alignment of every shipped .so (Android 17 requirement),
-    # checked before the 750 MB packaging step so a misaligned dependency fails fast.
-    - name: Verify native alignment (hard gate)
-      run: |
-        set -e -o pipefail
-        export PATH="$HOME/.cargo/bin:$PATH"
-        ./gradlew :app:checkNativeAlignment 2>&1 | tee gradle_alignment.log
-
     # One artifact per invocation, always. Asking for the APK and the AAB in the
     # same Gradle call fails at configuration time, because an APK must carry the
     # bundled GGUF in its base module while an AAB must carry it only in the
@@ -229,6 +252,19 @@ jobs:
       run: |
         set -euo pipefail
         ./gradlew assembleRelease
+
+    # 16 KB page-size alignment of every shipped .so (Android 17 requirement),
+    # run after the APK build so the merged (dependency) libraries are fresh and
+    # both project + dependency libs are verified before publication. The gate is
+    # self-sufficient: it depends on cargoNdkBuild, so it compiles the project
+    # libraries if they do not exist yet and verifies them by name
+    # (libandroid_transcribe_app.so AND libc++_shared.so) instead of trusting
+    # whatever the merged output happens to contain.
+    - name: Verify native alignment (hard gate)
+      run: |
+        set -e -o pipefail
+        export PATH="$HOME/.cargo/bin:$PATH"
+        ./gradlew :app:checkNativeAlignment 2>&1 | tee gradle_alignment.log
 
     - name: Verify release APK (alignment, signature, bundled model)
       run: |

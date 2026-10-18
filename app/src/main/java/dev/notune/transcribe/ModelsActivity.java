@@ -495,10 +495,16 @@ public class ModelsActivity extends AppCompatActivity {
     }
 
     private void selectModel(String fileNameOrNull) {
-        writeConfig("active_model", fileNameOrNull == null ? "" : fileNameOrNull);
-        refreshList();
-        statusText.setText(getString(R.string.models_loading));
-        reloadModelNative(this);
+        final String value = fileNameOrNull == null ? "" : fileNameOrNull;
+        new Thread(() -> {
+            MarkerFileHelper.writeString(this, "active_model", value);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                refreshList();
+                statusText.setText(getString(R.string.models_loading));
+                reloadModelNative(this);
+            });
+        }, "marker-write").start();
     }
 
     private void confirmDelete(String fileName) {

@@ -18,6 +18,7 @@ use jni::JNIEnv;
 use once_cell::sync::Lazy;
 
 use crate::engine;
+use crate::jni_util;
 use crate::voice_session::SendStream;
 
 // --- Endpointing / VAD tuning -------------------------------------------------
@@ -88,9 +89,21 @@ struct Session {
 static SESSION: Lazy<Mutex<Option<Session>>> = Lazy::new(|| Mutex::new(None));
 
 // --- JNI callbacks into VoiceRecognitionService -------------------------------
+//
+// Every callback goes through `jni_util::call_and_clear`: `call_method`
+// reports a Java exception as `Err` but does NOT clear it, and a pending
+// exception would break every later JNI call on the same thread — for the
+// audio callback that is the cpal thread itself, so an uncleared failure would
+// silence the rms/level stream and, right after `onBeginningOfSpeech`, the
+// final results too. A failed callback is logged and cleared; native state
+// (endpointing, finalisation) is unaffected.
+//
+// The `new_string` failure paths clear as well: allocation failures can leave
+// a pending OutOfMemoryError behind.
 
 fn call_rms(env: &mut JNIEnv, obj: &JObject, rms_db: f32, session_id: i32) {
-    let _ = env.call_method(
+    jni_util::call_and_clear(
+        env,
         obj,
         "onRmsChanged",
         "(FI)V",
@@ -99,28 +112,49 @@ fn call_rms(env: &mut JNIEnv, obj: &JObject, rms_db: f32, session_id: i32) {
 }
 
 fn call_error(env: &mut JNIEnv, obj: &JObject, code: i32, session_id: i32) {
-    let _ = env.call_method(obj, "onError", "(II)V", &[code.into(), session_id.into()]);
+    jni_util::call_and_clear(
+        env,
+        obj,
+        "onError",
+        "(II)V",
+        &[code.into(), session_id.into()],
+    );
 }
 
 fn call_results(env: &mut JNIEnv, obj: &JObject, text: &str, session_id: i32) {
-    if let Ok(jtxt) = env.new_string(text) {
-        let _ = env.call_method(
-            obj,
-            "onResults",
-            "(Ljava/lang/String;I)V",
-            &[(&jtxt).into(), session_id.into()],
-        );
+    match env.new_string(text) {
+        Ok(jtxt) => {
+            jni_util::call_and_clear(
+                env,
+                obj,
+                "onResults",
+                "(Ljava/lang/String;I)V",
+                &[(&jtxt).into(), session_id.into()],
+            );
+        }
+        Err(e) => {
+            log::warn!("Could not allocate onResults text: {}", e);
+            jni_util::clear_exception(env, "onResults");
+        }
     }
 }
 
 fn call_partial(env: &mut JNIEnv, obj: &JObject, text: &str, session_id: i32) {
-    if let Ok(jtxt) = env.new_string(text) {
-        let _ = env.call_method(
-            obj,
-            "onPartialText",
-            "(Ljava/lang/String;I)V",
-            &[(&jtxt).into(), session_id.into()],
-        );
+    match env.new_string(text) {
+        Ok(jtxt) => {
+            jni_util::call_and_clear(
+                env,
+                obj,
+                "onPartialText",
+                "(Ljava/lang/String;I)V",
+                &[(&jtxt).into(), session_id.into()],
+            );
+        }
+        Err(e) => {
+            // Partials are visual-only: report and keep streaming.
+            log::warn!("Could not allocate onPartialText text: {}", e);
+            jni_util::clear_exception(env, "onPartialText");
+        }
     }
 }
 
@@ -218,7 +252,8 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_VoiceRecognitionService
             Ok(e) => e,
             Err(_) => return,
         };
-        let _ = env2.call_method(
+        jni_util::call_and_clear(
+            &mut env2,
             shared.target.as_obj(),
             "onReadyForSpeech",
             "(I)V",
@@ -386,7 +421,8 @@ fn audio_callback(shared: &Arc<Endpoint>, data: &[f32]) {
             {
                 shared.last_voice_ms.store(elapsed_ms, Ordering::Relaxed);
                 if let Ok(mut env) = shared.jvm.attach_current_thread_permanently() {
-                    let _ = env.call_method(
+                    jni_util::call_and_clear(
+                        &mut env,
                         shared.target.as_obj(),
                         "onBeginningOfSpeech",
                         "(I)V",
@@ -578,7 +614,15 @@ fn finalize(shared: Arc<Endpoint>, stream: Arc<Mutex<Option<SendStream>>>) {
 
     let speech = shared.speech_started.load(Ordering::SeqCst);
     if speech {
-        let _ = env.call_method(target, "onEndOfSpeech", "(I)V", &[shared.session_id.into()]);
+        // A pending exception here would make the following call_results /
+        // call_error fail too — exactly the "never lose text" path.
+        jni_util::call_and_clear(
+            &mut env,
+            target,
+            "onEndOfSpeech",
+            "(I)V",
+            &[shared.session_id.into()],
+        );
     }
 
     // ~0.2s minimum of audio to bother transcribing (total pushed, not the

@@ -488,7 +488,11 @@ impl Engine {
                     stream.reset();
                     return Err("Canceled".to_string());
                 }
-                _ => {}
+                Ok(_) => {}
+                Err(crossbeam_channel::TryRecvError::Empty) => {}
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    log::debug!("stream command channel disconnected");
+                }
             }
             std::thread::sleep(std::time::Duration::from_millis(STREAM_TICK_MS));
         }

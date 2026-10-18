@@ -23,8 +23,69 @@ import uuid
 MAX_CAPTION_LENGTH = 1024
 MAX_MSG_LENGTH = 4096
 
+# Retryable HTTP statuses (rate limit + transient server errors).
+RETRYABLE_HTTP_STATUSES = (429, 500, 502, 503, 504)
 
-def post_multipart(url: str, fields: dict, files: dict = None, timeout: int = 45, max_retries: int = 3):
+
+def is_retryable_http_status(status_code):
+    """Pure decision: whether an HTTP status code is worth retrying."""
+    return status_code in RETRYABLE_HTTP_STATUSES
+
+
+def should_retry_http(status_code, attempt, max_retries):
+    """Pure decision: retry an HTTP failure given the status, attempt and limit."""
+    return is_retryable_http_status(status_code) and attempt < max_retries
+
+
+def should_retry_network(attempt, max_retries):
+    """Pure decision: retry a network/timeout failure given attempt and limit."""
+    return attempt < max_retries
+
+
+def backoff_seconds(attempt):
+    """Pure decision: exponential backoff (2 ** attempt) used by post_multipart."""
+    return 2 ** attempt
+
+
+def escape_html(text):
+    """HTML escaping actually used in production (delegates to html.escape)."""
+    return html.escape(text)
+
+
+# Backwards/alternative aliases for the same escaping helper.
+html_escape = escape_html
+sanitize_html = escape_html
+
+
+def truncate_text(text, limit, suffix="..."):
+    """Truncate text to at most ``limit`` chars, appending ``suffix`` when over."""
+    if len(text) <= limit:
+        return text
+    return text[:limit] + suffix
+
+
+def truncate_caption_message(safe_msg, max_msg_len):
+    """Document/caption truncation exactly as used in send_document."""
+    if len(safe_msg) > max_msg_len:
+        safe_msg = safe_msg[:max_msg_len] + "..."
+    return safe_msg
+
+
+def truncate_alert_message(full_msg):
+    """Message truncation exactly as used in send_failure_alert."""
+    if len(full_msg) > MAX_MSG_LENGTH:
+        full_msg = full_msg[:MAX_MSG_LENGTH - 20] + "...</pre>"
+    return full_msg
+
+
+# Aliases kept for callers/tests that prefer a generic name.
+truncate = truncate_text
+truncate_caption = truncate_caption_message
+truncate_message = truncate_alert_message
+
+
+def post_multipart(url: str, fields: dict, files: dict = None, timeout: int = 45,
+                   max_retries: int = 3, transport=None):
     boundary = f"----WebKitFormBoundary{uuid.uuid4().hex}"
     body = bytearray()
 
@@ -58,41 +119,43 @@ def post_multipart(url: str, fields: dict, files: dict = None, timeout: int = 45
         },
     )
 
+    opener = transport if transport is not None else urllib.request.urlopen
+
     for attempt in range(1, max_retries + 1):
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with opener(req, timeout=timeout) as resp:
                 resp_data = resp.read().decode("utf-8", errors="replace")
                 return json.loads(resp_data)
         except urllib.error.HTTPError as e:
             err_body = e.read().decode("utf-8", errors="replace")
             print(f"[send_telegram] Attempt {attempt} failed with HTTP {e.code}: {err_body}", file=sys.stderr)
-            if e.code in (429, 500, 502, 503, 504) and attempt < max_retries:
-                sleep_sec = 2 ** attempt
+            if should_retry_http(e.code, attempt, max_retries):
+                sleep_sec = backoff_seconds(attempt)
                 print(f"[send_telegram] Retrying in {sleep_sec}s...", file=sys.stderr)
                 time.sleep(sleep_sec)
                 continue
             raise
         except (urllib.error.URLError, TimeoutError) as e:
             print(f"[send_telegram] Attempt {attempt} connection error: {e}", file=sys.stderr)
-            if attempt < max_retries:
-                sleep_sec = 2 ** attempt
+            if should_retry_network(attempt, max_retries):
+                sleep_sec = backoff_seconds(attempt)
                 print(f"[send_telegram] Retrying in {sleep_sec}s...", file=sys.stderr)
                 time.sleep(sleep_sec)
                 continue
             raise
 
 
-def send_document(token: str, chat_id: str, apk_path: str, version: str, sha: str, commit_msg: str):
+def send_document(token: str, chat_id: str, apk_path: str, version: str, sha: str, commit_msg: str,
+                  transport=None):
     url = f"https://api.telegram.org/bot{token}/sendDocument"
 
-    safe_ver = html.escape(version.strip())
-    safe_sha = html.escape(sha.strip())
-    safe_msg = html.escape(commit_msg.strip())
+    safe_ver = escape_html(version.strip())
+    safe_sha = escape_html(sha.strip())
+    safe_msg = escape_html(commit_msg.strip())
 
-    header = f"✨ <b>Aura Transcribe v{safe_ver}</b> (<code>{safe_sha}</code>)\n\n"
+    header = f"\u2728 <b>Aura Transcribe v{safe_ver}</b> (<code>{safe_sha}</code>)\n\n"
     max_msg_len = MAX_CAPTION_LENGTH - len(header) - 10
-    if len(safe_msg) > max_msg_len:
-        safe_msg = safe_msg[:max_msg_len] + "..."
+    safe_msg = truncate_caption_message(safe_msg, max_msg_len)
 
     caption = header + safe_msg
 
@@ -106,15 +169,15 @@ def send_document(token: str, chat_id: str, apk_path: str, version: str, sha: st
     }
 
     print(f"[send_telegram] Uploading {apk_path} to Telegram...")
-    res = post_multipart(url, fields, files)
-    if res.get("ok"):
+    res = post_multipart(url, fields, files, transport=transport)
+    if isinstance(res, dict) and res.get("ok"):
         print("[send_telegram] Successfully sent APK to Telegram!")
-    else:
-        print(f"[send_telegram] Telegram API error: {res}", file=sys.stderr)
-        sys.exit(1)
+        return True
+    print(f"[send_telegram] Telegram API error: {res}", file=sys.stderr)
+    sys.exit(1)
 
 
-def send_failure_alert(token: str, chat_id: str, sha: str, log_files_str: str):
+def send_failure_alert(token: str, chat_id: str, sha: str, log_files_str: str, transport=None):
     url = f"https://api.telegram.org/bot{token}/sendMessage"
 
     log_files = [f.strip() for f in log_files_str.split(",") if f.strip()]
@@ -146,17 +209,16 @@ def send_failure_alert(token: str, chat_id: str, sha: str, log_files_str: str):
                     errs = [l.strip() for l in lines[-15:] if l.strip()]
                 if errs:
                     extracted = "\n".join(errs[-8:])
-                    found_errs.append(f"<b>[{html.escape(lf)}]</b>\n<pre>{html.escape(extracted)}</pre>")
+                    found_errs.append(f"<b>[{escape_html(lf)}]</b>\n<pre>{escape_html(extracted)}</pre>")
             except Exception as e:
                 print(f"[send_telegram] Error reading log {lf}: {e}", file=sys.stderr)
 
-    safe_sha = html.escape(sha.strip())
-    header = f"🚨 <b>CI Workflow Failed</b> (<code>{safe_sha}</code>)\n\n"
+    safe_sha = escape_html(sha.strip())
+    header = f"\U0001f6a8 <b>CI Workflow Failed</b> (<code>{safe_sha}</code>)\n\n"
     body_text = "\n\n".join(found_errs) if found_errs else "<i>No detailed error log found</i>"
 
     full_msg = header + body_text
-    if len(full_msg) > MAX_MSG_LENGTH:
-        full_msg = full_msg[: MAX_MSG_LENGTH - 20] + "...</pre>"
+    full_msg = truncate_alert_message(full_msg)
 
     fields = {
         "chat_id": chat_id,
@@ -165,11 +227,16 @@ def send_failure_alert(token: str, chat_id: str, sha: str, log_files_str: str):
     }
 
     print(f"[send_telegram] Sending failure alert for {safe_sha}...")
-    res = post_multipart(url, fields)
-    if res.get("ok"):
+    try:
+        res = post_multipart(url, fields, transport=transport)
+    except Exception as e:
+        print(f"[send_telegram] Failed to send failure alert: {e}", file=sys.stderr)
+        return False
+    if isinstance(res, dict) and res.get("ok"):
         print("[send_telegram] Successfully sent failure alert to Telegram!")
-    else:
-        print(f"[send_telegram] Telegram API error: {res}", file=sys.stderr)
+        return True
+    print(f"[send_telegram] Telegram API error: {res}", file=sys.stderr)
+    return False
 
 
 def main():
@@ -194,8 +261,17 @@ def main():
             print(f"[send_telegram] APK file not specified or does not exist: {args.apk}", file=sys.stderr)
             sys.exit(1)
         send_document(args.token, args.chat_id, args.apk, args.version, args.sha, args.commit_msg)
+        return 0
     elif args.mode == "alert":
-        send_failure_alert(args.token, args.chat_id, args.sha, args.logs)
+        ok = send_failure_alert(args.token, args.chat_id, args.sha, args.logs)
+        if not ok:
+            # Best-effort alert: report the delivery failure as a warning-level
+            # annotation and a non-zero exit so the step is visibly red, but this
+            # only ever runs under `if: failure()` so it cannot turn a green
+            # build into a broken pipeline.
+            print("::warning title=TelegramAlertFailed::Failure alert could not be delivered to Telegram", file=sys.stderr)
+            return 1
+        return 0
 
     return 0
 

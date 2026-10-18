@@ -215,6 +215,8 @@
     <string name="file_error_no_audio">Fehler: keine Audiodatei</string>
     <string name="file_error_no_speech">Fehler: in der Audiodatei wurde keine Sprache erkannt</string>
     <string name="file_error_format">Fehler: %1$s</string>
+    <string name="file_error_decode">Error: could not decode the audio file.</string>
+    <string name="file_error_timeout">Timed out waiting for a transcription chunk</string>
     <string name="subs_grant_overlay_permission">Bitte erteile die Berechtigung \'Über anderen Apps anzeigen\'</string>
     <string name="subs_enable_overlay_app_settings">Aktiviere \'Über anderen Apps anzeigen\' in den App-Einstellungen</string>
     <string name="subs_enable_overlay_settings">Bitte aktiviere die Overlay-Berechtigung in den Einstellungen</string>
@@ -293,4 +295,5 @@
     <!-- App UI language (auto = follow system) -->
     <string name="setting_language">App-Sprache</string>
     <string name="language_auto">Automatisch (System)</string>
+    <string name="ime_subtype_voice">Voice</string>
 </resources>

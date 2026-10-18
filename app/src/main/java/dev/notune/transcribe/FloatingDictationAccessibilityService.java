@@ -2,6 +2,7 @@ package dev.notune.transcribe;
 
 import android.accessibilityservice.AccessibilityService;
 import android.content.ClipData;
+import android.content.ClipDescription;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
@@ -328,7 +329,13 @@ public class FloatingDictationAccessibilityService extends AccessibilityService 
             ClipboardManager cm =
                     (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
             if (cm == null) return false;
-            cm.setPrimaryClip(ClipData.newPlainText(CLIP_LABEL, text));
+            ClipData clip = ClipData.newPlainText(CLIP_LABEL, text);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                android.os.PersistableBundle extras = new android.os.PersistableBundle();
+                extras.putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true);
+                clip.getDescription().setExtras(extras);
+            }
+            cm.setPrimaryClip(clip);
             return true;
         } catch (RuntimeException e) {
             Log.w(TAG, "Could not write to the clipboard", e);

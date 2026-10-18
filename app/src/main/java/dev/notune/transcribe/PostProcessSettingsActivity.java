@@ -363,6 +363,7 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
                     }
                     if (tempFile.renameTo(targetFile)) {
                         runOnUiThread(() -> {
+                            if (isFinishing() || isDestroyed()) return;
                             progressS1.setVisibility(android.view.View.GONE);
                             btnDownloadS1.setEnabled(true);
                             btnDownloadS1.setVisibility(android.view.View.GONE);
@@ -380,6 +381,7 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
                     if (tempFile.exists()) tempFile.delete();
                 } catch (Throwable ignored) {}
                 runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
                     progressS1.setVisibility(android.view.View.GONE);
                     btnDownloadS1.setEnabled(true);
                     txtS1Status.setText(getString(R.string.pp_download_s1_error, e.getMessage()));

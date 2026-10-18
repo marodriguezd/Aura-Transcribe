@@ -20,7 +20,7 @@ The application functions across multiple Android integration points, providing 
 
 ## Key Features
 
-- **On-Device Speech Recognition:** Transcription runs 100% locally using a quantized [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) model (Q8_0 GGUF). Audio recordings never leave your device.
+- **On-Device Speech Recognition:** Transcription runs 100% locally using a quantized [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) model (Q5_K_M GGUF). Audio recordings never leave your device.
 - **System-Wide Voice Typing:** Responds to Android's `RecognizerIntent.ACTION_RECOGNIZE_SPEECH` to supply a bottom-sheet dictation panel in compatible keyboards (such as Microsoft SwiftKey) and browser voice fields.
 - **Dedicated Input Method Editor (IME):** Includes a standalone voice keyboard for one-tap dictation across apps using standard input method switching.
 - **Voice Recognition Service:** Implements the system `SpeechRecognizer` service API for third-party keyboard and app integrations.
@@ -29,7 +29,7 @@ The application functions across multiple Android integration points, providing 
 - **Audio File Transcription:** Transcribes pre-recorded audio files directly on-device.
 - **Multi-Device Audio Routing:** Dynamically detects and routes audio from internal microphones, USB audio interfaces, and Bluetooth headsets (SCO and BLE Audio) with automatic switching and manual overrides.
 - **Language Coverage:**
-  - **User Interface:** Available in 7 languages (English base, German, Spanish, French, Italian, Portuguese, and Russian).
+  - **User Interface:** Available in 8 languages (English base, German, Spanish, French, Italian, Portuguese, Russian, and Simplified Chinese).
   - **Speech Recognition:** The built-in Nemotron model supports 40 language-locales natively with streaming auto-detection; 33 regional locales are directly selectable from the language picker. Additional user-imported GGUF models (e.g., Whisper) can support up to 99 languages.
 - **Optional Text Post-Processing:** Configurable formatting and cleanup using external OpenAI-compatible API providers (OpenAI, Groq, Cerebras, OpenRouter, Mistral, Together, Ollama) or an untouched *Verbatim* preset.
 
@@ -38,7 +38,7 @@ The application functions across multiple Android integration points, providing 
 ## Privacy and Processing Behavior
 
 - **Speech Recognition is 100% Local:** All acoustic model inference, audio processing, and transcription are executed entirely on your device. Microphone input and audio files are never uploaded to remote servers.
-- **Optional Remote Text Post-Processing:** AI post-processing is **disabled by default**. If you choose to enable an external API provider (such as Groq or OpenAI), only the recognized **text** (never audio) is transmitted over HTTPS to your configured endpoint. API keys are stored locally in the application's private storage.
+- **Optional Remote Text Post-Processing:** AI post-processing is **disabled by default**. If you choose to enable an external API provider (such as Groq or OpenAI), only the recognized **text** (never audio) is transmitted to your configured endpoint (HTTPS for remote providers; cleartext HTTP is permitted only to loopback localhost/127.0.0.1 for a local Ollama server). API keys are stored locally in the application's private storage.
 - **Verbatim and Offline Modes:** When post-processing is turned off or set to *Verbatim*, no text is sent over the network.
 - **Release Telemetry and Logging:** In release builds, logging of raw transcription text and sensitive error details is stripped.
 
@@ -103,8 +103,8 @@ Cross-compilation is supported on `linux-x86_64`, `linux-aarch64`, `darwin-x86_6
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/marodriguezd/android_transcribe_app.git
-cd android_transcribe_app
+git clone https://github.com/marodriguezd/Aura-Transcribe.git
+cd Aura-Transcribe
 ```
 
 ### 2. Download and Verify Built-in Models
@@ -136,14 +136,14 @@ The output APK is generated at `app/build/outputs/apk/debug/app-debug.apk`.
 ./gradlew :app:verifyPackagingDecision  # APK/AAB decision + model gates, on synthetic archives
 ./gradlew :benchmark:assembleBenchmark  # Compiles the Macrobenchmark module (no device needed)
 
-python3 scripts/check_translations.py          # Translation parity across the 7 locales
+python3 scripts/check_translations.py          # Translation parity across the 8 locales
 python3 scripts/test_verify_release_artifact.py # Self-test of the release-artifact verifier
 python3 scripts/bench_performance.py           # Reference-algorithm micro-benchmarks
 cargo fmt --all -- --check                     # Rust formatting
 ```
 
 `verifyPackagingDecision` and `test_verify_release_artifact.py` are the two gates
-that protect the bundled-model delivery: they run without downloading the 750 MB
+that protect the bundled-model delivery: they run without downloading the 560 MB
 model, because they exercise the decision logic and the verifier against
 synthetic archives instead. `bench_performance.py` times pure-Python stand-ins
 for the audio/corrector hot paths and **asserts** that each fast path still
@@ -182,7 +182,7 @@ Build release artifacts in **separate invocations** to ensure proper asset packa
 An APK and an AAB need different asset layouts for the same release variant. AGP
 ignores asset packs when packaging an APK, so the APK must carry the GGUF in the
 base module; the AAB must carry it only in the `:model_assets` install-time asset
-pack, or Play would receive roughly 750 MB twice. `app/build.gradle.kts`
+pack, or Play would receive roughly 560 MB twice. `app/build.gradle.kts`
 accordingly adds `model_assets/src/main/assets/` to the release source set only
 for the APK path. A Gradle invocation that asks for both artifacts at once is
 rejected at configuration time with a message naming the offending tasks.
@@ -272,6 +272,6 @@ Subsequent additions and architectural changes in this fork—including multi-de
 
 ### Third-Party Credits
 
-- **Speech Model Architecture:** [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) by NVIDIA, quantized to GGUF (Q8_0) by [handy-computer](https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf) (licensed under CC-BY 4.0).
+- **Speech Model Architecture:** [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) by NVIDIA, quantized to GGUF (Q5_K_M) by [handy-computer](https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf) (licensed under CC-BY 4.0).
 - **Inference Kernels:** [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp) and [ggml](https://github.com/ggerganov/ggml) by CJ Pais and Georgi Gerganov.
 - **Audio Capture:** [cpal](https://github.com/RustAudio/cpal) (Cross-Platform Audio Library).

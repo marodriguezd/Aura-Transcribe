@@ -41,6 +41,9 @@ public class RecognizeActivity extends AppCompatActivity {
 
     private TextView status;
     private boolean isRecording = false;
+    // True from mic release until the final text is delivered or the session
+    // is cancelled: while set, this surface still owns the native session.
+    private boolean resultPending = false;
     private volatile int currentSessionId = 0;
     private MicLevelView micLevel;
     private final AudioFocusPauser audioPauser = new AudioFocusPauser();
@@ -103,6 +106,7 @@ public class RecognizeActivity extends AppCompatActivity {
     /** Discards recording, transcription, or post-processing without delivering text. */
     private void cancelAndClose() {
         isRecording = false;
+        resultPending = false;
         currentSessionId++;
         try { cancelRecording(); } catch (Throwable ignored) { }
         AudioDeviceManager.releaseMicrophone(this);
@@ -119,6 +123,7 @@ public class RecognizeActivity extends AppCompatActivity {
     private void finishRecording() {
         if (!isRecording) return;
         isRecording = false;
+        resultPending = true;
         status.setText(getString(R.string.rec_processing));
         AudioDeviceManager.releaseMicrophone(this);
         stopRecording();
@@ -147,6 +152,7 @@ public class RecognizeActivity extends AppCompatActivity {
         // is a keyboard-only feature; a popup must not record unseen.)
         if (isRecording && !isFinishing()) {
             isRecording = false;
+            resultPending = false;
             currentSessionId++;
             try { cancelRecording(); } catch (Throwable t) { /* ignore */ }
             AudioDeviceManager.releaseMicrophone(this);
@@ -194,6 +200,16 @@ public class RecognizeActivity extends AppCompatActivity {
 
     private void showStatus(String s) {
         if (s != null && s.startsWith("Error")) {
+            // Terminal error: cancel the native session before releasing the
+            // microphone, so the capture stream, pump and auto-stop monitor
+            // actually stop. Bumping the session id drops the native
+            // "Canceled" echo and late callbacks of the failed session,
+            // keeping the error text visible.
+            if (NativeSessionPolicy.shouldCancelOnTerminalError(s, isRecording, resultPending)) {
+                currentSessionId++;
+                try { cancelRecording(); } catch (Throwable ignored) { }
+            }
+            resultPending = false;
             if (isRecording) {
                 isRecording = false;
                 AudioDeviceManager.releaseMicrophone(this);
@@ -246,6 +262,7 @@ public class RecognizeActivity extends AppCompatActivity {
             if (sessionId != currentSessionId || isFinishing() || isDestroyed()) return;
             if (text == null || text.trim().isEmpty()) {
                 // Nothing was recognized (e.g. auto-stop after silence only).
+                resultPending = false;
                 setResult(Activity.RESULT_CANCELED);
                 finish();
                 return;
@@ -299,6 +316,7 @@ public class RecognizeActivity extends AppCompatActivity {
     }
 
     private void deliverResult(String text) {
+        resultPending = false;
         if (text == null || text.trim().isEmpty()) {
             setResult(Activity.RESULT_CANCELED);
             finish();

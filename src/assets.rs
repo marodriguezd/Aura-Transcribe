@@ -50,7 +50,13 @@ pub fn extract_builtin_model(env: &mut JNIEnv, context: &JObject) -> anyhow::Res
     // app update can ship a different bundled model, in which case the stale
     // extraction must be replaced (otherwise the old model is loaded forever).
     if marker_file.exists() && extraction_matches_assets(env, context, &model_dir)? {
-        return find_gguf(&model_dir);
+        match find_gguf(&model_dir) {
+            Ok(p) => return Ok(p),
+            Err(e) => {
+                let _ = std::fs::remove_file(&marker_file);
+                return Err(e);
+            }
+        }
     }
 
     // Incomplete or missing — wipe and re-extract
@@ -72,11 +78,15 @@ pub fn extract_builtin_model(env: &mut JNIEnv, context: &JObject) -> anyhow::Res
 
     copy_assets_recursively(env, &asset_manager_obj, BUILTIN_MODEL_DIR, &base_path)?;
 
+    // Verify the extraction actually produced a GGUF before claiming success,
+    // so a failed find never leaves a marker implying a valid extraction.
+    let gguf_path = find_gguf(&model_dir)?;
+
     // Write the marker file to indicate successful completion
     std::fs::write(&marker_file, "ok")?;
     log::info!("Asset extraction complete, marker written");
 
-    find_gguf(&model_dir)
+    Ok(gguf_path)
 }
 
 /// Removes the extraction marker so the next load re-extracts the bundled

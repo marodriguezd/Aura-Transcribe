@@ -767,7 +767,8 @@ public class MainActivity extends AppCompatActivity {
         sw.setChecked(MarkerFileHelper.exists(this, fileName) != inverted);
         sw.setOnCheckedChangeListener((buttonView, isChecked) -> {
             boolean shouldExist = isChecked != inverted;
-            MarkerFileHelper.setExists(this, fileName, shouldExist);
+            new Thread(() -> MarkerFileHelper.setExists(this, fileName, shouldExist),
+                    "marker-write").start();
         });
     }
 
@@ -806,6 +807,7 @@ public class MainActivity extends AppCompatActivity {
             } catch (IOException e) {
                 Log.e(TAG, "Failed to read benchmark clip", e);
                 runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
                     benchResultText.setText(getString(R.string.bench_error, e.getMessage()));
                     benchButton.setEnabled(true);
                 });
@@ -818,6 +820,7 @@ public class MainActivity extends AppCompatActivity {
     // Called from Rust when the benchmark run finishes.
     public void onBenchmarkResult(float audioSecs, float computeSecs, String error) {
         runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed()) return;
             benchButton.setEnabled(true);
             benchResultText.setVisibility(View.VISIBLE);
             if (error != null && !error.isEmpty()) {
@@ -873,6 +876,7 @@ public class MainActivity extends AppCompatActivity {
     // Called from Rust via JNI with engine status; forwarded to the UI thread
     public void onStatusUpdate(String status) {
         runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed()) return;
             statusText.setText(status);
             // "Ready" may carry a suffix, e.g. "Ready (this model can't translate)".
             if (status.startsWith("Ready")) {

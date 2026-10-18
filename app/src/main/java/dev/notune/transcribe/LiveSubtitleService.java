@@ -57,7 +57,14 @@ public class LiveSubtitleService extends Service {
     private MediaProjection mMediaProjection;
     private AudioRecord mAudioRecord;
     private Thread mAudioThread;
-    private boolean isRecording = false;
+    /** Read by the audio loop and written by teardown; volatile so the loop
+     *  reliably observes the stop request (no stale JIT read). */
+    private volatile boolean isRecording = false;
+    /** Guards the AudioRecord/audio-thread ownership transitions (capture
+     *  start, teardown, loop exit). The loop releases its own record in its
+     *  {@code finally}; the stop path only releases when no live loop exists
+     *  (see {@link SubtitleAudioLoop#mayReleaseRecord}). */
+    private final Object mAudioLock = new Object();
 
     private WindowManager mWindowManager;
     private View mOverlayView;
@@ -219,33 +226,54 @@ public class LiveSubtitleService extends Service {
     }
 
     private void stopSubtitleSession() {
+        // Request loop termination before touching the record. stop() is the
+        // documented way to unblock a read() parked inside the audio HAL, so
+        // a live capture exits promptly instead of waiting for the next chunk.
         isRecording = false;
-        if (mAudioRecord != null) {
+        AudioRecord record;
+        Thread thread;
+        synchronized (mAudioLock) {
+            record = mAudioRecord;
+            thread = mAudioThread;
+        }
+        if (record != null) {
             // stop() throws IllegalStateException when the AudioRecord was
             // never initialized/started (e.g. capture failed); a teardown path
             // must never crash the service (V6).
             try {
-                if (mAudioRecord.getRecordingState() == AudioRecord.RECORDSTATE_RECORDING) {
-                    mAudioRecord.stop();
+                if (record.getRecordingState() == AudioRecord.RECORDSTATE_RECORDING) {
+                    record.stop();
                 }
             } catch (Exception ignored) {
             }
         }
-        if (mAudioThread != null) {
+        if (thread != null && thread != Thread.currentThread()) {
             try {
-                // Bounded wait: read() unblocks immediately upon audioRecord.stop().
-                mAudioThread.join(500);
+                // Bounded wait: read() unblocks immediately upon record.stop().
+                // join() returns at once when the loop already exited.
+                thread.join(500);
             } catch (InterruptedException e) {
-                e.printStackTrace();
+                Thread.currentThread().interrupt();
             }
-            mAudioThread = null;
         }
-        if (mAudioRecord != null) {
-            try {
-                mAudioRecord.release();
-            } catch (Exception ignored) {
+        if (SubtitleAudioLoop.mayReleaseRecord(thread)) {
+            // No live loop owns the record (capture never started, failed, or
+            // the loop already exited): the stop path releases it. If the loop
+            // is STILL alive after the bounded join — a stalled HAL can keep
+            // read() parked — it keeps ownership and releases in its own
+            // finally; releasing here would pull the record from under an
+            // in-flight read and kill the process on a plain thread.
+            AudioRecord toRelease = null;
+            synchronized (mAudioLock) {
+                if (mAudioThread == thread) {
+                    mAudioThread = null;
+                }
+                if (mAudioRecord == record) {
+                    mAudioRecord = null;
+                    toRelease = record;
+                }
             }
-            mAudioRecord = null;
+            releaseRecord(toRelease);
         }
         if (mMediaProjection != null) {
             try {
@@ -268,6 +296,27 @@ public class LiveSubtitleService extends Service {
         }
         removeOverlay();
         cleanupNative();
+    }
+
+    /**
+     * Releases an AudioRecord, never throwing: teardown must not crash even if
+     * the record was already stopped/released. Shared by the stop path (no
+     * live loop) and by the loop's own {@code finally}.
+     */
+    private static void releaseRecord(AudioRecord record) {
+        if (record == null) {
+            return;
+        }
+        try {
+            if (record.getRecordingState() == AudioRecord.RECORDSTATE_RECORDING) {
+                record.stop();
+            }
+        } catch (Exception ignored) {
+        }
+        try {
+            record.release();
+        } catch (Exception ignored) {
+        }
     }
 
     private void setupOverlay() {
@@ -426,31 +475,41 @@ public class LiveSubtitleService extends Service {
                 .build();
 
         try {
-            mAudioRecord = new AudioRecord.Builder()
+            final AudioRecord record = new AudioRecord.Builder()
                     .setAudioFormat(format)
                     .setBufferSizeInBytes(bufferSize)
                     .setAudioPlaybackCaptureConfig(config)
                     .build();
+            // Publish the record under the ownership lock before any failure
+            // path hands it to the teardown helpers.
+            synchronized (mAudioLock) {
+                mAudioRecord = record;
+            }
 
-            if (mAudioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
+            if (record.getState() != AudioRecord.STATE_INITIALIZED) {
                 Log.e(TAG, "AudioRecord failed to initialize");
                 stopSubtitleSession();
                 return;
             }
 
-            mAudioRecord.startRecording();
-            if (mAudioRecord.getRecordingState() != AudioRecord.RECORDSTATE_RECORDING) {
-                Log.e(TAG, "AudioRecord failed to start recording. State: " + mAudioRecord.getRecordingState());
+            record.startRecording();
+            if (record.getRecordingState() != AudioRecord.RECORDSTATE_RECORDING) {
+                Log.e(TAG, "AudioRecord failed to start recording. State: " + record.getRecordingState());
                 stopSubtitleSession();
                 return;
             }
-            
-            isRecording = true;
+
             Log.d(TAG, "AudioRecord started successfully");
-            
-            mAudioThread = new Thread(this::audioLoop);
-            mAudioThread.start();
-            
+
+            final Thread audioThread = new Thread(this::audioLoop);
+            synchronized (mAudioLock) {
+                // Published under the same lock the teardown and the loop's
+                // finally use: ownership transitions can never be lost, even
+                // if the loop exits immediately after start().
+                mAudioThread = audioThread;
+                isRecording = true;
+            }
+            audioThread.start();
         } catch (Exception e) {
             Log.e(TAG, "Error starting AudioRecord", e);
             stopSubtitleSession();
@@ -459,32 +518,70 @@ public class LiveSubtitleService extends Service {
 
     private void audioLoop() {
         Log.d(TAG, "Starting audio loop");
-        int bufferSize = 1024; // Process in small chunks
-        short[] buffer = new short[bufferSize];
-        float[] floatBuffer = new float[bufferSize];
+        final int bufferSize = 1024; // Process in small chunks
+        final short[] buffer = new short[bufferSize];
+        final float[] floatBuffer = new float[bufferSize];
         int totalRead = 0;
 
-        while (isRecording) {
-            int read = mAudioRecord.read(buffer, 0, bufferSize);
-            if (read > 0) {
-                totalRead += read;
-                if (BuildConfig.DEBUG && totalRead % (16000 * 5) < read) { // Log approx every 5 seconds of audio
-                    Log.d(TAG, "Reading audio... Total samples: " + totalRead);
-                }
-                
-                // Convert short to float via fast reciprocal multiplication (auto-vectorizable in ART)
-                final float invScale = 1.0f / 32768.0f;
-                for (int i = 0; i < read; i++) {
-                    floatBuffer[i] = buffer[i] * invScale;
-                }
-                pushAudio(floatBuffer, read);
-            } else if (read < 0) {
-                Log.e(TAG, "Audio read error: " + read);
-                isRecording = false;
-                break;
-            }
+        // Capture the record this loop owns once: the teardown path never
+        // releases it while this thread may still be inside read(), but the
+        // field itself can be cleared at any time, so never re-read it here.
+        final AudioRecord record;
+        synchronized (mAudioLock) {
+            record = mAudioRecord;
         }
-        Log.d(TAG, "Audio loop finished");
+        if (record == null) {
+            Log.e(TAG, "Audio loop started without an AudioRecord");
+            return;
+        }
+
+        try {
+            while (isRecording) {
+                final int read;
+                try {
+                    read = record.read(buffer, 0, bufferSize);
+                } catch (Throwable t) {
+                    // A teardown race (stop/release from another thread)
+                    // surfaces as an IllegalStateException/NPE here and ends
+                    // the loop; it must never kill the process with an
+                    // uncaught exception on this plain thread.
+                    Log.w(TAG, "Audio read stopped", t);
+                    break;
+                }
+                if (read > 0) {
+                    totalRead += read;
+                    if (BuildConfig.DEBUG && totalRead % (16000 * 5) < read) { // Log approx every 5 seconds of audio
+                        Log.d(TAG, "Reading audio... Total samples: " + totalRead);
+                    }
+
+                    SubtitleAudioLoop.toNormalizedFloats(buffer, read, floatBuffer);
+                    pushAudio(floatBuffer, read);
+                } else if (read < 0) {
+                    Log.e(TAG, "Audio read error: " + read);
+                    break;
+                }
+            }
+        } catch (Throwable t) {
+            // pushAudio (JNI) or any other failure: the loop thread must not
+            // die with an uncaught throwable while the app keeps running.
+            Log.w(TAG, "Audio loop stopped", t);
+        } finally {
+            // The loop owns its record's release: this is what makes teardown
+            // race-free, because no read() can be in flight here. Clear only
+            // state that still points at THIS loop, so a stale loop exiting
+            // late can never clobber a newer session's record or thread.
+            releaseRecord(record);
+            synchronized (mAudioLock) {
+                if (mAudioRecord == record) {
+                    mAudioRecord = null;
+                }
+                if (mAudioThread == Thread.currentThread()) {
+                    mAudioThread = null;
+                    isRecording = false;
+                }
+            }
+            Log.d(TAG, "Audio loop finished");
+        }
     }
 
     // Transcript state: finalized text plus the partial hypothesis for the

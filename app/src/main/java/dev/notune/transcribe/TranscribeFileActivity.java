@@ -3,6 +3,7 @@ package dev.notune.transcribe;
 import android.app.Activity;
 import android.content.res.AssetFileDescriptor;
 import android.content.ClipData;
+import android.content.ClipDescription;
 import android.content.ClipboardManager;
 import android.content.Intent;
 import android.database.Cursor;
@@ -10,6 +11,7 @@ import android.media.MediaCodec;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -146,6 +148,11 @@ public class TranscribeFileActivity extends AppCompatActivity {
             if (!text.isEmpty()) {
                 ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
                 ClipData clip = ClipData.newPlainText("Transcription", text);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    android.os.PersistableBundle extras = new android.os.PersistableBundle();
+                    extras.putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true);
+                    clip.getDescription().setExtras(extras);
+                }
                 clipboard.setPrimaryClip(clip);
                 Toast.makeText(this, getString(R.string.file_copied), Toast.LENGTH_SHORT).show();
             }
@@ -299,7 +306,7 @@ public class TranscribeFileActivity extends AppCompatActivity {
             } catch (Exception e) {
                 if (cancelRequested.get() || opId != currentOpId) return;
                 Log.e(TAG, "Error decoding audio", e);
-                showError(getString(R.string.file_error_format, e.getMessage()));
+                showError(getString(R.string.file_error_decode));
             }
         }, "file-decode").start();
     }
@@ -578,7 +585,7 @@ public class TranscribeFileActivity extends AppCompatActivity {
                     throw new CancellationException();
                 }
                 if (System.currentTimeMillis() > deadline) {
-                    throw new IOException("Timed out waiting for a transcription chunk");
+                    throw new IOException(getString(R.string.file_error_timeout));
                 }
             }
         } finally {

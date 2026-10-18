@@ -224,6 +224,8 @@
     <string name="file_error_no_audio">错误：没有音频文件</string>
     <string name="file_error_no_speech">错误：音频文件中未检测到语音</string>
     <string name="file_error_format">错误：%1$s</string>
+    <string name="file_error_decode">Error: could not decode the audio file.</string>
+    <string name="file_error_timeout">Timed out waiting for a transcription chunk</string>
 
     <!-- Live subtitles (permission toasts, overlay, notification) -->
     <string name="subs_grant_overlay_permission">请授予“显示在其他应用上层”权限</string>
@@ -314,4 +316,5 @@
     <!-- App UI language (auto = follow system) -->
     <string name="setting_language">应用语言</string>
     <string name="language_auto">自动（跟随系统）</string>
+    <string name="ime_subtype_voice">Voice</string>
 </resources>

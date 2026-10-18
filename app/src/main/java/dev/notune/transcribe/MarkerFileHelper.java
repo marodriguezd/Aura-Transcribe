@@ -20,6 +20,7 @@ import java.nio.file.StandardCopyOption;
  */
 public final class MarkerFileHelper {
     private static final String TAG = "MarkerFileHelper";
+    private static final Object IF_ABSENT_LOCK = new Object();
 
     private MarkerFileHelper() {
         // Utility class: static marker helpers only, never instantiated
@@ -224,4 +225,51 @@ public final class MarkerFileHelper {
      public static boolean writeIntToFile(File dir, String fileName, int value) {
          return writeStringToFile(dir, fileName, Integer.toString(value));
      }
+    /**
+     * Writes {@code value} to {@code fileName} in {@code dir} only when the
+     * destination does not already exist. Never overwrites or truncates an
+     * existing marker. Atomic: a unique temp file is fsynced and promoted with
+     * a non-replacing move, so concurrent callers can never both win and never
+     * expose partial content. Returns true if this call created the file.
+     */
+    public static boolean writeStringIfAbsentToFile(File dir, String fileName, String value) {
+        if (dir == null || fileName == null) return false;
+        synchronized (IF_ABSENT_LOCK) {
+            File file = new File(dir, fileName);
+            if (file.exists()) return false;
+            if (value == null || value.isEmpty()) return false;
+            File temp = new File(dir, uniqueTempName(fileName));
+            try (java.io.FileOutputStream os = new java.io.FileOutputStream(temp)) {
+                os.write(value.getBytes(StandardCharsets.UTF_8));
+                os.flush();
+                os.getFD().sync();
+                try {
+                    Files.move(temp.toPath(), file.toPath(),
+                            StandardCopyOption.ATOMIC_MOVE);
+                    return true;
+                } catch (java.nio.file.FileAlreadyExistsException e) {
+                    // Lost the race against another writer (or an externally
+                    // created marker): treat as "not created by us".
+                    return false;
+                } catch (IOException e) {
+                    Log.e(TAG, "Failed to promote marker file: " + fileName, e);
+                    return false;
+                }
+            } catch (IOException e) {
+                Log.e(TAG, "Failed to write temporary marker file: " + fileName, e);
+                return false;
+            } finally {
+                if (temp.exists()) {
+                    temp.delete();
+                }
+            }
+        }
+    }
+
+    public static boolean writeStringIfAbsent(Context context, String fileName, String value) {
+        if (context == null || fileName == null) return false;
+        File dir = context.getApplicationContext().getFilesDir();
+        return writeStringIfAbsentToFile(dir, fileName, value);
+    }
+
 }
