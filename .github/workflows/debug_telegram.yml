@@ -54,6 +54,9 @@ jobs:
         set -o pipefail
         cargo test --workspace 2>&1 | tee cargo_test.log
 
+    - name: Cargo dependency license inventory
+      run: python3 scripts/report_cargo_licenses.py --output build/reports/cargo-licenses.md
+
     - name: Report Rust test failure details
       if: failure()
       run: |
@@ -128,6 +131,20 @@ jobs:
 
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4.4.1
+
+    - name: Generate resolved Gradle dependency license report
+      run: ./gradlew generateLicenseReport
+
+    - name: Upload dependency license inventories
+      if: always()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: aura-transcribe-dependency-license-inventories
+        path: |
+          build/reports/dependency-license/**
+          build/reports/cargo-licenses.md
+        if-no-files-found: error
+        retention-days: 30
 
     # `set -o pipefail` is load-bearing: without it the step's exit status is
     # `tee`'s, so a failing test run reported success and the "hard gate" gated

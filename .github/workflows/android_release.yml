@@ -35,6 +35,9 @@ jobs:
     - name: Rust workspace tests (hard gate)
       run: cargo test --workspace
 
+    - name: Cargo dependency license inventory
+      run: python3 scripts/report_cargo_licenses.py --output build/reports/cargo-licenses.md
+
     - name: Set up Python
       uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
       with:
@@ -98,6 +101,20 @@ jobs:
 
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4.4.1
+
+    - name: Generate resolved Gradle dependency license report
+      run: ./gradlew generateLicenseReport
+
+    - name: Upload dependency license inventories
+      if: always()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: aura-transcribe-dependency-license-inventories
+        path: |
+          build/reports/dependency-license/**
+          build/reports/cargo-licenses.md
+        if-no-files-found: error
+        retention-days: 30
 
     # `set -o pipefail` is required: without it the pipeline's exit status is
     # `tee`'s and a failing gate would report success.
