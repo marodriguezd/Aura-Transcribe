@@ -87,6 +87,7 @@ public class RecognizeActivity extends AppCompatActivity {
         // Permission check: refuse recording without runtime RECORD_AUDIO grant
         if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
             status.setText(getString(R.string.rec_mic_permission_required));
             return;
         }

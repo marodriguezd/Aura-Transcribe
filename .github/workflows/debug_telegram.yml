@@ -225,10 +225,19 @@ jobs:
     - name: Install CMake & Ninja
       run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
 
+    - name: Cache cargo-ndk
+      id: cache-cargo-ndk
+      uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
+      with:
+        path: ~/.cargo/bin/cargo-ndk
+        key: cargo-ndk-4.1.2-${{ runner.os }}
+
     - name: Install cargo-ndk
-      run: |
-        cargo install cargo-ndk --version 4.1.2 --locked
-        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+      if: steps.cache-cargo-ndk.outputs.cache-hit != 'true'
+      run: cargo install cargo-ndk --version 4.1.2 --locked
+
+    - name: Configure cargo-ndk PATH
+      run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4.4.1

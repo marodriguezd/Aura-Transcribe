@@ -455,8 +455,12 @@ fn streaming_pump(
             chunk.extend(b.drain(..));
             local.extend_from_slice(chunk);
         };
-        let mut partial =
-            |text: &str| notify_partial_with_session(&mut env, &obj, text, session_id);
+        let mut partial = |text: &str| {
+            let _ = env.with_local_frame(16, |local_env| {
+                notify_partial_with_session(local_env, &obj, text, session_id);
+                Ok::<(), jni::errors::Error>(())
+            });
+        };
         engine::transcribe_stream_shared(&engine_arc, &rx, &mut drain, &mut partial)
     };
     streaming_active.store(false, Ordering::SeqCst);
@@ -556,11 +560,10 @@ pub fn stop_recording(mut env: JNIEnv, state: &mut VoiceSessionState) {
         }
     }
 
-    let buffer = state
-        .audio_buffer
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .clone();
+    let buffer = {
+        let mut guard = state.audio_buffer.lock().unwrap_or_else(|p| p.into_inner());
+        std::mem::take(&mut *guard)
+    };
     *state
         .stream_cmd_tx
         .lock()

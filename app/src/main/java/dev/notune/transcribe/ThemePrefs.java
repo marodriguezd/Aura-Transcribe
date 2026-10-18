@@ -2,14 +2,8 @@ package dev.notune.transcribe;
 
 import android.content.Context;
 import android.content.res.Configuration;
-import android.util.Log;
 
 import androidx.appcompat.app.AppCompatDelegate;
-
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
 
 /**
  * Persists the user's dark-mode choice and applies it.

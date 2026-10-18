@@ -559,7 +559,6 @@ public class MainActivity extends AppCompatActivity {
 
         SettingsManager sm = new SettingsManager(this);
         String micMode = sm.getMicMode();
-        AudioDeviceManager.acquireMicrophone(this, micMode);
 
         boolean started = micTestBridge.start(this, micMode, new AudioRecordBridge.Callback() {
             @Override

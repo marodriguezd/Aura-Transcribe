@@ -32,14 +32,23 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_MainActivity_initNative
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
 
-    let vm = env.get_java_vm().expect("Failed to get JavaVM");
-    let vm_arc = Arc::new(vm);
-    let activity_ref = env
-        .new_global_ref(&activity)
-        .expect("Failed to ref activity");
+    let vm = match env.get_java_vm() {
+        Ok(vm) => Arc::new(vm),
+        Err(e) => {
+            log::error!("MainActivity_initNative: failed to get JavaVM: {:?}", e);
+            return;
+        }
+    };
+    let activity_ref = match env.new_global_ref(&activity) {
+        Ok(r) => r,
+        Err(e) => {
+            log::error!("MainActivity_initNative: failed to ref activity: {:?}", e);
+            return;
+        }
+    };
 
     std::thread::spawn(move || {
-        let _ = engine::ensure_loaded_from_thread(&vm_arc, &activity_ref);
+        let _ = engine::ensure_loaded_from_thread(&vm, &activity_ref);
     });
 }
 

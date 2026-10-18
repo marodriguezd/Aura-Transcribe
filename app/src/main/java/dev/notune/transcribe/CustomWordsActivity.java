@@ -14,11 +14,6 @@ import androidx.core.view.WindowInsetsCompat;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.textfield.TextInputEditText;
 
-import java.io.File;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-
 /**
  * Editor for the custom-words dictionary — a marker file in filesDir named
  * {@code custom_words}, one term per line (lines starting with {@code #} are

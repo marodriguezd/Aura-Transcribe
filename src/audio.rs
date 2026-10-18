@@ -153,9 +153,8 @@ pub fn pcm_i16_to_f32_neon(src: &[i16], dst: &mut Vec<f32>) {
     }
     const INV_SCALE: f32 = 1.0 / 32768.0;
     let start_idx = dst.len();
-    dst.reserve(src_len);
+    dst.resize(start_idx + src_len, 0.0f32);
     unsafe {
-        dst.set_len(start_idx + src_len);
         let dst_ptr = dst.as_mut_ptr().add(start_idx);
         let src_ptr = src.as_ptr();
 

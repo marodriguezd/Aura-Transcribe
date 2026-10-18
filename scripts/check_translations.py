@@ -19,7 +19,7 @@ RES = ROOT / "app" / "src" / "main" / "res"
 
 import re
 
-PLACEHOLDER_RE = re.compile(r"%(\d+\$)?[sdf]|\{[^}]+\}")
+PLACEHOLDER_RE = re.compile(r"%(?:\d+\$)?[sdf]|\{[^}]+\}")
 
 
 def trans_values(path):
@@ -53,7 +53,6 @@ def main():
     # Locale dirs look like values-de, values-es-rES. Configuration qualifiers
     # such as values-night (dark theme) or values-sw600dp are NOT locales and
     # must be skipped — they legitimately lack strings.xml.
-    import re
     locale_re = re.compile(r"^values-[a-z]{2}(-r[A-Z]{2})?$")
     locales = sorted(
         p for p in RES.iterdir()

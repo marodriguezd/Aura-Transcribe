@@ -1,4 +1,4 @@
-#!/data/data/com.termux/files/usr/bin/bash
+#!/usr/bin/env bash
 # ==============================================================================
 # Aura Transcribe - Live Audio & Bluetooth SCO Diagnostics Monitor
 # ==============================================================================

@@ -2,11 +2,6 @@ package dev.notune.transcribe;
 
 import android.content.Context;
 
-import java.io.File;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-
 /**
  * Live-subtitle preferences, stored as a small file in filesDir like the other
  * settings (readable from any process without a content provider).
