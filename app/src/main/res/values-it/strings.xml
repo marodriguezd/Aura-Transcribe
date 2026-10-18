@@ -291,6 +291,7 @@
     <string name="mic_test_btn_stop">Interrompi test audio</string>
     <string name="mic_test_active_device">Dispositivo attivo: %1$s</string>
     <string name="mic_active_builtin">Microfono interno</string>
+    <string name="mic_bluetooth_unavailable">Microfono Bluetooth richiesto ma non disponibile. Collega una cuffia o cambia la modalità di input nelle impostazioni dell’app.</string>
 
     <!-- App UI language (auto = follow system) -->
     <string name="setting_language">Lingua dell\'app</string>

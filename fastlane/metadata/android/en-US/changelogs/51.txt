@@ -1,0 +1,5 @@
+• Fixed dictation routing to output-only LE Audio speakers: only real microphones are selected now.
+• Routing state and audio mode are handled truthfully and restored after recording.
+• "Bluetooth only" mode reports a clear error instead of silently using the built-in mic.
+• Release pipeline now pins and verifies the production signing certificate.
+• New repository-hygiene gate and branch protection for main.

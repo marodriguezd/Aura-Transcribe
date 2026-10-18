@@ -906,6 +906,15 @@ public class FloatingOverlayService extends Service {
 
     private void startRecordingSession() {
         cancelInactivityTimer();
+        SettingsManager sm = new SettingsManager(this);
+        if (!AudioDeviceManager.acquireMicrophone(this, sm.getMicMode())) {
+            // Explicit "Bluetooth only" mode but no Bluetooth microphone could
+            // be routed: keep the bubble idle and tell the user instead of
+            // silently capturing from a device they excluded.
+            undockAndRestoreOpacity(false);
+            if (mStatusText != null) mStatusText.setText(getString(R.string.mic_bluetooth_unavailable));
+            return;
+        }
         undockAndRestoreOpacity(false);
         mIsRecording = true;
         mResultPending = false;
@@ -917,8 +926,6 @@ public class FloatingOverlayService extends Service {
         mStatusText.setText(getString(R.string.floating_status_listening));
         mCancelButton.setVisibility(View.VISIBLE);
         startPulseAnimation();
-        SettingsManager sm = new SettingsManager(this);
-        AudioDeviceManager.acquireMicrophone(this, sm.getMicMode());
         startRecording(new File(getFilesDir(), "auto_stop").exists(), ++mCurrentSessionId);
         boolean isBt = AudioDeviceManager.shouldShowHeadsetIcon(this);
         if (mBubbleIcon != null) mBubbleIcon.setImageResource(isBt ? R.drawable.ic_headset : R.drawable.ic_mic);

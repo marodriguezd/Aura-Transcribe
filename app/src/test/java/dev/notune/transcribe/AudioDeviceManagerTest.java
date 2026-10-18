@@ -71,16 +71,44 @@ public class AudioDeviceManagerTest {
 
     @Test
     public void testAcquireAndReleaseMicrophoneNullSafety() {
-        // Must never throw with null Context across all preference modes
-        AudioDeviceManager.acquireMicrophone(null, AudioDeviceManager.MIC_MODE_AUTO);
-        AudioDeviceManager.acquireMicrophone(null, AudioDeviceManager.MIC_MODE_BLUETOOTH_ONLY);
-        AudioDeviceManager.acquireMicrophone(null, AudioDeviceManager.MIC_MODE_BUILTIN_ONLY);
-        AudioDeviceManager.acquireMicrophone(null, "unknown_mode");
-        AudioDeviceManager.acquireMicrophone(null, null);
+        // Must never throw with null Context across all preference modes, and a null
+        // Context can never claim a successful acquisition.
+        assertFalse(AudioDeviceManager.acquireMicrophone(null, AudioDeviceManager.MIC_MODE_AUTO));
+        assertFalse(AudioDeviceManager.acquireMicrophone(null, AudioDeviceManager.MIC_MODE_BLUETOOTH_ONLY));
+        assertFalse(AudioDeviceManager.acquireMicrophone(null, AudioDeviceManager.MIC_MODE_BUILTIN_ONLY));
+        assertFalse(AudioDeviceManager.acquireMicrophone(null, "unknown_mode"));
+        assertFalse(AudioDeviceManager.acquireMicrophone(null, null));
 
-        // Multiple sequential and redundant releases must never throw
+        // Multiple sequential and redundant releases must never throw and must
+        // leave the routing flags cleared (idempotent release contract).
         AudioDeviceManager.releaseMicrophone(null);
         AudioDeviceManager.releaseMicrophone(null);
+        AudioDeviceManager.releaseMicrophone(null);
+        assertFalse(AudioDeviceManager.isRoutingActive());
+        assertFalse(AudioDeviceManager.isPrewarmed());
+    }
+
+    @Test
+    public void testAcquireFailureLeavesNoRoutingState() {
+        // A failed acquisition (null Context here) must never mark routing active
+        // or pre-warmed: isRoutingActive/isPrewarmed must never contradict the
+        // actual platform operation (audit finding F-2.2).
+        assertFalse(AudioDeviceManager.acquireMicrophone(null, AudioDeviceManager.MIC_MODE_BLUETOOTH_ONLY));
+        assertFalse(AudioDeviceManager.isRoutingActive());
+        assertFalse(AudioDeviceManager.isPrewarmed());
+
+        // isBluetoothCapturing requires active routing; with nothing routed it is false.
+        assertFalse(AudioDeviceManager.isBluetoothCapturing(null));
+    }
+
+    @Test
+    public void testPrewarmNullSafety() {
+        // Must never throw and must never claim pre-warming without a Context.
+        AudioDeviceManager.prewarmMicrophone(null, AudioDeviceManager.MIC_MODE_AUTO);
+        AudioDeviceManager.prewarmMicrophone(null, AudioDeviceManager.MIC_MODE_BLUETOOTH_ONLY);
+        AudioDeviceManager.prewarmMicrophone(null, null);
+        assertFalse(AudioDeviceManager.isPrewarmed());
+        AudioDeviceManager.cancelPrewarm(null);
         assertFalse(AudioDeviceManager.isRoutingActive());
     }
 

@@ -59,7 +59,16 @@ public class AudioRecordBridge {
         }
 
         try {
-            AudioDeviceManager.acquireMicrophone(context, micPreference);
+            boolean routed = AudioDeviceManager.acquireMicrophone(context, micPreference);
+            if (!routed) {
+                // Only reachable in the explicit "Bluetooth only" mode: the platform
+                // did not confirm a Bluetooth input route. Falling back to the built-in
+                // mic here would silently contradict the user's explicit choice.
+                Log.e(TAG, "Bluetooth-only routing failed; refusing to capture from another device");
+                if (callback != null) callback.onError("Bluetooth microphone requested but unavailable");
+                AudioDeviceManager.releaseMicrophone(context);
+                return false;
+            }
             audioRecord = AudioDeviceManager.createAudioRecord(context, micPreference);
             if (audioRecord == null || audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
                 Log.e(TAG, "Failed to initialize AudioRecord");

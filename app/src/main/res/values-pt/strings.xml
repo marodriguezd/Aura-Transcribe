@@ -291,6 +291,7 @@
     <string name="mic_test_btn_stop">Parar teste de som</string>
     <string name="mic_test_active_device">Dispositivo ativo: %1$s</string>
     <string name="mic_active_builtin">Microfone interno</string>
+    <string name="mic_bluetooth_unavailable">Microfone Bluetooth solicitado mas indisponível. Ligue um auscultador ou altere o modo de entrada nas definições da app.</string>
 
     <!-- App UI language (auto = follow system) -->
     <string name="setting_language">Idioma do app</string>

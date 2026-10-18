@@ -25,6 +25,7 @@ import okhttp3.mockwebserver.RecordedRequest;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -956,6 +957,94 @@ public class PostProcessorTest {
         assertTrue(done.await(10, TimeUnit.SECONDS));
         assertTrue("chunked oversized body must fail", callback.outcome.get().startsWith("err:"));
         assertEquals(1, callback.deliveries.get());
+    }
+
+    // ------------------------------------------------------------------
+    // Redirect policy (2026-10 corrective audit, Phase 6F)
+    // ------------------------------------------------------------------
+
+    @Test
+    public void crossHostRedirectDropsTheAuthorizationHeader() throws Exception {
+        // A provider that redirects to a DIFFERENT host must never receive the
+        // bearer credential. OkHttp's RetryAndFollowUpInterceptor strips
+        // Authorization on cross-host redirects; this test pins that guarantee
+        // so a client-configuration change (or a future OkHttp regression)
+        // cannot silently start leaking the key to another origin.
+        MockWebServer target = new MockWebServer();
+        target.start();
+        try {
+            final String otherHost = "redirect.test";
+            PostProcessor.setSharedClientForTests(new OkHttpClient.Builder()
+                    .dns(host -> {
+                        if (otherHost.equals(host)) {
+                            return java.util.Collections.singletonList(
+                                    InetAddress.getByName("127.0.0.1"));
+                        }
+                        return Dns.SYSTEM.lookup(host);
+                    })
+                    .build());
+
+            // Same IP, different host name: OkHttp treats it as another origin.
+            java.net.URL targetUrl = target.url("/")
+                    .newBuilder().host(otherHost).build().url();
+            target.enqueue(new MockResponse()
+                    .setBody(completionJson("refined elsewhere")));
+            server.enqueue(new MockResponse()
+                    .setResponseCode(307)
+                    .setHeader("Location", targetUrl.toString()));
+
+            FakeSettings settings = new FakeSettings();
+            settings.url = server.url("/").toString();
+
+            CountDownLatch done = new CountDownLatch(1);
+            AtomicReference<String> outcome = new AtomicReference<>("pending");
+            newProcessor(settings, new Object()).process("raw",
+                    callback("ok:", "err:", outcome, done));
+
+            assertTrue("the redirect must still deliver the refined text",
+                    done.await(5, TimeUnit.SECONDS));
+            assertEquals("ok:refined elsewhere", outcome.get());
+
+            RecordedRequest original = server.takeRequest(2, TimeUnit.SECONDS);
+            assertNotNull(original);
+            assertEquals("Bearer test-key", original.getHeader("Authorization"));
+
+            RecordedRequest followed = target.takeRequest(2, TimeUnit.SECONDS);
+            assertNotNull("the redirect must be followed", followed);
+            assertNull("the credential must NOT cross the origin boundary",
+                    followed.getHeader("Authorization"));
+        } finally {
+            target.shutdown();
+            PostProcessor.resetSharedClientForTests();
+        }
+    }
+
+    @Test
+    public void sameHostRedirectKeepsTheAuthorizationHeader() throws Exception {
+        // Documents the deliberate policy: redirects within the SAME host keep
+        // the credential (common behind provider gateways); only cross-host
+        // redirects drop it. Both tests together pin the exact policy.
+        server.enqueue(new MockResponse()
+                .setResponseCode(307)
+                .setHeader("Location", server.url("/internal").toString()));
+        server.enqueue(new MockResponse().setBody(completionJson("same origin")));
+
+        FakeSettings settings = new FakeSettings();
+        settings.url = server.url("/").toString();
+
+        CountDownLatch done = new CountDownLatch(1);
+        AtomicReference<String> outcome = new AtomicReference<>("pending");
+        newProcessor(settings, new Object()).process("raw",
+                callback("ok:", "err:", outcome, done));
+
+        assertTrue(done.await(5, TimeUnit.SECONDS));
+        assertEquals("ok:same origin", outcome.get());
+
+        RecordedRequest original = server.takeRequest(2, TimeUnit.SECONDS);
+        assertNotNull(original);
+        RecordedRequest followed = server.takeRequest(2, TimeUnit.SECONDS);
+        assertNotNull(followed);
+        assertEquals("Bearer test-key", followed.getHeader("Authorization"));
     }
 
 }

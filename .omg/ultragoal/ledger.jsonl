@@ -1,5 +1,0 @@
-{"timestamp":"2026-08-12T23:08:35Z","goalId":"G1","fromStatus":"todo","toStatus":"completed","evidence":"Initialized brief.md and goals.json for floating bubble drag-to-dismiss feature"}
-{"timestamp":"2026-08-12T23:11:00Z","goalId":"G2","fromStatus":"in-progress","toStatus":"completed","evidence":"Removed longPressStop timer from FloatingOverlayService onTouch listener"}
-{"timestamp":"2026-08-12T23:11:10Z","goalId":"G3","fromStatus":"todo","toStatus":"completed","evidence":"Created overlay_dismiss_target.xml & drawables and integrated drag hover detection in FloatingOverlayService"}
-{"timestamp":"2026-08-12T23:15:58Z","goalId":"G4","fromStatus":"in-progress","toStatus":"completed","evidence":"check_translations.py PASS (224/224 strings) and testDebugUnitTest BUILD SUCCESSFUL in 48s"}
-{"timestamp":"2026-08-12T23:25:40Z","goalId":"G4","fromStatus":"completed","toStatus":"completed","evidence":"Captured mIsHoveringDismiss in ACTION_UP before hideDismissTarget() cleared it; pushed commit 09e3abb"}

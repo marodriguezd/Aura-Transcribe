@@ -92,14 +92,23 @@ public class RecognizeActivity extends AppCompatActivity {
         }
 
         initNative(this);
+        SettingsManager sm = new SettingsManager(this);
+        if (!AudioDeviceManager.acquireMicrophone(this, sm.getMicMode())) {
+            // Explicit "Bluetooth only" mode but no Bluetooth microphone could
+            // be routed: report it instead of silently capturing from another
+            // device, and close the popup as canceled.
+            status.setText(getString(R.string.mic_bluetooth_unavailable));
+            AudioDeviceManager.releaseMicrophone(this);
+            setResult(Activity.RESULT_CANCELED);
+            finish();
+            return;
+        }
         isRecording = true;
         status.setText(getString(R.string.rec_listening_tap_stop));
         if (isPauseAudioEnabled()) {
             audioPauser.request(this);
             pauseAudioActive = true;
         }
-        SettingsManager sm = new SettingsManager(this);
-        AudioDeviceManager.acquireMicrophone(this, sm.getMicMode());
         startRecording(isAutoStopEnabled(), ++currentSessionId);
     }
 

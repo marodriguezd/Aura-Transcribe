@@ -291,6 +291,7 @@
     <string name="mic_test_btn_stop">Arrêter le test audio</string>
     <string name="mic_test_active_device">Périphérique actif : %1$s</string>
     <string name="mic_active_builtin">Microphone interne</string>
+    <string name="mic_bluetooth_unavailable">Micro Bluetooth demandé mais indisponible. Connectez un casque ou changez le mode de saisie dans les paramètres de l’appli.</string>
 
     <!-- App UI language (auto = follow system) -->
     <string name="setting_language">Langue de l\'app</string>

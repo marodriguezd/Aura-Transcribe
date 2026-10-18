@@ -75,7 +75,16 @@ public class VoiceRecognitionService extends RecognitionService {
 
         try {
             SettingsManager sm = new SettingsManager(this);
-            AudioDeviceManager.acquireMicrophone(this, sm.getMicMode());
+            if (!AudioDeviceManager.acquireMicrophone(this, sm.getMicMode())) {
+                // Explicit "Bluetooth only" mode but no Bluetooth microphone
+                // could be routed: report a recogniser error instead of
+                // silently capturing from the built-in mic against the user's
+                // explicit choice.
+                Log.w(TAG, "Bluetooth-only routing failed; aborting recognition start");
+                AudioDeviceManager.releaseMicrophone(this);
+                safeError(SpeechRecognizer.ERROR_CLIENT);
+                return;
+            }
             startListening(this, currentSessionId);
         } catch (Throwable t) {
             Log.e(TAG, "startListening failed", t);

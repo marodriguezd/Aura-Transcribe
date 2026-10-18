@@ -291,6 +291,7 @@
     <string name="mic_test_btn_stop">Остановить проверку звука</string>
     <string name="mic_test_active_device">Активное устройство: %1$s</string>
     <string name="mic_active_builtin">Встроенный микрофон</string>
+    <string name="mic_bluetooth_unavailable">Запрошенный Bluetooth-микрофон недоступен. Подключите гарнитуру или измените режим ввода в настройках приложения.</string>
 
     <!-- App UI language (auto = follow system) -->
     <string name="setting_language">Язык приложения</string>
