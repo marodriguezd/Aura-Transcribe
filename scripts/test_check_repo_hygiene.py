@@ -95,9 +95,12 @@ class SecretScanTest(unittest.TestCase):
         self.assertIsNotNone(hyg.find_secret("aws_key = AKIA" + "B" * 16))
 
     def test_detects_private_key_block(self):
-        self.assertIsNotNone(
-            hyg.find_secret("-----BEGIN OPENSSH PRIVATE KEY-----")
-        )
+        # The literal is split so this test file does not itself contain the
+        # contiguous private-key header the hygiene gate scans for (the gate
+        # flagged exactly this fixture on its first CI run); the runtime string
+        # still exercises the real detection path.
+        fixture = "-----BEGIN " + "OPENSSH PRIVATE KEY-----"
+        self.assertIsNotNone(hyg.find_secret(fixture))
 
     def test_allows_ordinary_source(self):
         self.assertIsNone(
