@@ -39,7 +39,8 @@ gpl = read("LICENSE")
 if "GNU GENERAL PUBLIC LICENSE" not in gpl or "Version 3, 29 June 2007" not in gpl:
     fail("root LICENSE is not the full GNU GPL version 3 text")
 for phrase in (
-    "TERMS AND CONDITIONS FOR COPYING, DISTRIBUTION AND MODIFICATION",
+    "0. Definitions.",
+    "5. Conveying Modified Source Versions.",
     "How to Apply These Terms to Your New Programs",
     "END OF TERMS AND CONDITIONS",
 ):
