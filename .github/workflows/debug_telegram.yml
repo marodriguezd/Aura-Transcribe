@@ -75,6 +75,13 @@ jobs:
         python3 scripts/test_check_license_docs.py
         python3 scripts/check_license_docs.py
 
+    # Publishing-guard gate: the release workflow's manual dispatch must stay
+    # validation-only and its single publishing step must stay tag-gated.
+    - name: Validate release publishing guards (hard gate)
+      run: |
+        python3 scripts/test_check_release_workflow.py
+        python3 scripts/check_release_workflow.py
+
     - name: Cargo dependency license inventory
       run: python3 scripts/report_cargo_licenses.py --output build/reports/cargo-licenses.md
 
