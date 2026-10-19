@@ -527,6 +527,19 @@ if (needsNativeBuild(requestedTaskNames)) {
 }
 
 // ---------------------------------------------------------------------------
+// Generate the in-app benchmark sample from the authored text fixture.
+val generatedBenchmarkAssets = layout.buildDirectory.dir("generated/benchmark-assets")
+val generateBenchmarkAudio = tasks.register<Exec>("generateBenchmarkAudio") {
+    val output = generatedBenchmarkAssets.get().file("bench.wav").asFile
+    inputs.file(rootProject.file("benchmark/fixtures/benchmark-transcript.txt"))
+    inputs.file(rootProject.file("scripts/generate_benchmark_audio.py"))
+    outputs.file(output)
+    doFirst { output.parentFile.mkdirs() }
+    commandLine("python3", rootProject.file("scripts/generate_benchmark_audio.py").absolutePath, "--output", output.absolutePath)
+}
+android.sourceSets.getByName("main").assets.srcDir(generatedBenchmarkAssets)
+tasks.named("preBuild").configure { dependsOn(generateBenchmarkAudio) }
+
 // Model asset download task
 // ---------------------------------------------------------------------------
 // The bundled model is only downloaded for release builds. Debug builds ship
