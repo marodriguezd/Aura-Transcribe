@@ -103,7 +103,7 @@
     <string name="models_backend_cpu">CPU（ARM NEON + 点积 + fp16）</string>
 
     <string name="section_benchmark">基准测试</string>
-    <string name="desc_benchmark">使用内置英文测试录音（11 秒）测量当前模型在本机上的转写速度。</string>
+    <string name="desc_benchmark">使用内置合成英语语音样本（约 11 秒）测量当前模型在本机上的转写速度。</string>
     <string name="btn_benchmark">运行基准测试</string>
     <string name="bench_running">正在运行基准测试…</string>
     <string name="bench_result">%1$s 秒音频用时 %2$s 秒：%3$s 倍实时</string>

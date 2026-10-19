@@ -102,7 +102,7 @@
     <string name="models_backend_cpu">CPU (ARM NEON + dotprod + fp16)</string>
 
     <string name="section_benchmark">Тест скорости</string>
-    <string name="desc_benchmark">Измеряет скорость распознавания активной модели на этом устройстве по встроенной тестовой записи на английском (11 с).</string>
+    <string name="desc_benchmark">Измеряет скорость распознавания активной модели на этом устройстве по встроенному синтетическому образцу английской речи (~11 с).</string>
     <string name="btn_benchmark">Запустить тест</string>
     <string name="bench_running">Идёт тест…</string>
     <string name="bench_result">%1$s с аудио за %2$s с: %3$s× реального времени</string>
