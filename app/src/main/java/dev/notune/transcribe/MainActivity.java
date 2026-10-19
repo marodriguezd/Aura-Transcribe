@@ -187,8 +187,6 @@ public class MainActivity extends AppCompatActivity {
     private Button voiceGrantButton;
     private Button voiceTryButton;
     private Button startSubsButton;
-    private Button benchButton;
-    private TextView benchResultText;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -243,10 +241,6 @@ public class MainActivity extends AppCompatActivity {
         // permission the public SDK does not expose — see UserDictionaryHelper.
         findViewById(R.id.btn_custom_words).setOnClickListener(v ->
                 UserDictionaryHelper.openSystemUserDictionarySettings(this));
-
-        benchButton = findViewById(R.id.btn_benchmark);
-        benchResultText = findViewById(R.id.text_bench_result);
-        benchButton.setOnClickListener(v -> runBenchmark());
 
         // Settings stored as marker files in filesDir: the native engine reads them
         // straight from the filesystem, with no ContentProvider involved.
@@ -786,92 +780,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // --- Benchmark ----------------------------------------------------------
-
-    /**
-     * Transcribes the bundled test clip through the active model and shows the
-     * speed as a real-time factor. The clip is a fixed eSpeak-synthesized English utterance so
-     * results are comparable across models and devices; the WAV is generated at build time and the run uses the
-     * current model settings (language hint, translate).
-     */
-    private void runBenchmark() {
-        benchButton.setEnabled(false);
-        benchResultText.setVisibility(View.VISIBLE);
-        benchResultText.setText(R.string.bench_running);
-
-        new Thread(() -> {
-            float[] samples;
-            try {
-                samples = readWavAsset("bench.wav");
-            } catch (IOException e) {
-                Log.e(TAG, "Failed to read benchmark clip", e);
-                runOnUiThread(() -> {
-                    if (isFinishing() || isDestroyed()) return;
-                    benchResultText.setText(getString(R.string.bench_error, e.getMessage()));
-                    benchButton.setEnabled(true);
-                });
-                return;
-            }
-            benchmarkNative(this, samples, samples.length);
-        }, "benchmark-load").start();
-    }
-
-    // Called from Rust when the benchmark run finishes.
-    public void onBenchmarkResult(float audioSecs, float computeSecs, String error) {
-        runOnUiThread(() -> {
-            if (isFinishing() || isDestroyed()) return;
-            benchButton.setEnabled(true);
-            benchResultText.setVisibility(View.VISIBLE);
-            if (error != null && !error.isEmpty()) {
-                benchResultText.setText(getString(R.string.bench_error, error));
-            } else {
-                benchResultText.setText(getString(R.string.bench_result,
-                        String.format(java.util.Locale.getDefault(), "%.1f", audioSecs),
-                        String.format(java.util.Locale.getDefault(), "%.1f", computeSecs),
-                        String.format(java.util.Locale.getDefault(), "%.1f",
-                                computeSecs > 0 ? audioSecs / computeSecs : 0)));
-            }
-        });
-    }
-
-    /**
-     * Reads a 16 kHz mono 16-bit PCM WAV from assets into float samples. Only
-     * handles the format the bundled clip is stored in; no general WAV support.
-     */
-    private float[] readWavAsset(String name) throws IOException {
-        byte[] bytes;
-        try (java.io.InputStream in = getAssets().open(name);
-             java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
-            byte[] buf = new byte[64 * 1024];
-            int read;
-            while ((read = in.read(buf)) != -1) {
-                out.write(buf, 0, read);
-            }
-            bytes = out.toByteArray();
-        }
-
-        // Find the "data" chunk instead of assuming a 44-byte header.
-        int offset = 12;
-        while (offset + 8 <= bytes.length) {
-            int chunkSize = (bytes[offset + 4] & 0xff) | ((bytes[offset + 5] & 0xff) << 8)
-                    | ((bytes[offset + 6] & 0xff) << 16) | ((bytes[offset + 7] & 0xff) << 24);
-            if (bytes[offset] == 'd' && bytes[offset + 1] == 'a'
-                    && bytes[offset + 2] == 't' && bytes[offset + 3] == 'a') {
-                int start = offset + 8;
-                int count = Math.min(chunkSize, bytes.length - start) / 2;
-                float[] samples = new float[count];
-                for (int i = 0; i < count; i++) {
-                    int lo = bytes[start + 2 * i] & 0xff;
-                    int hi = bytes[start + 2 * i + 1];
-                    samples[i] = ((hi << 8) | lo) / 32768.0f;
-                }
-                return samples;
-            }
-            offset += 8 + chunkSize + (chunkSize & 1);
-        }
-        throw new IOException(getString(R.string.bench_no_data_chunk, name));
-    }
-
     // Called from Rust via JNI with engine status; forwarded to the UI thread
     public void onStatusUpdate(String status) {
         runOnUiThread(() -> {
@@ -894,7 +802,6 @@ public class MainActivity extends AppCompatActivity {
     private void maybeDownloadDebugModel() {
         if (isDownloadingDebugModel.get()) {
             statusText.setText(R.string.debug_model_downloading);
-            benchButton.setEnabled(false);
             return;
         }
 
@@ -962,11 +869,9 @@ public class MainActivity extends AppCompatActivity {
     private void startDebugModelDownload() {
         if (!isDownloadingDebugModel.compareAndSet(false, true)) {
             statusText.setText(R.string.debug_model_downloading);
-            benchButton.setEnabled(false);
             return;
         }
         statusText.setText(R.string.debug_model_downloading);
-        benchButton.setEnabled(false);
         cancelDebugModelDownload.set(false);
         showDebugDownloadNotification(0, -1, -1);
         final Context appContext = getApplicationContext();
@@ -1112,7 +1017,6 @@ public class MainActivity extends AppCompatActivity {
                     ui.runOnUiThread(() -> {
                         if (ui.isFinishing() || ui.isDestroyed()) return;
                         ui.statusText.setText(R.string.debug_model_downloaded);
-                        ui.benchButton.setEnabled(true);
                         ui.initNative(ui);
                     });
                 }
@@ -1123,7 +1027,6 @@ public class MainActivity extends AppCompatActivity {
                     ui.runOnUiThread(() -> {
                         if (ui.isFinishing() || ui.isDestroyed()) return;
                         ui.statusText.setText(R.string.debug_model_cancelled);
-                        ui.benchButton.setEnabled(true);
                     });
                 }
             } catch (Exception e) {
@@ -1226,7 +1129,6 @@ public class MainActivity extends AppCompatActivity {
 
     private void onModelDownloadFailed(String reason) {
         statusText.setText(getString(R.string.debug_model_error, reason));
-        benchButton.setEnabled(true);
         showRetryDownloadDialog(reason);
     }
 
@@ -1238,14 +1140,9 @@ public class MainActivity extends AppCompatActivity {
                 .setPositiveButton(R.string.debug_model_retry,
                         (d, w) -> requestNotificationPermissionThenStartDownload())
                 .setNegativeButton(R.string.debug_model_cancel,
-                        (d, w) -> {
-                            statusText.setText(R.string.debug_model_cancelled);
-                            benchButton.setEnabled(true);
-                        })
+                        (d, w) -> statusText.setText(R.string.debug_model_cancelled))
                 .show();
     }
 
     private native void initNative(MainActivity activity);
-
-    private native void benchmarkNative(MainActivity activity, float[] samples, int length);
 }

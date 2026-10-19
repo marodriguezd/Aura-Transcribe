@@ -30,7 +30,7 @@ jobs:
       run: cargo fmt --all -- --check
 
     - name: Install native build dependencies
-      run: sudo apt-get update && sudo apt-get install -y cmake ninja-build espeak ffmpeg pkg-config libasound2-dev build-essential
+      run: sudo apt-get update && sudo apt-get install -y cmake ninja-build pkg-config libasound2-dev build-essential
 
     - name: Rust workspace tests (hard gate)
       run: cargo test --workspace
@@ -211,7 +211,7 @@ jobs:
       uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2.7.8
 
     - name: Install CMake & Ninja
-      run: sudo apt-get update && sudo apt-get install -y cmake ninja-build espeak ffmpeg
+      run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
 
     - name: Cache cargo-ndk
       id: cache-cargo-ndk
@@ -402,6 +402,12 @@ jobs:
         }
         echo "OK: assets/MODEL_LICENSE.md verified inside release APK."
 
+        unzip -p "$APK" assets/MODEL_NOTICE.md | cmp - MODEL_NOTICE.md || {
+          echo "::error::assets/MODEL_NOTICE.md is missing or corrupt in release APK"
+          exit 1
+        }
+        echo "OK: assets/MODEL_NOTICE.md verified inside release APK."
+
         echo "RELEASE_APK=$APK" >> "$GITHUB_ENV"
 
     - name: Verify bundled model hash (checkModels gate)
@@ -472,6 +478,12 @@ jobs:
         }
         echo "OK: model_assets/assets/MODEL_LICENSE.md verified inside release AAB."
 
+        unzip -p "$AAB" model_assets/assets/MODEL_NOTICE.md | cmp - MODEL_NOTICE.md || {
+          echo "::error::model_assets/assets/MODEL_NOTICE.md is missing or corrupt in release AAB"
+          exit 1
+        }
+        echo "OK: model_assets/assets/MODEL_NOTICE.md verified inside release AAB."
+
         echo "RELEASE_AAB=$AAB" >> "$GITHUB_ENV"
 
     - name: Extract Version Name
@@ -535,3 +547,4 @@ jobs:
           Aura_Transcribe_v${{ env.VERSION_NAME }}.apk
           Aura_Transcribe_v${{ env.VERSION_NAME }}.aab
           MODEL_LICENSE.md
+          MODEL_NOTICE.md

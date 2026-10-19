@@ -16,8 +16,8 @@ The runner:
 5. selects the provider by the clickable AutoComplete popup row (not by screen
    coordinates), enters the model and API key by resource ID, enables the
    feature, and saves;
-6. pushes `app/src/main/assets/bench.wav` and launches the exported audio VIEW
-   intent;
+6. pushes the WAV passed through the **required** `--audio` option (no audio file
+   is bundled in the APK) and launches the exported audio VIEW intent;
 7. asserts that the file screen displays a visible final result containing a
    deterministic QA marker, and has no fatal/ANR or PostProcessor error logs;
    the transient `Refining...` state is recorded when observed but is not a
@@ -43,7 +43,8 @@ private development phone while debugging a failure.
 export GROQ_API_KEY='paste-a-short-lived-test-key-here'
 python3 scripts/smoke_postprocess_device.py \
   --serial 192.168.1.45:39803 \
-  --apk app/build/outputs/apk/debug/app-debug.apk
+  --apk app/build/outputs/apk/debug/app-debug.apk \
+  --audio /path/to/sample.wav
 ```
 
 The script prints only test state and sanitized assertions. It never prints the
@@ -59,6 +60,7 @@ The defaults target Groq and `openai/gpt-oss-120b`:
 GROQ_API_KEY="$KEY" python3 scripts/smoke_postprocess_device.py \
   --serial "$ADB_SERIAL" \
   --apk "$APK" \
+  --audio /path/to/sample.wav \
   --provider Groq \
   --model openai/gpt-oss-120b
 ```

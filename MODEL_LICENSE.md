@@ -12,9 +12,17 @@ This document provides the license terms and notices of origin for the bundled s
 
 ## License Scope and Separation
 
-- **Aura Transcribe application source:** The code authored for this fork is licensed under the GNU GPL version 3.0 only; see the repository-root `LICENSE`. Code inherited or adapted from `notune/android_transcribe_app` retains the upstream copyright and MIT-license conditions; a copy of that license is preserved in `licenses/UPSTREAM-MIT.txt`. Third-party components and exceptions are itemized in `THIRD_PARTY_NOTICES.md`.
+- **Aura Transcribe application source:** Fork-authored code is licensed under GNU GPL-3.0-only; see the repository-root `LICENSE`. Code inherited or adapted from `notune/android_transcribe_app` remains under the upstream copyright and MIT-license conditions; a copy of that license is preserved in `licenses/UPSTREAM-MIT.txt`. Third-party components and exceptions are itemized in `THIRD_PARTY_NOTICES.md`.
 - **Native runtime dependencies:** `transcribe-cpp` 0.1.3 and the `ggml` code supplied by that dependency are MIT-licensed; `cpal` is Apache-2.0-licensed. Their license notices are included in `licenses/` and summarized in `THIRD_PARTY_NOTICES.md`.
 - **Model weights and architecture artifacts:** The bundled Nemotron GGUF model and its model materials remain under the OpenMDW License Agreement, version 1.1 (OpenMDW-1.1). The model is a separately licensed asset and is not relicensed by the application source-code license. Retain this notice and the complete OpenMDW terms when redistributing it.
+
+---
+
+## NOTICE of Modifications
+
+Modifications: handy-computer converted https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b at commit 24b151a to GGUF for transcribe.cpp (https://github.com/handy-computer/transcribe.cpp). Conversion repackages the weights, renaming and re-laying-out tensors; the quantized files (Q8_0, Q6_K, Q5_K_M, Q4_K_M) also store them at reduced numeric precision. The weights were not retrained or fine-tuned.
+
+This NOTICE is distributed together with this license and the model materials. A standalone copy is also provided as `MODEL_NOTICE.md`.
 
 ---
 

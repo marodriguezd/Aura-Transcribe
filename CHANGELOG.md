@@ -45,7 +45,7 @@ Hardening pass on the `hardening/aura-transcribe-v0.3.4` branch; version bump to
 
 - **Default Model Upgrade to 5-bit (`Q5_K_M`):** Replaced the default bundled speech recognition model artifact from `nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf` (751 MB) with `nemotron-3.5-asr-streaming-0.6b-Q5_K_M.gguf` (560 MB), achieving a 25.5% storage saving.
 - **Lower Memory & Energy Consumption:** Reduced peak runtime resident memory by ~210 MB, speeding up inference and reducing battery drain during long-running streaming dictation while maintaining full transcription precision across 40 supported languages and regional locales.
-- **Benchmark Suite:** Added reproducible multilingual benchmark tooling (`scripts/benchmark_asr.py`, `scripts/prepare_corpus.py`, and `scripts/test_benchmark_suite.py`) validating model accuracy and resource trade-offs against the FLEURS multilingual corpus.
+- **Benchmark Suite:** Added benchmark tooling (`scripts/benchmark_asr.py`, `scripts/prepare_corpus.py`, and `scripts/test_benchmark_suite.py`); the suite is a synthetic smoke test and does not distribute an external dataset.
 
 # Unreleased — Android 17 (API 37) platform pass
 
@@ -54,7 +54,7 @@ Platform, build and documentation hardening; no new user-facing features, and th
 - **Android 17 / API 37:** `compileSdk` and `targetSdk` raised from 35 to **37**. The project previously described itself as "Android 17 Ready (API 35+)", which was wrong on both counts — API 35 is Android 15. `minSdk` remains 26 (Android 8.0).
 - **Toolchain:** Android Gradle Plugin 8.7.3 → **9.4.1**, Gradle wrapper 8.9 → **9.8.0**, Android NDK `28.0.13004108` → **`28.2.13676358`** (Gradle, the CI workflows and the docs now name the same version).
 - **Release optimisation:** R8 minification and resource shrinking are now **enabled** for release builds (both were previously `false`), with narrowly scoped keep rules in `app/proguard-rules.pro` covering the JNI entry points, the Java callbacks Rust invokes by name, and the reflective ML Kit/Tink surfaces.
-- **Performance measurement:** new `:benchmark` module providing Macrobenchmark startup tests and Baseline Profile generation. It requires a connected arm64 device and is deliberately excluded from CI; the existing in-app native ASR benchmark is unchanged and still covers inference throughput.
+- **Performance measurement:** new `:benchmark` module providing Macrobenchmark startup tests and Baseline Profile generation. It requires a connected arm64 device and is deliberately excluded from CI. The former in-app native ASR audio benchmark was removed; the remaining benchmark tooling is a synthetic smoke test, and no audio fixture is distributed.
 - **Build portability:** the hard-coded `android.aapt2FromMavenOverride` Termux path was removed from `gradle.properties` (commented out, with instructions), because pointing it at a non-existent file breaks every resource task on non-Termux hosts.
 - **Naming:** root project renamed `OfflineVoiceInput` → `AuraTranscribe`.
 - **Corrected capability claim:** the NPU (NNAPI) and GPU (Vulkan) hardware-backend options were never implemented in the native engine and must not be presented as working capabilities.
@@ -121,7 +121,7 @@ Major Milestone Release: Official rebranding to **Aura Transcribe** (`com.auratr
 - **FUTO-Style Dynamic Audio Routing:** Added `AudioDeviceManager` supporting seamless switching between Bluetooth SCO headsets, BLE Audio, USB external microphones, and internal phone microphones.
 - **AI Post-Processing Layer:** Integrated SuperWhisper S1-mini and OpenAI-compatible API providers (Groq, Cerebras, OpenRouter, OpenAI, Mistral, Together, Ollama) with 4 formatting presets (*Clean*, *Formal*, *Casual*, *Verbatim*).
 - **Floating Overlay Dictation:** Built lightweight overlay bubble (`SYSTEM_ALERT_WINDOW`) and Accessibility auto-paste service.
-- **Pure-JVM Test Harness & Benchmarks:** Expanded unit test coverage to 14 suites (100% JVM decoupled pass rate) and automated SIMD latency benchmarks.
+- **Pure-JVM Test Harness & Benchmarks:** Expanded unit test coverage to 14 suites (100% JVM decoupled pass rate) and added reference-algorithm correctness checks.
 - **Hardened CI/CD Pipeline:** Fully automated multi-gate GitHub Actions build workflows with direct Telegram APK delivery and automated error extraction.
 
 # v0.1.36

@@ -6,7 +6,7 @@
 
 [English](README.md) · [Español](README_es.md) · [Deutsch](README_de.md) · [Français](README_fr.md) · Italiano · [中文](README_zh.md)
 
-Il codice sorgente dell’applicazione è distribuito con GPL-3.0-only. I componenti di terze parti e il modello vocale incluso mantengono le proprie condizioni; consulta [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) e [MODEL_LICENSE.md](MODEL_LICENSE.md).
+Il codice sorgente scritto per questo fork è distribuito con GPL-3.0-only; il codice ereditato dall’upstream resta sotto MIT. I componenti di terze parti e il modello vocale incluso mantengono le proprie condizioni; consulta [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) e [MODEL_LICENSE.md](MODEL_LICENSE.md).
 
 Aura Transcribe è un'applicazione speech-to-text on-device e un servizio di input vocale per Android. Basata su Rust, ottimizzazioni SIMD ARM NEON e kernel di inferenza GGML, esegue il riconoscimento vocale localmente sulla CPU del dispositivo senza richiedere una connessione di rete attiva.
 

@@ -527,19 +527,6 @@ if (needsNativeBuild(requestedTaskNames)) {
 }
 
 // ---------------------------------------------------------------------------
-// Generate the in-app benchmark sample from the authored text fixture.
-val generatedBenchmarkAssets = layout.buildDirectory.dir("generated/benchmark-assets")
-val generateBenchmarkAudio = tasks.register<Exec>("generateBenchmarkAudio") {
-    val output = generatedBenchmarkAssets.get().file("bench.wav").asFile
-    inputs.file(rootProject.file("benchmark/fixtures/benchmark-transcript.txt"))
-    inputs.file(rootProject.file("scripts/generate_benchmark_audio.py"))
-    outputs.file(output)
-    doFirst { output.parentFile.mkdirs() }
-    commandLine("python3", rootProject.file("scripts/generate_benchmark_audio.py").absolutePath, "--output", output.absolutePath)
-}
-android.sourceSets.getByName("main").assets.srcDir(generatedBenchmarkAssets)
-tasks.named("preBuild").configure { dependsOn(generateBenchmarkAudio) }
-
 // Model asset download task
 // ---------------------------------------------------------------------------
 // The bundled model is only downloaded for release builds. Debug builds ship
@@ -632,22 +619,29 @@ fun downloadToDir(assetsDir: File, files: List<ModelFile>) {
 }
 
 val downloadModels = tasks.register("downloadModels") {
-    description = "Download the built-in speech model (GGUF) and package MODEL_LICENSE.md"
+    description = "Download the built-in speech model (GGUF) and package its license and NOTICE"
     group = "build"
 
     // The GGUF -> asset pack (separate install-time delivery)
     val packAssetsDir = rootProject.file("model_assets/src/main/assets/builtin-model")
     val packRootDir = rootProject.file("model_assets/src/main/assets")
     val licenseSrc = rootProject.file("MODEL_LICENSE.md")
+    val noticeSrc = rootProject.file("MODEL_NOTICE.md")
 
     outputs.dir(packAssetsDir)
     outputs.file(File(packRootDir, "MODEL_LICENSE.md"))
+    outputs.file(File(packRootDir, "MODEL_NOTICE.md"))
 
     doLast {
-        downloadToDir(packAssetsDir, modelPackFiles)
-        if (licenseSrc.exists()) {
-            licenseSrc.copyTo(File(packRootDir, "MODEL_LICENSE.md"), overwrite = true)
+        if (!licenseSrc.isFile || !noticeSrc.isFile) {
+            throw GradleException(
+                "downloadModels: MODEL_LICENSE.md and MODEL_NOTICE.md must both exist at the " +
+                    "repository root; the model cannot be distributed without them."
+            )
         }
+        downloadToDir(packAssetsDir, modelPackFiles)
+        licenseSrc.copyTo(File(packRootDir, "MODEL_LICENSE.md"), overwrite = true)
+        noticeSrc.copyTo(File(packRootDir, "MODEL_NOTICE.md"), overwrite = true)
     }
 }
 
@@ -725,6 +719,10 @@ val verifyReleaseApkModel = tasks.register("verifyReleaseApkModel") {
 
     val outputsDir = layout.buildDirectory.dir("outputs/apk/release")
     val modelSourceDir = rootProject.file("model_assets/src/main/assets/builtin-model")
+    val modelDocuments = linkedMapOf(
+        "MODEL_LICENSE.md" to rootProject.file("MODEL_LICENSE.md"),
+        "MODEL_NOTICE.md" to rootProject.file("MODEL_NOTICE.md"),
+    )
 
     doLast {
         val artifacts = newestArchives(outputsDir.get().asFile, ".apk")
@@ -741,6 +739,7 @@ val verifyReleaseApkModel = tasks.register("verifyReleaseApkModel") {
                 allowModelLess = allowModelLessReleaseApk,
                 optOutProperty = "auratranscribe.allowModelLessReleaseApk",
             )
+            verifyModelDocumentsInArchive(apk, "APK", modelDocuments)
         }
     }
 }
@@ -759,6 +758,10 @@ val verifyReleaseBundleModel = tasks.register("verifyReleaseBundleModel") {
 
     val outputsDir = layout.buildDirectory.dir("outputs/bundle/release")
     val modelSourceDir = rootProject.file("model_assets/src/main/assets/builtin-model")
+    val modelDocuments = linkedMapOf(
+        "MODEL_LICENSE.md" to rootProject.file("MODEL_LICENSE.md"),
+        "MODEL_NOTICE.md" to rootProject.file("MODEL_NOTICE.md"),
+    )
 
     doLast {
         val artifacts = newestArchives(outputsDir.get().asFile, ".aab")
@@ -773,6 +776,7 @@ val verifyReleaseBundleModel = tasks.register("verifyReleaseBundleModel") {
         // this app, and its whole point is the install-time asset pack.
         artifacts.forEach { aab ->
             verifyModelInArchive(aab, expected, "AAB", allowModelLess = false, optOutProperty = null)
+            verifyModelDocumentsInArchive(aab, "AAB", modelDocuments)
         }
     }
 }
@@ -973,9 +977,10 @@ val isVerificationOnlyRun = requestedTaskNames.isNotEmpty() && requestedTaskName
         name.contains("checkModels", ignoreCase = true)
 }
 val copyModelLicense = tasks.register<Copy>("copyModelLicense") {
-    description = "Copies MODEL_LICENSE.md into model_assets assets directory for release packaging"
+    description = "Copies MODEL_LICENSE.md and MODEL_NOTICE.md into model_assets for release packaging"
     group = "build"
     from(rootProject.file("MODEL_LICENSE.md"))
+    from(rootProject.file("MODEL_NOTICE.md"))
     into(rootProject.file("model_assets/src/main/assets"))
 }
 
@@ -1432,6 +1437,60 @@ fun verifyModelInArchive(
 }
 
 /**
+ * Asserts that each model document in [documents] is packaged at the exact
+ * artifact path, exactly once, and is byte-identical to its repository source.
+ *
+ * The license and NOTICE are small, so content equality (not just length) is
+ * cheap and catches a stale copy generated by an earlier build. They live next
+ * to the GGUF in the APK's `assets/` or the AAB's `model_assets/assets/`.
+ */
+fun verifyModelDocumentsInArchive(archive: File, kind: String, documents: Map<String, File>) {
+    val prefix = if (kind.equals("AAB", ignoreCase = true)) {
+        "model_assets/assets/"
+    } else {
+        "assets/"
+    }
+    val zip = try {
+        ZipFile(archive)
+    } catch (e: IOException) {
+        throw GradleException("$kind ${archive.name} is not a readable zip: ${e.message}", e)
+    }
+    zip.use {
+        val entries = zip.entries().asSequence().filter { !it.isDirectory }.toList()
+        for ((name, source) in documents) {
+            if (!source.isFile) {
+                throw GradleException(
+                    "$kind ${archive.name}: source document $name is missing at " +
+                        "${source.absolutePath}; refusing to verify an archive without it."
+                )
+            }
+            val expectedPath = prefix + name
+            val copies = entries.filter { it.name.substringAfterLast('/') == name }
+            if (copies.none { it.name == expectedPath }) {
+                throw GradleException(
+                    "$kind ${archive.name} does not contain $expectedPath. The model license " +
+                        "and NOTICE must ship next to the model at exactly that path."
+                )
+            }
+            if (copies.size > 1) {
+                throw GradleException(
+                    "$kind ${archive.name} contains $name ${copies.size} times " +
+                        "(${copies.joinToString(", ") { it.name }}); it must be delivered once."
+                )
+            }
+            val packaged = zip.getInputStream(copies.single()).readBytes()
+            if (!packaged.contentEquals(source.readBytes())) {
+                throw GradleException(
+                    "$kind ${archive.name} packages $expectedPath with stale or corrupted " +
+                        "content; it must be byte-identical to ${source.absolutePath}."
+                )
+            }
+            println("  $kind ${archive.name}: OK $expectedPath (${packaged.size} bytes, exact copy)")
+        }
+    }
+}
+
+/**
  * Splits an invocation's task names into `(apkProducers, bundleProducers)`.
  *
  * Accepts raw Gradle names (`:app:assembleRelease`) as well as already stripped
@@ -1539,6 +1598,28 @@ fun expectModelGateOutcome(
         throw GradleException(
             "verifyPackagingDecision: '$label' must be REJECTED by the bundled-model gate, but it " +
                 "passed. The gate no longer protects against this packaging mistake."
+        )
+    }
+}
+
+fun expectModelDocumentsGateOutcome(
+    archive: File,
+    kind: String,
+    documents: Map<String, File>,
+    label: String,
+    shouldPass: Boolean,
+) {
+    val outcome = runCatching { verifyModelDocumentsInArchive(archive, kind, documents) }
+    if (shouldPass && outcome.isFailure) {
+        throw GradleException(
+            "verifyPackagingDecision: '$label' must pass the model-document gate, but it was " +
+                "rejected: ${outcome.exceptionOrNull()?.message ?: "no message"}"
+        )
+    }
+    if (!shouldPass && outcome.isSuccess) {
+        throw GradleException(
+            "verifyPackagingDecision: '$label' must be REJECTED by the model-document gate, but " +
+                "it passed. The license/NOTICE delivery is no longer protected."
         )
     }
 }
@@ -1746,6 +1827,85 @@ fun runPackagingDecisionGate(workDir: File) {
     )
 
     println("  verifyPackagingDecision: 15 archive cases verified (accept and reject)")
+
+    // ---- 3b. Model license + NOTICE delivery -------------------------------
+    val docSourceDir = File(workDir, "doc-source").apply { mkdirs() }
+    val licenseBytes = "synthetic model license\n".toByteArray()
+    val noticeBytes = "synthetic model notice\n".toByteArray()
+    val licenseSource = File(docSourceDir, "MODEL_LICENSE.md").apply { writeBytes(licenseBytes) }
+    val noticeSource = File(docSourceDir, "MODEL_NOTICE.md").apply { writeBytes(noticeBytes) }
+    val modelDocuments = linkedMapOf(
+        "MODEL_LICENSE.md" to licenseSource,
+        "MODEL_NOTICE.md" to noticeSource,
+    )
+
+    val apkDocs = File(workDir, "apk-docs-ok.zip")
+    writeProbeArchive(
+        apkDocs,
+        listOf(
+            "assets/MODEL_LICENSE.md" to licenseBytes,
+            "assets/MODEL_NOTICE.md" to noticeBytes,
+        ),
+    )
+    expectModelDocumentsGateOutcome(
+        apkDocs, "APK", modelDocuments,
+        "APK with the model license and NOTICE at assets/", true,
+    )
+
+    val aabDocs = File(workDir, "aab-docs-ok.zip")
+    writeProbeArchive(
+        aabDocs,
+        listOf(
+            "model_assets/assets/MODEL_LICENSE.md" to licenseBytes,
+            "model_assets/assets/MODEL_NOTICE.md" to noticeBytes,
+        ),
+    )
+    expectModelDocumentsGateOutcome(
+        aabDocs, "AAB", modelDocuments,
+        "AAB with the model license and NOTICE in the asset pack", true,
+    )
+
+    val apkDocsWrongPath = File(workDir, "apk-docs-wrong-path.zip")
+    writeProbeArchive(
+        apkDocsWrongPath,
+        listOf(
+            "model_assets/assets/MODEL_LICENSE.md" to licenseBytes,
+            "model_assets/assets/MODEL_NOTICE.md" to noticeBytes,
+        ),
+    )
+    expectModelDocumentsGateOutcome(
+        apkDocsWrongPath, "APK", modelDocuments,
+        "APK with the model documents only at the AAB path", false,
+    )
+
+    val apkDocsStale = File(workDir, "apk-docs-stale.zip")
+    writeProbeArchive(
+        apkDocsStale,
+        listOf(
+            "assets/MODEL_LICENSE.md" to licenseBytes,
+            "assets/MODEL_NOTICE.md" to "stale notice\n".toByteArray(),
+        ),
+    )
+    expectModelDocumentsGateOutcome(
+        apkDocsStale, "APK", modelDocuments,
+        "APK with a stale model NOTICE", false,
+    )
+
+    val apkDocsDuplicate = File(workDir, "apk-docs-duplicate.zip")
+    writeProbeArchive(
+        apkDocsDuplicate,
+        listOf(
+            "assets/MODEL_LICENSE.md" to licenseBytes,
+            "assets/MODEL_NOTICE.md" to noticeBytes,
+            "stray/MODEL_NOTICE.md" to noticeBytes,
+        ),
+    )
+    expectModelDocumentsGateOutcome(
+        apkDocsDuplicate, "APK", modelDocuments,
+        "APK with a duplicate model NOTICE", false,
+    )
+
+    println("  verifyPackagingDecision: 5 model-document cases verified (accept and reject)")
 
     // ---- 4. Task selection for native compilation (needsNativeBuild) --------
     val nativeBuildCases = listOf(

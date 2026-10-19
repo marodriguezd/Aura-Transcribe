@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
-"""Automated unit and integration test suite for the Aura-Transcribe ASR benchmark suite.
+"""Automated unit and integration test suite for the Aura-Transcribe ASR smoke tooling.
 
 Covers:
   1. Multilingual text normalization (Unicode NFC, accents, punctuation, contractions, numbers).
   2. Levenshtein WER and CER calculations against known standard pairs.
-  3. Model and corpus manifest schemas and SHA-256 validation.
-  4. Metric aggregations (macro/micro averages, degradation, size savings).
-  5. Pareto frontier analysis and threshold evaluations.
-  6. End-to-end deterministic smoke test of the benchmark runner.
+  3. Model and synthetic-corpus manifest schemas, roles, and license metadata.
+  4. Negative guarantees: no external-dataset references, no real-accuracy claims,
+     and no automatic quantization recommendation.
+  5. Synthetic output is explicitly marked as SIMULATED.
+  6. Corpus verification fails clearly when audio is missing (no download path).
+  7. End-to-end deterministic smoke test of the benchmark runner.
 """
 
 from __future__ import annotations
 
+import contextlib
+import csv
+import io
 import json
-import os
 import shutil
 import tempfile
 import unittest
@@ -22,10 +26,8 @@ from pathlib import Path
 # Add scripts directory to path
 from benchmark_asr import (
     BenchmarkRunner,
-    ClipResult,
     QuantizationAggregate,
     calculate_wer_cer,
-    compute_levenshtein,
     normalize_multilingual_text,
     verify_file_sha256,
 )
@@ -124,12 +126,35 @@ class TestManifestIntegrity(unittest.TestCase):
             self.assertGreater(m["size_bytes"], 400_000_000)
             self.assertTrue(m["download_url"].startswith("https://huggingface.co/"))
 
+        by_quant = {m["quantization"]: m for m in models}
+        self.assertEqual(by_quant["Q5_K_M"]["role"], "bundled")
+        self.assertEqual(by_quant["Q8_0"]["role"], "reference")
+        self.assertEqual(data["baseline_quantization"], "Q5_K_M")
+        self.assertEqual(data["reference_quantization"], "Q8_0")
+
+        roles = {m["role"] for m in models}
+        self.assertNotIn("production_baseline", roles)
+        self.assertEqual(roles, {"bundled", "reference", "alternate"})
+
+        serialized = json.dumps(data).lower()
+        self.assertNotIn("fleurs", serialized)
+        self.assertNotIn("cc-by-4.0", serialized)
+        self.assertNotIn("recommended_quantization", serialized)
+
     def test_corpus_manifest_schema(self):
         manifest_path = PROJECT_ROOT / "benchmark" / "manifests" / "corpus.json"
         self.assertTrue(manifest_path.is_file(), "corpus.json manifest must exist")
 
+        raw_text = manifest_path.read_text(encoding="utf-8")
         with open(manifest_path, "r", encoding="utf-8") as f:
             data = json.load(f)
+
+        self.assertEqual(data["dataset_name"], "Aura-Transcribe Synthetic ASR Smoke Corpus")
+        self.assertEqual(data["source_dataset"], "none")
+        self.assertEqual(data["license"], "GPL-3.0-only")
+        self.assertEqual(data["license_url"], "https://www.gnu.org/licenses/gpl-3.0.html")
+        self.assertEqual(data["attribution"], "Aura-Transcribe contributors")
+        self.assertTrue(data.get("synthetic"), "Corpus must be declared synthetic")
 
         clips = data.get("clips", [])
         self.assertEqual(len(clips), 20, "Corpus must contain exactly 20 clips")
@@ -142,8 +167,18 @@ class TestManifestIntegrity(unittest.TestCase):
             self.assertLess(c["duration_sec"], 40.0)
             self.assertTrue(len(c["transcript"]) > 20)
             self.assertTrue(len(c.get("segments", [])) >= 2, "Must contain segmented utterances")
+            self.assertTrue(c["id"].startswith("synthetic_"), c["id"])
+            self.assertTrue(c["audio_path"].startswith("benchmark/corpus/audio/synthetic_"), c["audio_path"])
+            for seg in c.get("segments", []):
+                self.assertTrue(seg["utterance_id"].startswith("synthetic_"), seg["utterance_id"])
 
         self.assertEqual(by_lang, {"en": 5, "es": 5, "fr": 5, "pt": 5})
+
+        # Negative guarantees: no external dataset or its license may reappear.
+        lowered = raw_text.lower()
+        self.assertNotIn("fleurs", lowered)
+        self.assertNotIn("cc-by-4.0", lowered)
+        self.assertNotIn("creativecommons.org/licenses/by/4.0", lowered)
 
 
 class TestParetoAndAggregationLogic(unittest.TestCase):
@@ -159,12 +194,12 @@ class TestParetoAndAggregationLogic(unittest.TestCase):
         saved_pct = ((q8_size - q4_size) / q8_size) * 100.0
         self.assertAlmostEqual(saved_pct, 33.99, places=1)
 
-    def test_pareto_dominance(self):
+    def test_pareto_dominance_without_recommendation(self):
         runner = BenchmarkRunner(backend_type="synthetic")
         # Construct synthetic aggregates where Variant B is strictly worse than A in all dimensions
         agg_a = QuantizationAggregate(
             quantization="A",
-            role="baseline",
+            role="reference",
             filename="a.gguf",
             size_bytes=500,
             size_mib=0.5,
@@ -191,7 +226,7 @@ class TestParetoAndAggregationLogic(unittest.TestCase):
         )
         agg_b = QuantizationAggregate(
             quantization="B",
-            role="candidate",
+            role="alternate",
             filename="b.gguf",
             size_bytes=600,  # Larger
             size_mib=0.6,
@@ -216,24 +251,28 @@ class TestParetoAndAggregationLogic(unittest.TestCase):
             peak_rss_mb_median=120.0,
             model_load_latency_sec=0.6,
         )
-        eval_res = runner.evaluate_pareto_and_recommendation([agg_a, agg_b])
+        eval_res = runner.evaluate_pareto_frontier([agg_a, agg_b])
         self.assertIn("A", eval_res["pareto_optimal_quantizations"])
         self.assertNotIn("B", eval_res["pareto_optimal_quantizations"])
         self.assertEqual(eval_res["dominated_quantizations"].get("B"), "A")
 
+        # Negative guarantee: Pareto classification never yields a recommendation.
+        self.assertNotIn("recommended_quantization", eval_res)
+        self.assertNotIn("eligible_candidates", eval_res)
+        self.assertIn("no automatic quantization recommendation", eval_res["note"].lower())
+
 
 class TestBenchmarkRunnerSmoke(unittest.TestCase):
     def test_synthetic_end_to_end_smoke(self):
-        """Validates that the benchmark runner executes deterministically and generates
+        """Validates that the runner executes deterministically and generates
 
-        complete JSON, CSV, and Markdown outputs in a local temporary directory.
+        complete JSON, CSV, and Markdown outputs explicitly marked as SIMULATED.
         """
         temp_dir = PROJECT_ROOT / "benchmark" / "results" / "test_smoke_out"
         temp_dir.mkdir(parents=True, exist_ok=True)
         try:
             runner = BenchmarkRunner(
                 backend_type="synthetic",
-                threshold_profile="balanced",
                 results_dir=temp_dir,
                 seed=42,
             )
@@ -246,6 +285,8 @@ class TestBenchmarkRunnerSmoke(unittest.TestCase):
 
             self.assertEqual(len(aggregates), 2)
             self.assertEqual(len(results), 20)  # 2 quants * 10 clips (5 en + 5 es)
+            self.assertTrue(all(r.simulated for r in results))
+            self.assertTrue(all(a.simulated for a in aggregates))
 
             exported = runner.export_reports(results, aggregates, output_dir=temp_dir)
 
@@ -253,19 +294,41 @@ class TestBenchmarkRunnerSmoke(unittest.TestCase):
             self.assertTrue(exported["csv"].is_file())
             self.assertTrue(exported["markdown"].is_file())
 
-            # Validate JSON content
+            # Validate JSON content and simulated/recommendation metadata
             with open(exported["json"], "r", encoding="utf-8") as f:
                 data = json.load(f)
                 self.assertIn("metadata", data)
                 self.assertIn("aggregates", data)
                 self.assertEqual(len(data["aggregates"]), 2)
+                self.assertEqual(data["metadata"]["backend"], "synthetic")
+                self.assertTrue(data["metadata"]["simulated"])
+                self.assertFalse(data["metadata"]["recommendation_produced"])
+                self.assertTrue(all(a["simulated"] for a in data["aggregates"]))
+                self.assertNotIn("recommended_quantization", data["metadata"]["analysis"])
+                json_text = json.dumps(data).lower()
+                self.assertNotIn("fleurs", json_text)
+                self.assertIn("simulated", json_text)
 
-            # Validate Markdown content
+            # CSV must label every metric as simulated
+            with open(exported["csv"], "r", encoding="utf-8", newline="") as f:
+                rows = list(csv.DictReader(f))
+            self.assertEqual(len(rows), 2)
+            self.assertIn("Sim_Stream_WER_Norm", rows[0])
+            self.assertIn("Simulated", rows[0])
+            self.assertTrue(all(row["Simulated"] == "yes" for row in rows))
+
+            # Markdown must be banner-marked and must not recommend a quantization
             with open(exported["markdown"], "r", encoding="utf-8") as f:
                 md_text = f.read()
-                self.assertIn("Nemotron 3.5 ASR Streaming 0.6B Quantization Benchmark Report", md_text)
-                self.assertIn("| **Q8_0**", md_text)
-                self.assertIn("| **Q6_K**", md_text)
+            lowered_md = md_text.lower()
+            self.assertIn("Aura-Transcribe ASR Smoke Report (SIMULATED)", md_text)
+            self.assertIn("simulated data", lowered_md)
+            self.assertIn("| **Q8_0** |", md_text)
+            self.assertIn("| **Q6_K** |", md_text)
+            self.assertIn("No automatic quantization recommendation is produced.", md_text)
+            self.assertNotIn("recommendation:", lowered_md)
+            self.assertNotIn("recommended_quantization", lowered_md)
+            self.assertNotIn("fleurs", lowered_md)
 
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -275,13 +338,13 @@ class TestBenchmarkRunnerSmoke(unittest.TestCase):
         # Select single clip
         results, aggregates = runner.run_benchmark(
             quantizations=["Q8_0", "Q4_K_M"],
-            clip_ids=["fleurs_en_01"],
+            clip_ids=["synthetic_en_01"],
             modes=["streaming"],
             randomize_order=True,
             warmup_runs=0,
         )
         self.assertEqual(len(results), 2)
-        self.assertEqual({r.clip_id for r in results}, {"fleurs_en_01"})
+        self.assertEqual({r.clip_id for r in results}, {"synthetic_en_01"})
         self.assertEqual(len(aggregates), 2)
 
 
@@ -318,19 +381,38 @@ class TestErrorHandlingAndValidation(unittest.TestCase):
         finally:
             temp_file.unlink(missing_ok=True)
 
-    def test_threshold_profiles_behavior(self):
-        # Strict profile has tighter degradation tolerance than Edge
-        runner_strict = BenchmarkRunner(backend_type="synthetic", threshold_profile="strict")
-        runner_edge = BenchmarkRunner(backend_type="synthetic", threshold_profile="edge")
+    def test_prepare_corpus_has_no_download_path(self):
+        self.assertFalse(hasattr(prepare_corpus, "run_download_fleurs"))
 
-        _, agg_strict = runner_strict.run_benchmark(quantizations=["Q8_0", "Q4_K_M"], modes=["streaming"])
-        _, agg_edge = runner_edge.run_benchmark(quantizations=["Q8_0", "Q4_K_M"], modes=["streaming"])
-
-        eval_strict = runner_strict.evaluate_pareto_and_recommendation(agg_strict)
-        eval_edge = runner_edge.evaluate_pareto_and_recommendation(agg_edge)
-
-        self.assertEqual(eval_strict["thresholds"]["max_rel_wer_deg"], 3.0)
-        self.assertEqual(eval_edge["thresholds"]["max_rel_wer_deg"], 15.0)
+    def test_verify_fails_clearly_when_audio_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "corpus.json"
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "1.0",
+                        "dataset_name": "test",
+                        "clips": [
+                            {
+                                "id": "synthetic_missing_01",
+                                "language": "en",
+                                "language_bcp47": "en-US",
+                                "audio_path": "benchmark/corpus/audio/definitely_missing_synthetic.wav",
+                                "duration_sec": 1.0,
+                                "transcript": "placeholder",
+                                "segments": [],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                ok = prepare_corpus.run_verify(manifest_path)
+            self.assertFalse(ok)
+            self.assertIn("Verification FAILED", stderr.getvalue())
+            self.assertIn("--generate-synthetic", stderr.getvalue())
 
 
 if __name__ == "__main__":

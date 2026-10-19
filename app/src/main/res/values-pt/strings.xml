@@ -101,13 +101,6 @@
     <string name="models_backend_desc">A inferência é executada na CPU, com aceleração ARM NEON, dot-product e fp16. É o único motor implementado pela aplicação, por isso é o único disponível aqui. A aceleração por NPU (NNAPI) e GPU (Vulkan) não está implementada.</string>
     <string name="models_backend_cpu">CPU (ARM NEON + dotprod + fp16)</string>
 
-    <string name="section_benchmark">Teste de desempenho</string>
-    <string name="desc_benchmark">Mede a velocidade de transcrição do modelo ativo neste aparelho usando uma amostra sintética de fala em inglês (~11 s).</string>
-    <string name="btn_benchmark">Iniciar teste</string>
-    <string name="bench_running">Executando teste…</string>
-    <string name="bench_result">%1$s s de áudio em %2$s s: %3$s× tempo real</string>
-    <string name="bench_error">Falha no teste: %1$s</string>
-
     <string name="section_appearance">Aparência</string>
     <string name="theme_system">Padrão do sistema</string>
     <string name="theme_light">Claro</string>
@@ -235,7 +228,6 @@
     <string name="debug_model_rename_failed">Não foi possível renomear o ficheiro de modelo descarregado</string>
     <string name="debug_model_http_error">HTTP %1$d</string>
     <string name="debug_model_unknown_reason">desconhecido</string>
-    <string name="bench_no_data_chunk">sem bloco de dados em %1$s</string>
     <string name="file_error_too_long">O arquivo de áudio tem mais de 30 minutos. Transcreva um arquivo mais curto.</string>
     <string name="file_error_too_large">O arquivo de áudio é grande demais para importar (tamanho máximo 1 GB). Escolha um arquivo menor.</string>
 

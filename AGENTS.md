@@ -127,7 +127,9 @@ AI post-processing (fork addition): optional, *off-line-by-default*, refines tex
     for the artifact type (APK → `assets/builtin-model/<name>`, AAB →
     `model_assets/assets/builtin-model/<name>`); a nested path or one from another
     module that merely *ends* with that suffix is rejected, and any extra copy
-    of the same file under any other path counts as a duplicate.
+    of the same file under any other path counts as a duplicate. Both gates also
+    require `MODEL_LICENSE.md` and `MODEL_NOTICE.md` at the artifact's asset
+    root, exactly once and byte-identical to the repository sources.
     `verifyReleaseApkModel` can only be skipped with
     `-Pauratranscribe.allowModelLessReleaseApk=true`, which prints a WARNING and
     only covers **model-less** artifacts (a misplaced path is never skipped);
@@ -136,9 +138,10 @@ AI post-processing (fork addition): optional, *off-line-by-default*, refines tex
     (`packagingTaskSets(taskNames)` and `packagingDecision(taskNames)` → mode
     `apk|bundle|ambiguous|neither`), and the `verifyPackagingDecision` task
     exercises them together with the model gates against **synthetic files**
-    (17 representative invocations × 15 files: accepts and rejects in both
-    directions, including nested paths with the correct suffix, wrong module,
-    duplicates with an extra copy, and the escape hatch with a misplaced model).
+    (17 representative invocations × 20 archive cases: 15 for the GGUF and 5 for
+    the license/NOTICE, with accepts and rejects in both directions, including
+    nested paths with the correct suffix, wrong module, duplicates with an extra
+    copy, stale content, and the escape hatch with a misplaced model).
     It is a hard gate in both workflows and a dependency of `check`, so a change
     to the task-name heuristics fails before anyone publishes a model-less
     artifact. Do not replace it with a test that recomputes the expected answer
@@ -328,7 +331,6 @@ static {
   - `onAutoStop()` — endpointing monitor trigger.
   - **IME/popup recording with generation:** the `RustInputMethodService` and `RecognizeActivity` surfaces additionally keep the JNI variants `onStatusUpdate(String, int)`, `onTextTranscribed(String, int)`, `onAudioLevel(float, int)`, `onPartialText(String, int)` and `onAutoStop(int)`. The `int` is the recording's `sessionId`; Java drops late callbacks whose ID no longer matches the active generation. The engine/lifecycle keeps the ID-less variants for load states and compatibility with the other surfaces.
   - **File transcription with operation-id (P1.1):** `TranscribeFileActivity` keeps `onTextTranscribed(String, int)` and `onStatusUpdate(String, int)` where the `int` is a per-decode unique operation-id (static `AtomicInteger`, immune to Activity recreations); `transcribeAudio(float[], int, int)` receives it from Java and echoes it in every callback. Java drops callbacks whose opId is no longer current or whose Activity is `isFinishing()/isDestroyed()`.
-  - `onBenchmarkResult(float audioSecs, float computeSecs, String error)`.
 - **Engine resilience:** `transcribe_shared` does `panic::catch_unwind` + poisoned-`Mutex` recovery (`unwrap_or_else(|p| p.into_inner())`). If you refactor it, **keep both layers**.
 
 ### 4.5 Settings handling (project rule)
@@ -365,14 +367,14 @@ cover.
 | Rust module (`src/<mod>.rs`) | Java component | Invokes the engine from | Particulars (AGENT-ONLY) |
 |---|---|---|---|
 | `lib.rs` | — | — | Root `pub mod`. Any new module must be declared here. |
-| `engine.rs` | (global singleton) | `voice_session.rs`, `subtitle.rs` (worker), `recog_service.rs` (audio callback), `main_activity.rs` (benchmark) | `ensure_loaded_from_thread` coordinates with `Condvar`; **language is re-read on every `run`** (do not cache). |
+| `engine.rs` | (global singleton) | `voice_session.rs`, `subtitle.rs` (worker), `recog_service.rs` (audio callback) | `ensure_loaded_from_thread` coordinates with `Condvar`; **language is re-read on every `run`** (do not cache). |
 | `audio.rs` | — | `engine.rs` (`find_quietest_split`) | Pure utility, no JNI. |
 | `voice_session.rs` | `RecognizeActivity`, `RustInputMethodService` | via JNI callback `onTextTranscribed(text)` | Shares one `cpal::Stream` between both surfaces; own auto-stop. |
 | `subtitle.rs` | `LiveSubtitleService` | via JNI callback `onSubtitleText(text, isFinal)` | Partial/final pipeline with merging; calibrated lag policies (see §4.8). |
 | `recog_service.rs` | `VoiceRecognitionService` | synchronously in `audio_callback` | Endpointing with silent VAD; no auto-stop (the monitor owns it). |
 | `ime.rs` | `RustInputMethodService` | thin bridge → `voice_session` | JNI calls: `init/cleanup` + `start/stop/cancel` Recording. |
 | `recognize.rs` | `RecognizeActivity` | thin bridge → `voice_session` | Identical to `ime.rs` but with `jboolean auto_stop` in `startRecording`. |
-| `main_activity.rs` | `MainActivity` | benchmark + status notifier | `initNative`, `benchmarkNative`; caches samples in a `Vec<f32>` from `bench.wav`. |
+| `main_activity.rs` | `MainActivity` | status notifier | `initNative` and the activity lifecycle bridge. |
 | `models.rs` | `ModelsActivity` | engine reload via `engine::reset()` | Imports GGUF into `filesDir/models/<name>`. |
 | `transcribe_file.rs` | `TranscribeFileActivity` | a single `transcribe_shared` | Shares audio from `Intent.ACTION_SEND/VIEW` (`audio/*`). |
 | `corrector.rs` | (`CustomWordsActivity` writes the marker file) | via `engine::transcribe_shared` (post-ASR, pre-callback) | Post-ASR phonetic correction: reads `filesDir/custom_words`, encodes every transcript word and dictionary term with an ES+EN phonetic encoder (seseo/yeísmo, `ñ`→`ny`), replaces misrecognized words with the closest term (Levenshtein ≤ 2 over phonetic keys + bigram-cosine tiebreak). Safe fallback: any failure (no dictionary, I/O error, panic) returns the raw text. Runs inside its own `catch_unwind` so it never freezes the IME. Covers ALL surfaces (IME, popup, subtitles, SpeechRecognizer, file) in one shot. |
@@ -520,12 +522,11 @@ Do not rename Rust/Java files without updating the JNI entry (§4.3).**AI post-p
   3. If the model is > 200 MB, keep `model_assets` as an asset pack.
 - ✅ When changing the Rust load logic:
   - The `libpthread.a` shim and the dynamic `c++_shared` library are **required for the Android build**. See the comment in `build.rs`.
-- ✅ Before touching the benchmark, first read the `MainActivity.runBenchmark`/`readWavAsset` comments (16 kHz mono 16-bit PCM only).
 - ✅ Version bump: `versionCode` always +1 over current; `versionName` semver-friendly; add entry at the top of `RELEASE_NOTES.md` (not at the end).
 - ✅ If you break a language or locale: the app **transcribes in the device locale by default** (`App.applyDeviceLanguageIfUnset`) and it is opt-out. Any user override must respect that behavior (see `ModelsActivity` + `engine::run`). Spanish (`es-ES`) and the other 7 locales are first-class: the ES+EN phonetic encoder, the BCP-47 locale list, and the per-language WER trade-off below exist so transcription quality never silently regresses for non-English users.
 - ✅ When adding a Gradle dependency: respect the `constraints` block pinning `kotlin-stdlib-jdk7/jdk8` to `1.8.22`. Without that alignment, new builds break with `Duplicate class` from transitive Material legacy.
 - ✅ When changing the subtitle flow, preserve the `onSubtitleText(text, isFinal)` contract: `isFinal=true` appends, `isFinal=false` replaces the partial hypothesis within the same window.
-- ✅ When touching cache-aware streaming (`run_stream`/`transcribe_stream_shared` in `engine.rs`), preserve: (a) the `att_context_right` retry off the GGUF menu with the model's default (`Error::InvalidArgument` → retry with `None`), (b) language-hint degradation, and (c) the Stop-log session telemetry (`rtf`, partial count, mean cadence, `att_context_right`) — the only way to measure the WER-vs-fluency trade-off on a real device via logcat. Published trade-off reference: chunks {1120, 560, 320, 160, 80} ms with FLEURS WER at 1.12 s of en 7.91 / es 4.11 / fr 9.03 / it 4.25 / pt 5.48 / de 8.31; the card claims "competitive" accuracy even at 80 ms.
+- ✅ When touching cache-aware streaming (`run_stream`/`transcribe_stream_shared` in `engine.rs`), preserve: (a) the `att_context_right` retry off the GGUF menu with the model's default (`Error::InvalidArgument` → retry with `None`), (b) language-hint degradation, and (c) the Stop-log session telemetry (`rtf`, partial count, mean cadence, `att_context_right`) — the only way to measure the fluency trade-off on a real device via logcat. Do not publish unverified WER figures.
 - ✅ Do not add unnecessary `unsafe` Rust outside the JNI entry points (`#[no_mangle] pub unsafe extern "system" fn Java_…`).
 
 ### 5.3 Template for tests / new components (quick reference)

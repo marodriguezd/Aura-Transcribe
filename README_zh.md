@@ -6,7 +6,7 @@
 
 [English](README.md) · [Español](README_es.md) · [Deutsch](README_de.md) · [Français](README_fr.md) · [Italiano](README_it.md) · 中文
 
-应用程序源代码采用 GPL-3.0-only 许可。第三方组件和随附语音模型仍受各自许可条款约束；请参阅 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 和 [MODEL_LICENSE.md](MODEL_LICENSE.md)。
+本 fork 编写的源代码采用 GPL-3.0-only 许可；继承自上游的代码仍遵循 MIT 许可。第三方组件和随附语音模型仍受各自许可条款约束；请参阅 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 和 [MODEL_LICENSE.md](MODEL_LICENSE.md)。
 
 Aura Transcribe 是一款设备端语音转文字应用与 Android 语音输入服务。基于 Rust、ARM NEON SIMD 优化与 GGML 推理内核，在设备 CPU 上本地完成语音识别，无需联网。
 

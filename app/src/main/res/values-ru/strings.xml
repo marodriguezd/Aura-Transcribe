@@ -101,13 +101,6 @@
     <string name="models_backend_desc">Инференс выполняется на CPU с ускорением ARM NEON, dot-product и fp16. Это единственный движок, реализованный в приложении, поэтому здесь доступен только он. Ускорение на NPU (NNAPI) и GPU (Vulkan) не реализовано.</string>
     <string name="models_backend_cpu">CPU (ARM NEON + dotprod + fp16)</string>
 
-    <string name="section_benchmark">Тест скорости</string>
-    <string name="desc_benchmark">Измеряет скорость распознавания активной модели на этом устройстве по встроенному синтетическому образцу английской речи (~11 с).</string>
-    <string name="btn_benchmark">Запустить тест</string>
-    <string name="bench_running">Идёт тест…</string>
-    <string name="bench_result">%1$s с аудио за %2$s с: %3$s× реального времени</string>
-    <string name="bench_error">Тест не выполнен: %1$s</string>
-
     <string name="section_appearance">Оформление</string>
     <string name="theme_system">Как в системе</string>
     <string name="theme_light">Светлая</string>
@@ -235,7 +228,6 @@
     <string name="debug_model_rename_failed">Не удалось переименовать скачанный файл модели</string>
     <string name="debug_model_http_error">HTTP %1$d</string>
     <string name="debug_model_unknown_reason">неизвестно</string>
-    <string name="bench_no_data_chunk">нет блока данных в %1$s</string>
     <string name="file_error_too_long">Аудиофайл длится более 30 минут. Транскрибируйте более короткий файл.</string>
     <string name="file_error_too_large">Аудиофайл слишком большой для импорта (максимальный размер 1 ГБ). Выберите файл меньшего размера.</string>
 
