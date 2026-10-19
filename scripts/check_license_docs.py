@@ -147,14 +147,22 @@ def check_application_license(root: Path) -> None:
     require_phrase("the English store description", store, "MIT License")
     reject_forbidden("store description", store)
 
+    # The F-Droid descriptor lives in a committed template (see FDROID.md); the
+    # lane renders it. Both surfaces must keep declaring MIT and the real repo.
     fastfile = read(root, "fastlane/Fastfile")
-    require_phrase("fastlane/Fastfile", fastfile, "License: MIT")
+    if "fdroid/com.auratranscribe.app.yml" not in fastfile:
+        fail(
+            "fastlane/Fastfile no longer renders the committed F-Droid descriptor "
+            "template; the License/repo declarations below would stop being checked"
+        )
+    fdroid = read(root, "fastlane/fdroid/com.auratranscribe.app.yml")
+    require_phrase("the F-Droid descriptor", fdroid, "License: MIT")
     require_phrase(
-        "fastlane/Fastfile", fastfile, "github.com/marodriguezd/Aura-Transcribe"
+        "the F-Droid descriptor", fdroid, "github.com/marodriguezd/Aura-Transcribe"
     )
-    if "github.com/marodriguezd/android_transcribe_app" in fastfile:
-        fail("Fastlane still points at the unrelated/old repository URL")
-    reject_forbidden("fastlane/Fastfile", fastfile)
+    if "github.com/marodriguezd/android_transcribe_app" in fdroid + fastfile:
+        fail("Fastlane/F-Droid metadata still points at the unrelated/old repository URL")
+    reject_forbidden("the F-Droid descriptor", fdroid)
 
 
 def check_model_documents(root: Path) -> None:

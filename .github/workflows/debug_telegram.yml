@@ -82,6 +82,15 @@ jobs:
         python3 scripts/test_check_release_workflow.py
         python3 scripts/check_release_workflow.py
 
+    # F-Droid descriptor gate: the emitted recipe must stay root-project (no
+    # `subdir`), keep `Disabled:` with its verified reasons, and never claim a
+    # network step. `ruby -c` is the only syntax check the Fastfile gets.
+    - name: Validate F-Droid descriptor (hard gate)
+      run: |
+        python3 scripts/test_check_fdroid_descriptor.py
+        python3 scripts/check_fdroid_descriptor.py
+        ruby -c fastlane/Fastfile
+
     - name: Cargo dependency license inventory
       run: python3 scripts/report_cargo_licenses.py --output build/reports/cargo-licenses.md
 
@@ -181,7 +190,7 @@ jobs:
     - name: Verify packaging-decision gate logic (hard gate)
       run: |
         set -e -o pipefail
-        ./gradlew :app:verifyPackagingDecision 2>&1 | tee gradle_packaging_gate.log
+        ./gradlew :app:verifyPackagingDecision :app:verifyModelDownloadDecision 2>&1 | tee gradle_packaging_gate.log
 
     # These are reference-algorithm micro-benchmarks on stand-in data: they prove
     # the fast paths still agree with the naive implementations, and they assert
@@ -315,7 +324,7 @@ jobs:
       run: |
         export PATH="$HOME/.cargo/bin:$PATH"
         set -e -o pipefail
-        ./gradlew :app:verifyPackagingDecision 2>&1 | tee gradle_packaging_gate.log
+        ./gradlew :app:verifyPackagingDecision :app:verifyModelDownloadDecision 2>&1 | tee gradle_packaging_gate.log
 
     # Compiles the Macrobenchmark/Baseline-Profile module. Compiling is all a
     # device-less runner can do — it is NOT a performance measurement.

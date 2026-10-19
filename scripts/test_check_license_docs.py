@@ -38,6 +38,7 @@ FILES = [
     "MODEL_NOTICE.md",
     "LICENSE_AUDIT.md",
     "fastlane/Fastfile",
+    "fastlane/fdroid/com.auratranscribe.app.yml",
     "fastlane/metadata/android/en-US/full_description.txt",
     "benchmark/manifests/corpus.json",
     "benchmark/manifests/models.json",
