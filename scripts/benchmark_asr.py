@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""Aura-Transcribe: Multilingual ASR Benchmark Runner for Nemotron 3.5 GGUF Quantizations.
+"""Aura-Transcribe: ASR smoke-test runner (SIMULATED synthetic backend).
 
-Evaluates official GGUF quantization variants of NVIDIA Nemotron 3.5 ASR Streaming 0.6B:
-  - Q8_0 (Production Reference Baseline)
-  - Q6_K
-  - Q5_K_M
-  - Q4_K_M
+Exercises the reporting pipeline (aggregation, Pareto classification, JSON/CSV/
+Markdown export) against the synthetic smoke corpus. With the default
+`synthetic` backend every metric is generated locally: this is a smoke test,
+NOT an accuracy benchmark, and its output must never be presented as real
+WER, RTF, memory, or model-quality data.
 
 Supports:
-  - Backends: 'synthetic' (zero-network CI testing), 'adb' (Android device execution), 'native' (local CLI)
-  - Inference modes: 'streaming' (simulating 80ms chunk cadence) and 'offline' (whole-file)
-  - Dual-track scoring: standardized multilingual normalizer & raw verbatim text
-  - Pareto trade-off analysis & configurable acceptance threshold profiles
+  - Backends: 'synthetic' (SIMULATED, zero-network) and 'adb' (placeholder
+    stub; device inference is not implemented yet)
+  - Inference modes: 'streaming' (simulated 80 ms chunk cadence) and 'offline'
+  - Dual-track text scoring (normalized and raw verbatim), reported as simulated
+  - Pareto classification of the reported telemetry; NO automatic quantization
+    recommendation is produced
 """
 
 from __future__ import annotations
@@ -218,6 +220,7 @@ class ClipResult:
     peak_rss_mb: float = 0.0
     success: bool = True
     error_message: Optional[str] = None
+    simulated: bool = True
 
 
 @dataclass
@@ -252,6 +255,7 @@ class QuantizationAggregate:
     # Resource
     peak_rss_mb_median: float
     model_load_latency_sec: float
+    simulated: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -330,14 +334,13 @@ class BenchmarkBackend:
 
 
 class SyntheticBackend(BenchmarkBackend):
-    """Deterministic, zero-network mock engine for CI testing & validation.
+    """Deterministic, zero-network SIMULATED backend for pipeline smoke tests.
 
-    Generates realistic WER degradation, RTF, and streaming telemetry based
-    on empirical quantization characteristics of Nemotron 3.5 ASR:
-      - Q8_0: baseline WER (~6-10%), RTF ~0.22, memory ~1200 MB
-      - Q6_K: near-identical WER (+1-2% rel), RTF ~0.19, memory ~1050 MB
-      - Q5_K_M: slight degradation (+4-6% rel), RTF ~0.17, memory ~980 MB
-      - Q4_K_M: noticeable degradation (+10-14% rel), RTF ~0.15, memory ~890 MB
+    This backend does not load a model and performs no inference. The metrics
+    it returns are synthetic values generated locally to exercise the
+    aggregation and reporting code paths with stable output. They are NOT
+    empirical measurements and must not be used to claim accuracy, speed, or
+    memory behavior of any quantization.
     """
 
     def __init__(self, seed: int = 42):
@@ -362,10 +365,10 @@ class SyntheticBackend(BenchmarkBackend):
         duration = clip["duration_sec"]
         lang = clip["language"]
 
-        # Base accuracy by language
+        # Simulated baseline error rate by language (arbitrary, stable values)
         lang_base_wer = {"en": 0.055, "es": 0.062, "fr": 0.085, "pt": 0.078}.get(lang, 0.07)
 
-        # Quantization WER penalty
+        # Simulated quantization penalty
         quant_penalty = {
             "Q8_0": 0.0,
             "Q6_K": 0.0015,
@@ -396,7 +399,7 @@ class SyntheticBackend(BenchmarkBackend):
         norm_scores = calculate_wer_cer(ref_text, hyp_text, normalize=True)
         raw_scores = calculate_wer_cer(ref_text, hyp_text, normalize=False)
 
-        # Processing speed
+        # Simulated processing speed
         rtf_map = {"Q8_0": 0.22, "Q6_K": 0.19, "Q5_K_M": 0.17, "Q4_K_M": 0.15}
         base_rtf = rtf_map.get(quant, 0.20)
         wall_time = round(duration * base_rtf, 3)
@@ -429,6 +432,7 @@ class SyntheticBackend(BenchmarkBackend):
             stability_score=stability,
             peak_rss_mb=peak_rss,
             success=True,
+            simulated=True,
         )
 
 
@@ -482,7 +486,6 @@ class BenchmarkRunner:
         corpus_dir: Path = DEFAULT_CORPUS_DIR,
         results_dir: Path = DEFAULT_RESULTS_DIR,
         backend_type: str = "synthetic",
-        threshold_profile: str = "balanced",
         seed: int = 42,
     ):
         self.models_manifest = self._load_json(models_manifest_path)
@@ -490,7 +493,8 @@ class BenchmarkRunner:
         self.models_dir = models_dir
         self.corpus_dir = corpus_dir
         self.results_dir = results_dir
-        self.threshold_profile = threshold_profile
+        self.backend_type = backend_type
+        self.simulated = backend_type == "synthetic"
         self.seed = seed
 
         if backend_type == "synthetic":
@@ -537,8 +541,9 @@ class BenchmarkRunner:
         all_results: List[ClipResult] = []
         load_latencies: Dict[str, float] = {}
 
+        run_label = "SIMULATED ASR smoke run" if self.simulated else "ASR run"
         print(
-            f"Starting ASR Benchmark: {len(models)} quantizations, {len(clips)} clips, "
+            f"Starting {run_label}: {len(models)} quantizations, {len(clips)} clips, "
             f"modes={modes}, reps={repetitions}, warmup={warmup_runs}..."
         )
 
@@ -645,7 +650,7 @@ class BenchmarkRunner:
             aggregates.append(
                 QuantizationAggregate(
                     quantization=q,
-                    role=model.get("role", "candidate"),
+                    role=model.get("role", "alternate"),
                     filename=model["filename"],
                     size_bytes=model["size_bytes"],
                     size_mib=model["size_mib"],
@@ -669,28 +674,24 @@ class BenchmarkRunner:
                     language_wer=lang_wer,
                     peak_rss_mb_median=round(rss_med, 1),
                     model_load_latency_sec=load_latencies.get(q, 0.0),
+                    simulated=self.simulated,
                 )
             )
 
         return aggregates
 
-    def evaluate_pareto_and_recommendation(
+    def evaluate_pareto_frontier(
         self, aggregates: List[QuantizationAggregate]
     ) -> Dict[str, Any]:
-        """Identifies non-dominated Pareto variants and recommends the best model
+        """Classifies non-dominated variants on the reported metrics.
 
-        based on the configured acceptance threshold profile.
+        Informational only: this suite deliberately emits NO quantization
+        recommendation. With the synthetic backend the metrics are simulated,
+        so they cannot justify a deployment decision anyway. The app bundles
+        Q5_K_M; Q8_0 is kept as a higher-precision comparison reference.
         """
-        # Threshold profiles
-        profiles = {
-            "strict": {"max_rel_wer_deg": 3.0, "max_rtf": 0.5},
-            "balanced": {"max_rel_wer_deg": 8.0, "max_rtf": 0.5},
-            "edge": {"max_rel_wer_deg": 15.0, "max_rtf": 0.5},
-        }
-        cfg = profiles.get(self.threshold_profile, profiles["balanced"])
-
-        # Determine Pareto frontier (accuracy vs size vs latency)
-        # Variant A dominates B if A has lower/equal WER, smaller/equal size, and lower/equal RTF, with at least one strictly better
+        # Variant A dominates B if A has lower/equal WER, smaller/equal size,
+        # and lower/equal RTF, with at least one strictly better.
         pareto_optimal: List[str] = []
         dominated: Dict[str, str] = {}
 
@@ -716,26 +717,10 @@ class BenchmarkRunner:
             if not is_dominated:
                 pareto_optimal.append(a.quantization)
 
-        # Filter candidates meeting the quality floor
-        eligible = []
-        for agg in aggregates:
-            if (
-                agg.relative_wer_degradation_percent <= cfg["max_rel_wer_deg"]
-                and agg.streaming_rtf_median <= cfg["max_rtf"]
-            ):
-                eligible.append(agg)
-
-        # Rank eligible by resource efficiency (size reduction product)
-        eligible.sort(key=lambda x: x.size_bytes)
-        recommendation = eligible[0].quantization if eligible else "Q8_0"
-
         return {
-            "profile": self.threshold_profile,
-            "thresholds": cfg,
+            "note": "Informational only. No automatic quantization recommendation is produced.",
             "pareto_optimal_quantizations": pareto_optimal,
             "dominated_quantizations": dominated,
-            "eligible_candidates": [e.quantization for e in eligible],
-            "recommended_quantization": recommendation,
         }
 
     def export_reports(
@@ -748,14 +733,27 @@ class BenchmarkRunner:
         out_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        analysis = self.evaluate_pareto_and_recommendation(aggregates)
+        analysis = self.evaluate_pareto_frontier(aggregates)
+
+        disclaimer = (
+            "SIMULATED DATA: the synthetic backend generates metrics locally for "
+            "pipeline smoke-testing. They are not real ASR accuracy, latency, or "
+            "memory measurements and must not be reported as such."
+            if self.simulated
+            else "Metrics produced by a real backend; no quantization recommendation is emitted."
+        )
 
         # 1. JSON
         json_path = out_dir / f"benchmark_results_{timestamp}.json"
         payload = {
             "metadata": {
                 "generated_at": datetime.datetime.now().isoformat(),
-                "threshold_profile": self.threshold_profile,
+                "backend": self.backend_type,
+                "simulated": self.simulated,
+                "disclaimer": disclaimer,
+                "corpus_name": self.corpus_manifest.get("dataset_name", ""),
+                "corpus_synthetic": bool(self.corpus_manifest.get("synthetic", False)),
+                "recommendation_produced": False,
                 "analysis": analysis,
             },
             "aggregates": [asdict(a) for a in aggregates],
@@ -770,25 +768,28 @@ class BenchmarkRunner:
             writer = csv.writer(f)
             writer.writerow([
                 "Quantization",
+                "Role",
                 "Size_MiB",
                 "Size_Savings_Pct",
-                "Stream_WER_Norm",
-                "Stream_CER_Norm",
-                "Stream_WER_Raw",
-                "Rel_WER_Degradation_Pct",
-                "WER_EN",
-                "WER_ES",
-                "WER_FR",
-                "WER_PT",
-                "RTF_Median",
-                "TTFP_Median_Sec",
-                "Stability",
-                "Peak_RSS_MiB",
-                "Load_Time_Sec",
+                "Sim_Stream_WER_Norm",
+                "Sim_Stream_CER_Norm",
+                "Sim_Stream_WER_Raw",
+                "Sim_Rel_WER_Degradation_Pct",
+                "Sim_WER_EN",
+                "Sim_WER_ES",
+                "Sim_WER_FR",
+                "Sim_WER_PT",
+                "Sim_RTF_Median",
+                "Sim_TTFP_Median_Sec",
+                "Sim_Stability",
+                "Sim_Peak_RSS_MiB",
+                "Sim_Load_Time_Sec",
+                "Simulated",
             ])
             for a in aggregates:
                 writer.writerow([
                     a.quantization,
+                    a.role,
                     a.size_mib,
                     f"{a.size_delta_percent}%",
                     f"{a.streaming_normalized_wer * 100:.2f}%",
@@ -804,29 +805,39 @@ class BenchmarkRunner:
                     a.streaming_stability_median,
                     a.peak_rss_mb_median,
                     a.model_load_latency_sec,
+                    "yes" if self.simulated else "no",
                 ])
 
         # 3. Markdown Report
         md_path = out_dir / f"benchmark_report_{timestamp}.md"
-        rec = analysis["recommended_quantization"]
-        profile_cfg = analysis["thresholds"]
+        sim_prefix = "Sim. " if self.simulated else ""
+        title_suffix = " (SIMULATED)" if self.simulated else ""
+        banner = (
+            "\n> **SIMULATED DATA — synthetic backend.** The numbers below were generated "
+            "locally to exercise the reporting pipeline. They are not real ASR accuracy, "
+            "RTF, or memory measurements and must not be used to claim model quality. "
+            "No audio was downloaded.\n"
+            if self.simulated
+            else ""
+        )
+        corpus_name = self.corpus_manifest.get("dataset_name", "unknown corpus")
 
-        md_content = f"""# Nemotron 3.5 ASR Streaming 0.6B Quantization Benchmark Report
+        md_content = f"""# Aura-Transcribe ASR Smoke Report{title_suffix}
 
-Generated: `{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`  
-Profile: `{self.threshold_profile}` (Max Rel WER Degradation: `{profile_cfg['max_rel_wer_deg']}%`, Max RTF: `{profile_cfg['max_rtf']}`)  
-Recommendation: **`{rec}`**
+Generated: `{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`<br>
+Backend: `{self.backend_type}`<br>
+Corpus: `{corpus_name}` (synthetic placeholder clips)
+{banner}
+No automatic quantization recommendation is produced. The app bundles Q5_K_M; Q8_0 is kept as a higher-precision comparison reference.
 
-## 1. Executive Summary & Quantization Trade-Off Matrix
+## 1. Executive Summary & Trade-Off Matrix
 
-| Quantization | Size (MiB) | Size Saved | Norm WER (Stream) | Norm CER | Rel Degradation | RTF (Median) | TTFP (s) | Stability | Peak RSS (MiB) |
-|---|---|---|---|---|---|---|---|---|---|
+| Quantization | Role | Size (MiB) | Size Saved | {sim_prefix}Norm WER (Stream) | {sim_prefix}Norm CER | {sim_prefix}Rel Degradation | {sim_prefix}RTF (Median) | {sim_prefix}TTFP (s) | {sim_prefix}Stability | {sim_prefix}Peak RSS (MiB) |
+|---|---|---|---|---|---|---|---|---|---|---|
 """
         for a in aggregates:
-            is_base = " (Baseline)" if a.quantization == "Q8_0" else ""
-            is_rec = " ⭐" if a.quantization == rec else ""
             md_content += (
-                f"| **{a.quantization}**{is_base}{is_rec} | {a.size_mib:.1f} | "
+                f"| **{a.quantization}** | {a.role} | {a.size_mib:.1f} | "
                 f"{a.size_delta_percent:+.1f}% | {a.streaming_normalized_wer * 100:.2f}% | "
                 f"{a.streaming_normalized_cer * 100:.2f}% | {a.relative_wer_degradation_percent:+.2f}% | "
                 f"{a.streaming_rtf_median:.3f} | {a.streaming_ttfp_median_sec:.3f}s | "
@@ -834,9 +845,9 @@ Recommendation: **`{rec}`**
             )
 
         md_content += f"""
-## 2. Multilingual WER Breakdown by Language
+## 2. {sim_prefix}WER Breakdown by Language
 
-| Quantization | English (`en`) | Spanish (`es`) | French (`fr`) | Portuguese (`pt`) | Macro Avg WER | Raw Verbatim WER |
+| Quantization | English (`en`) | Spanish (`es`) | French (`fr`) | Portuguese (`pt`) | Macro Avg {sim_prefix}WER | Raw Verbatim {sim_prefix}WER |
 |---|---|---|---|---|---|---|
 """
         for a in aggregates:
@@ -849,20 +860,20 @@ Recommendation: **`{rec}`**
             )
 
         md_content += f"""
-## 3. Pareto Frontier & Threshold Decision Analysis
+## 3. Pareto Frontier (informational only)
 
 - **Pareto Optimal Variants**: {', '.join(f'`{x}`' for x in analysis['pareto_optimal_quantizations'])}
-- **Eligible Candidates under Profile (`{self.threshold_profile}`)**: {', '.join(f'`{x}`' for x in analysis['eligible_candidates'])}
 - **Dominated Variants**: {', '.join(f'`{k}` dominated by `{v}`' for k, v in analysis['dominated_quantizations'].items()) if analysis['dominated_quantizations'] else 'None'}
 
-### Recommendation Rationale
-- **Reference Baseline (`Q8_0`)**: Highest accuracy baseline (716.3 MiB).
-- **Candidate (`{rec}`)**: Selected as the optimal balance for Aura-Transcribe mobile deployment under profile `{self.threshold_profile}`. Delivers significant memory and storage reduction with negligible degradation within the configured accuracy floor.
+No automatic quantization recommendation is produced. With the synthetic backend
+these metrics are simulated, so they cannot justify a deployment decision.
 
 ## 4. Methodology & Environment
-- **Corpus**: 20 multilingual clips (5 EN, 5 ES, 5 FR, 5 PT) from Google FLEURS (CC-BY 4.0), 16 kHz mono 16-bit PCM.
+- **Corpus**: synthetic smoke corpus (20 generated placeholder clips: 5 EN, 5 ES, 5 FR, 5 PT), 16 kHz mono 16-bit PCM. No external audio is downloaded or redistributed.
+- **Backend**: `synthetic` does not run a model; every metric is SIMULATED.
 - **Normalizer**: Unicode NFC, lowercase, stripped outer punctuation, preserved diacritics/accents, numbers, and contractions.
 - **Chunk Cadence**: Simulated 80 ms audio frame streaming matching Aura-Transcribe's `StreamCmd::Audio` pump.
+- **Recommendation**: none by design.
 """
         with open(md_path, "w", encoding="utf-8") as f:
             f.write(md_content)
@@ -880,10 +891,9 @@ Recommendation: **`{rec}`**
 # ---------------------------------------------------------------------------
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Aura-Transcribe Nemotron 3.5 ASR Quantization Benchmark Runner")
-    parser.add_argument("--backend", choices=["synthetic", "adb"], default="synthetic", help="Inference backend")
-    parser.add_argument("--profile", choices=["strict", "balanced", "edge"], default="balanced", help="Acceptance threshold profile")
-    parser.add_argument("--quantizations", nargs="+", choices=["Q8_0", "Q6_K", "Q5_K_M", "Q4_K_M"], help="Subset of quantizations to evaluate")
+    parser = argparse.ArgumentParser(description="Aura-Transcribe ASR smoke-test runner (synthetic metrics are SIMULATED)")
+    parser.add_argument("--backend", choices=["synthetic", "adb"], default="synthetic", help="Execution backend (synthetic = simulated, zero network)")
+    parser.add_argument("--quantizations", nargs="+", choices=["Q8_0", "Q6_K", "Q5_K_M", "Q4_K_M"], help="Subset of quantizations to report on")
     parser.add_argument("--languages", nargs="+", choices=["en", "es", "fr", "pt"], help="Subset of languages to evaluate")
     parser.add_argument("--clips", nargs="+", help="Subset of clip IDs to evaluate")
     parser.add_argument("--modes", nargs="+", choices=["streaming", "offline"], default=["streaming", "offline"], help="Inference modes")
@@ -898,7 +908,6 @@ def main() -> int:
 
     runner = BenchmarkRunner(
         backend_type=args.backend,
-        threshold_profile=args.profile,
         results_dir=args.output_dir,
         seed=args.seed,
     )

@@ -10,7 +10,8 @@ argument.
 Example:
     GROQ_API_KEY='...' python3 scripts/smoke_postprocess_device.py \
         --serial 192.168.1.45:39803 \
-        --apk app/build/outputs/apk/debug/app-debug.apk
+        --apk app/build/outputs/apk/debug/app-debug.apk \
+        --audio /path/to/sample.wav
 
 By default the app and the temporary audio file are removed in a finally block.
 Use --keep-installed only when debugging a failed run; it deliberately leaves
@@ -454,7 +455,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serial", required=True, help="explicit adb serial")
     parser.add_argument("--apk", type=Path, required=True, help="debug APK to install")
-    parser.add_argument("--audio", type=Path, help="WAV to transcribe (default: assets/bench.wav)")
+    parser.add_argument("--audio", type=Path, required=True, help="WAV to transcribe (explicit path; no audio is bundled in the APK)")
     parser.add_argument("--provider", default="Groq", help="visible provider label")
     parser.add_argument("--model", default="openai/gpt-oss-120b")
     parser.add_argument("--api-key-env", default="GROQ_API_KEY")
@@ -479,7 +480,7 @@ def main() -> int:
     if not args.apk.is_file():
         print(f"ERROR: APK not found: {args.apk}", file=sys.stderr)
         return 2
-    audio = args.audio or Path(__file__).resolve().parents[1] / "app/src/main/assets/bench.wav"
+    audio = args.audio
     adb = Adb(args.serial, args.verbose)
     success = False
     installed_before = bool(adb.shell("pm", "path", PACKAGE, check=False))

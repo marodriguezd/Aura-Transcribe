@@ -6,6 +6,8 @@
 
 [English](README.md) · [Español](README_es.md) · Deutsch · [Français](README_fr.md) · [Italiano](README_it.md) · [中文](README_zh.md)
 
+Der Quellcode der Anwendung steht unter der MIT-Lizenz. Komponenten Dritter behalten ihre eigenen Bedingungen, und das gebündelte Nemotron-Sprachmodell ist **nicht** MIT: Es wird unter dem OpenMDW License Agreement 1.1 (OpenMDW-1.1) bereitgestellt. Siehe [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) und [MODEL_LICENSE.md](MODEL_LICENSE.md).
+
 Aura Transcribe ist eine On-Device-Speech-to-Text-Anwendung und ein Spracheingabedienst für Android. Angetrieben von Rust, ARM-NEON-SIMD-Optimierungen und GGML-Inferenzkernen führt es Spracherkennung lokal auf der Geräte-CPU durch — ohne aktive Netzwerkverbindung.
 
 Die Anwendung arbeitet über mehrere Android-Integrationspunkte: Standard-Tastatur-Spracheingabe, ein eigenständiger Eingabemethoden-Editor (IME), ein schwebendes Diktier-Overlay, Live-Untertitel für Systemaudio und Offline-Transkription von Audiodateien.
@@ -267,6 +269,6 @@ Nachfolgende Ergänzungen und Architekturänderungen dieses Forks — einschlie�
 
 ### Drittanbieter-Credits
 
-- **Sprachmodellarchitektur:** [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) von NVIDIA, quantisiert zu GGUF (Q5_K_M) von [handy-computer](https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf) (lizenziert unter CC-BY 4.0).
+- **Sprachmodellarchitektur:** [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) von NVIDIA, quantisiert zu GGUF (Q5_K_M) von [handy-computer](https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf) (Modelllizenz: OpenMDW-1.1; siehe [MODEL_LICENSE.md](MODEL_LICENSE.md)).
 - **Inferenzkerne:** [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp) und [ggml](https://github.com/ggerganov/ggml) von CJ Pais und Georgi Gerganov.
 - **Audioaufnahme:** [cpal](https://github.com/RustAudio/cpal) (Cross-Platform Audio Library).

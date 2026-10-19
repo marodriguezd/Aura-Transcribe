@@ -9,7 +9,9 @@
     "source_url": "https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b"
   },
   "upstream_repository": "https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf",
-  "baseline_quantization": "Q8_0",
+  "baseline_quantization": "Q5_K_M",
+  "baseline_note": "Q5_K_M is the quantization bundled with the app. Q8_0 is a higher-precision reference kept only for comparison (see reference_quantization). This suite produces no automatic quantization recommendation.",
+  "reference_quantization": "Q8_0",
   "models": [
     {
       "quantization": "Q8_0",
@@ -17,9 +19,9 @@
       "size_bytes": 751094240,
       "size_mib": 716.30,
       "sha256": "b94545b313b3223fda7b2857a52681da813935c2127643d1e9ff0c23d988089c",
-      "download_url": "https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf/resolve/main/nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf",
-      "role": "production_baseline",
-      "notes": "Bundled reference model for Aura-Transcribe. Max accuracy baseline."
+      "download_url": "https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf/resolve/53ce288f69326b415aeef030cfcb02a08a8096dd/nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf",
+      "role": "reference",
+      "notes": "Higher-precision reference used only for comparison in the smoke suite. NOT bundled with the app: Aura-Transcribe packages Q5_K_M."
     },
     {
       "quantization": "Q6_K",
@@ -27,9 +29,9 @@
       "size_bytes": 621356512,
       "size_mib": 592.57,
       "sha256": "4ff802c6207c4a7df23242003fd2aa849a1ab02bba6bc80c3db02e7e82606c28",
-      "download_url": "https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf/resolve/main/nemotron-3.5-asr-streaming-0.6b-Q6_K.gguf",
-      "role": "candidate",
-      "notes": "6-bit k-quant. Modest compression (-17.27% size) with near-lossless accuracy."
+      "download_url": "https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf/resolve/53ce288f69326b415aeef030cfcb02a08a8096dd/nemotron-3.5-asr-streaming-0.6b-Q6_K.gguf",
+      "role": "alternate",
+      "notes": "6-bit k-quant, not bundled. Available for manual evaluation only; the suite makes no automatic recommendation."
     },
     {
       "quantization": "Q5_K_M",
@@ -37,9 +39,9 @@
       "size_bytes": 559647200,
       "size_mib": 533.72,
       "sha256": "86429e8c4f7fdcf9b3312269ad1ca6669478ba7805331c4aea7a2e33e9910d65",
-      "download_url": "https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf/resolve/main/nemotron-3.5-asr-streaming-0.6b-Q5_K_M.gguf",
-      "role": "candidate",
-      "notes": "5-bit medium k-quant. Balanced compression (-25.49% size) for mobile RAM efficiency."
+      "download_url": "https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf/resolve/53ce288f69326b415aeef030cfcb02a08a8096dd/nemotron-3.5-asr-streaming-0.6b-Q5_K_M.gguf",
+      "role": "bundled",
+      "notes": "The quantization bundled and shipped with Aura-Transcribe (production model), chosen to balance size (-25.49%) and mobile RAM use."
     },
     {
       "quantization": "Q4_K_M",
@@ -47,9 +49,9 @@
       "size_bytes": 495831520,
       "size_mib": 472.86,
       "sha256": "41c99fa5fb6f3d35f68e79adc3e755eca2232a8d921178bd647b71194792b8fd",
-      "download_url": "https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf/resolve/main/nemotron-3.5-asr-streaming-0.6b-Q4_K_M.gguf",
-      "role": "candidate",
-      "notes": "4-bit medium k-quant. Maximum compression (-33.99% size) for lowest memory footprint."
+      "download_url": "https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf/resolve/53ce288f69326b415aeef030cfcb02a08a8096dd/nemotron-3.5-asr-streaming-0.6b-Q4_K_M.gguf",
+      "role": "alternate",
+      "notes": "4-bit medium k-quant, not bundled. Available for manual evaluation only; the suite makes no automatic recommendation."
     }
   ]
 }

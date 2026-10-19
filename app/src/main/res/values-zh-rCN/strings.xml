@@ -102,13 +102,6 @@
     <string name="models_backend_desc">推理在 CPU 上运行，使用 ARM NEON 点积和 fp16 加速。这是引擎实现的唯一后端，也是此处提供的唯一选项。NPU（NNAPI）和 GPU（Vulkan）加速尚未实现。</string>
     <string name="models_backend_cpu">CPU（ARM NEON + 点积 + fp16）</string>
 
-    <string name="section_benchmark">基准测试</string>
-    <string name="desc_benchmark">使用内置英文测试录音（11 秒）测量当前模型在本机上的转写速度。</string>
-    <string name="btn_benchmark">运行基准测试</string>
-    <string name="bench_running">正在运行基准测试…</string>
-    <string name="bench_result">%1$s 秒音频用时 %2$s 秒：%3$s 倍实时</string>
-    <string name="bench_error">基准测试失败：%1$s</string>
-
     <string name="section_appearance">外观</string>
     <string name="theme_system">跟随系统</string>
     <string name="theme_light">浅色</string>
@@ -250,7 +243,6 @@
     <string name="debug_model_rename_failed">重命名已下载模型文件失败</string>
     <string name="debug_model_http_error">HTTP %1$d</string>
     <string name="debug_model_unknown_reason">未知</string>
-    <string name="bench_no_data_chunk">%1$s 中没有数据块</string>
     <string name="file_error_too_long">音频文件超过 30 分钟，请转写更短的文件。</string>
     <string name="file_error_too_large">音频文件过大，无法导入（最大 1 GB），请选择更小的文件。</string>
 

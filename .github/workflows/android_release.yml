@@ -37,6 +37,18 @@ jobs:
       with:
         python-version: '3.11'
 
+    # License-scope gate: MIT application code, OpenMDW-1.1 model, notices
+    # packaged byte-identically, model download pinned to a verified revision.
+    # Its own test suite proves it fails on each specific defect instead of
+    # merely always passing.
+    - name: License scope and notice consistency (hard gate)
+      run: |
+        python3 scripts/test_check_license_docs.py
+        python3 scripts/check_license_docs.py
+
+    - name: Cargo dependency license inventory
+      run: python3 scripts/report_cargo_licenses.py --output build/reports/cargo-licenses.md
+
     - name: Check translations (i18n parity gate)
       run: python3 scripts/check_translations.py
 
@@ -95,6 +107,20 @@ jobs:
 
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4.4.1
+
+    - name: Generate resolved Gradle dependency license report
+      run: ./gradlew --no-parallel :app:generateLicenseReport
+
+    - name: Upload dependency license inventories
+      if: always()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: aura-transcribe-dependency-license-inventories
+        path: |
+          app/build/reports/dependency-license/**
+          build/reports/cargo-licenses.md
+        if-no-files-found: error
+        retention-days: 30
 
     # `set -o pipefail` is required: without it the pipeline's exit status is
     # `tee`'s and a failing gate would report success.
@@ -382,6 +408,21 @@ jobs:
         }
         echo "OK: assets/MODEL_LICENSE.md verified inside release APK."
 
+        unzip -p "$APK" assets/MODEL_NOTICE.md | cmp - MODEL_NOTICE.md || {
+          echo "::error::assets/MODEL_NOTICE.md is missing or corrupt in release APK"
+          exit 1
+        }
+        echo "OK: assets/MODEL_NOTICE.md verified inside release APK."
+
+        # The §3 agreement must also travel as the verbatim upstream file, not
+        # only as the paraphrase in MODEL_LICENSE.md. Path verified against a
+        # real AAB/APK (base module assets -> assets/, base/assets/ in the AAB).
+        unzip -p "$APK" assets/licenses/OpenMDW-1.1.txt | cmp - licenses/OpenMDW-1.1.txt || {
+          echo "::error::assets/licenses/OpenMDW-1.1.txt is missing or corrupt in release APK"
+          exit 1
+        }
+        echo "OK: assets/licenses/OpenMDW-1.1.txt verified inside release APK."
+
         echo "RELEASE_APK=$APK" >> "$GITHUB_ENV"
 
     - name: Verify bundled model hash (checkModels gate)
@@ -460,6 +501,18 @@ jobs:
         }
         echo "OK: model_assets/assets/MODEL_LICENSE.md verified inside release AAB."
 
+        unzip -p "$AAB" model_assets/assets/MODEL_NOTICE.md | cmp - MODEL_NOTICE.md || {
+          echo "::error::model_assets/assets/MODEL_NOTICE.md is missing or corrupt in release AAB"
+          exit 1
+        }
+        echo "OK: model_assets/assets/MODEL_NOTICE.md verified inside release AAB."
+
+        unzip -p "$AAB" base/assets/licenses/OpenMDW-1.1.txt | cmp - licenses/OpenMDW-1.1.txt || {
+          echo "::error::base/assets/licenses/OpenMDW-1.1.txt is missing or corrupt in release AAB"
+          exit 1
+        }
+        echo "OK: base/assets/licenses/OpenMDW-1.1.txt verified inside release AAB."
+
         echo "RELEASE_AAB=$AAB" >> "$GITHUB_ENV"
 
     - name: Extract Version Name
@@ -523,3 +576,4 @@ jobs:
           Aura_Transcribe_v${{ env.VERSION_NAME }}.apk
           Aura_Transcribe_v${{ env.VERSION_NAME }}.aab
           MODEL_LICENSE.md
+          MODEL_NOTICE.md

@@ -101,13 +101,6 @@
     <string name="models_backend_desc">Die Inferenz läuft auf der CPU, mit ARM NEON, Dot-Product- und fp16-Beschleunigung. Das ist das einzige Backend, das die Engine implementiert, deshalb wird hier nur dieses angeboten. NPU- (NNAPI) und GPU-Beschleunigung (Vulkan) sind nicht implementiert.</string>
     <string name="models_backend_cpu">CPU (ARM NEON + dotprod + fp16)</string>
 
-    <string name="section_benchmark">Benchmark</string>
-    <string name="desc_benchmark">Misst, wie schnell das aktive Modell auf diesem Gerät transkribiert, anhand einer integrierten englischen Testaufnahme (11 s).</string>
-    <string name="btn_benchmark">Benchmark starten</string>
-    <string name="bench_running">Benchmark läuft…</string>
-    <string name="bench_result">%1$s s Audio in %2$s s: %3$s× Echtzeit</string>
-    <string name="bench_error">Benchmark fehlgeschlagen: %1$s</string>
-
     <string name="section_appearance">Darstellung</string>
     <string name="theme_system">Systemstandard</string>
     <string name="theme_light">Hell</string>
@@ -235,7 +228,6 @@
     <string name="debug_model_rename_failed">Heruntergeladene Modelldatei konnte nicht umbenannt werden</string>
     <string name="debug_model_http_error">HTTP %1$d</string>
     <string name="debug_model_unknown_reason">unbekannt</string>
-    <string name="bench_no_data_chunk">kein Datenblock in %1$s</string>
     <string name="file_error_too_long">Die Audiodatei ist länger als 30 Minuten. Bitte transkribiere eine kürzere Datei.</string>
     <string name="file_error_too_large">Die Audiodatei ist zum Importieren zu groß (Maximalgröße 1 GB). Bitte wähle eine kleinere Datei.</string>
 

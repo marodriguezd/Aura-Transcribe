@@ -246,9 +246,9 @@ platform :android do
         - System
       License: MIT
       AuthorName: Aura Transcribe Contributors
-      SourceCode: https://github.com/marodriguezd/android_transcribe_app
-      IssueTracker: https://github.com/marodriguezd/android_transcribe_app/issues
-      Changelog: https://github.com/marodriguezd/android_transcribe_app/releases
+      SourceCode: https://github.com/marodriguezd/Aura-Transcribe
+      IssueTracker: https://github.com/marodriguezd/Aura-Transcribe/issues
+      Changelog: https://github.com/marodriguezd/Aura-Transcribe/releases
       
       AutoName: Aura Transcribe
       Summary: Real-time, private, offline speech-to-text on Android
@@ -270,7 +270,7 @@ platform :android do
         to that provider with the user's own API key.
 
       RepoType: git
-      Repo: https://github.com/marodriguezd/android_transcribe_app.git
+      Repo: https://github.com/marodriguezd/Aura-Transcribe.git
 
       Builds:
         - versionName: '#{version_name}'

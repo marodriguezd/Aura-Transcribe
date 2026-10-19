@@ -1,26 +1,62 @@
 # Model License and Notices of Origin
 
-This document provides the license terms and notices of origin for the bundled speech recognition model artifact:
+This document records the license terms of the bundled speech-recognition model
+artifact, the provenance of its GGUF conversion, and where each obligation is
+satisfied in the distributed application.
 
-**Artifact:** `nemotron-3.5-asr-streaming-0.6b-Q5_K_M.gguf`  
-**Base Model:** [nvidia/nemotron-3.5-asr-streaming-0.6b](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) by NVIDIA Corporation  
-**Quantized GGUF Distribution:** [handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf](https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf) by handy-computer  
-**Model License:** OpenMDW License Agreement, version 1.1 (OpenMDW-1.1)  
-**License URL:** https://openmdw.ai/license/1-1/
-
----
-
-## License Scope and Separation
-
-- **Application Source Code:** Aura Transcribe application software (Java, Rust, Gradle scripts, resources) is licensed under the [MIT License](LICENSE).
-- **Native Runtime Dependencies:**
-  - `transcribe.cpp` and `ggml`: MIT / Apache-2.0 licenses (CJ Pais, Georgi Gerganov and contributors).
-  - `cpal` (Cross-Platform Audio Library): Apache-2.0 license.
-- **Model Weights & Architecture Artifacts:** The bundled model parameters, weights, and associated architecture definitions are distributed under the **OpenMDW License Agreement, version 1.1 (OpenMDW-1.1)** reproduced below.
+**Artifact:** `nemotron-3.5-asr-streaming-0.6b-Q5_K_M.gguf` (559,647,200 bytes)
+**SHA-256:** `86429e8c4f7fdcf9b3312269ad1ca6669478ba7805331c4aea7a2e33e9910d65`
+**Base model:** [nvidia/nemotron-3.5-asr-streaming-0.6b](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) by NVIDIA Corporation
+**GGUF conversion:** [handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf](https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf), pinned at revision `53ce288f69326b415aeef030cfcb02a08a8096dd`
+**Model license:** OpenMDW License Agreement, version 1.1 (OpenMDW-1.1)
+**License text:** https://openmdw.ai/license/1-1/
+**Verbatim upstream agreement:** [`licenses/OpenMDW-1.1.txt`](licenses/OpenMDW-1.1.txt), 2,619 bytes, SHA-256 `2ab44b68365473c112f5092211a38f231cb23e50de68b75a13369adbd76a74df` — an unmodified copy of the `LICENSE` file published with the GGUF at the pinned revision
+**Upstream `LICENSE`:** https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf/resolve/53ce288f69326b415aeef030cfcb02a08a8096dd/LICENSE
+**Upstream `NOTICE`:** https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf/resolve/53ce288f69326b415aeef030cfcb02a08a8096dd/NOTICE
 
 ---
 
-## OpenMDW License Agreement, version 1.1 (OpenMDW-1.1)
+## Scope: what this license covers, and what it does not
+
+- **Application source code** (Java, Rust, Gradle scripts, resources) is licensed
+  under the [MIT License](LICENSE). This file does not change that.
+- **The model weights are not MIT-licensed.** They are not relicensed by this
+  repository and remain governed solely by OpenMDW-1.1. No MIT terms are
+  asserted over the GGUF, and no OpenMDW terms are asserted over the application
+  code.
+- **Third-party libraries** (AndroidX, Material, OkHttp, Google Play Services,
+  ML Kit, `transcribe-cpp`, `ggml`, `cpal`, libc++ and the Rust crate graph)
+  keep their own licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+The GGUF is distributed as a separately licensed data asset that ships next to
+the application code and is loaded as data at runtime by the native engine. It
+is not compiled into the application's code, and the application code does not
+incorporate model tensors.
+
+## Redistribution conditions and where they are met
+
+OpenMDW-1.1 states: *"If you distribute any portion of the Model Materials, you
+shall retain in your distribution (1) a copy of this agreement, and (2) all
+copyright notices and other notices of origin included in the Model Materials
+that are applicable to your distribution."*
+
+| Obligation | Where it is satisfied |
+|---|---|
+| (1) A copy of the agreement | This file **and** the verbatim upstream agreement: `assets/MODEL_LICENSE.md` + `assets/licenses/OpenMDW-1.1.txt` in the APK, `model_assets/assets/MODEL_LICENSE.md` in the AAB (the base module's `assets/licenses/` ships in both). |
+| (2) Notices of origin | [`MODEL_NOTICE.md`](MODEL_NOTICE.md), which reproduces the upstream `NOTICE` verbatim, packaged at the same two locations. |
+
+The copies are enforced mechanically rather than by convention: the build copies
+them from the repository root, and `verifyReleaseApkModel` /
+`verifyReleaseBundleModel` (plus `verifyPackagingDecision`, which exercises the
+same functions over synthetic archives) reject an APK or AAB whose model
+documents are missing, duplicated or not byte-identical to the sources.
+`scripts/check_license_docs.py` additionally fails if the repository copies
+drift from each other.
+
+OpenMDW-1.1 imposes no conditions on the outputs produced by running the model,
+so transcribed text is unaffected by this license.
+
+## Full text of OpenMDW License Agreement, version 1.1
 
 By exercising rights granted to you under this agreement, you accept and agree to its terms.
 
@@ -39,3 +75,18 @@ THE MODEL MATERIALS ARE PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPR
 YOU ARE SOLELY RESPONSIBLE FOR (1) CLEARING RIGHTS OF OTHER PERSONS THAT MAY APPLY TO THE MODEL MATERIALS OR ANY USE THEREOF, INCLUDING WITHOUT LIMITATION ANY PERSON’S COPYRIGHTS OR OTHER RIGHTS INCLUDED OR EMBODIED IN THE MODEL MATERIALS; (2) OBTAINING ANY NECESSARY CONSENTS, PERMISSIONS OR OTHER RIGHTS REQUIRED FOR ANY USE OF THE MODEL MATERIALS; OR (3) PERFORMING ANY DUE DILIGENCE OR UNDERTAKING ANY OTHER INVESTIGATIONS INTO THE MODEL MATERIALS OR ANYTHING INCORPORATED OR EMBODIED THEREIN.
 
 IN NO EVENT SHALL THE PROVIDERS OF THE MODEL MATERIALS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE MODEL MATERIALS, THE USE THEREOF OR OTHER DEALINGS THEREIN.
+
+---
+
+## Notes on this document
+
+OpenMDW-1.1 is identified by NVIDIA in its model-card metadata as
+`license_name: openmdw-1.1` with `license: other`. This repository does **not**
+claim that OpenMDW-1.1 is an SPDX-listed or OSI-approved license; it is referred
+to by its full name, and the software identifier `LicenseRef-OpenMDW-1.1` is used
+only where a tag is required for tooling that cannot take a full name.
+
+This document records verifiable licensing facts about the artifact that is
+actually shipped. It is not a legal certification and does not replace a review
+by counsel; see [`LICENSE_AUDIT.md`](LICENSE_AUDIT.md) for the scope and limits
+of the audit.

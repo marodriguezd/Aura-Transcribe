@@ -66,6 +66,18 @@ jobs:
       with:
         python-version: '3.11'
 
+    # License-scope gate: MIT application code, OpenMDW-1.1 model, notices
+    # packaged byte-identically, model download pinned to a verified revision.
+    # Runs on every pull request, so a stale badge or a false CC-BY attribution
+    # cannot land again.
+    - name: License scope and notice consistency (hard gate)
+      run: |
+        python3 scripts/test_check_license_docs.py
+        python3 scripts/check_license_docs.py
+
+    - name: Cargo dependency license inventory
+      run: python3 scripts/report_cargo_licenses.py --output build/reports/cargo-licenses.md
+
     - name: Check translations (i18n parity gate)
       run: python3 scripts/check_translations.py
 
@@ -125,6 +137,20 @@ jobs:
 
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4.4.1
+
+    - name: Generate resolved Gradle dependency license report
+      run: ./gradlew --no-parallel :app:generateLicenseReport
+
+    - name: Upload dependency license inventories
+      if: always()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: aura-transcribe-dependency-license-inventories
+        path: |
+          app/build/reports/dependency-license/**
+          build/reports/cargo-licenses.md
+        if-no-files-found: error
+        retention-days: 30
 
     # `set -o pipefail` is load-bearing: without it the step's exit status is
     # `tee`'s, so a failing test run reported success and the "hard gate" gated
