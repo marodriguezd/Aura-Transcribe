@@ -960,26 +960,80 @@ val verifyNativeAlignmentGate = tasks.register("verifyNativeAlignmentGate") {
     }
 }
 
+// Regression gate for the model-download predicate. It drives the REAL
+// `shouldWireModelDownload` used by the `preBuild` wiring above over a table of
+// task names, so a future edit cannot quietly make `bundleDebug` (or a
+// lint-only run) fetch 560 MB again, or make a release build skip it.
+val verifyModelDownloadDecision = tasks.register("verifyModelDownloadDecision") {
+    description =
+        "QA gate: exercise which invocations wire the bundled-model download into preBuild"
+    group = "verification"
+
+    doLast {
+        val cases = listOf(
+            Triple("bundleDebug", listOf("bundleDebug"), false),
+            Triple("assembleDebug", listOf("assembleDebug"), false),
+            Triple("packageDebug", listOf("packageDebug"), false),
+            Triple("debug bundle + debug test", listOf("bundleDebug", "testDebugUnitTest"), false),
+            Triple("bundleRelease", listOf("bundleRelease"), true),
+            Triple("assembleRelease", listOf("assembleRelease"), true),
+            Triple("installRelease", listOf("installRelease"), true),
+            Triple("publishReleaseBundle", listOf("publishReleaseBundle"), true),
+            Triple("project-qualified :app:bundleRelease", listOf(":app:bundleRelease"), true),
+            Triple("mixed debug + release", listOf("assembleDebug", "assembleRelease"), true),
+            Triple("umbrella build", listOf("build"), true),
+            Triple("umbrella assemble", listOf("assemble"), true),
+            Triple("umbrella bundle", listOf("bundle"), true),
+            Triple("testReleaseUnitTest", listOf("testReleaseUnitTest"), false),
+            Triple("lintRelease", listOf("lintRelease"), false),
+            Triple("checkModels", listOf("checkModels"), false),
+            Triple("tasks", listOf("tasks"), false),
+            Triple("empty invocation", emptyList(), false),
+        )
+
+        var failures = 0
+        for ((label, tasks, expected) in cases) {
+            val actual = shouldWireModelDownload(tasks)
+            if (actual != expected) {
+                failures++
+                println(
+                    "  verifyModelDownloadDecision: FAIL '$label' $tasks -> $actual, expected $expected"
+                )
+            } else {
+                println("  verifyModelDownloadDecision: ok   '$label' -> $actual")
+            }
+        }
+        if (failures > 0) {
+            throw GradleException(
+                "verifyModelDownloadDecision: $failures of ${cases.size} cases wrong. " +
+                    "A debug/verification invocation must not download the 560 MB model, " +
+                    "and a release invocation must download it."
+            )
+        }
+        println("  verifyModelDownloadDecision: ${cases.size} task-selection cases verified")
+    }
+}
+
 tasks.named("check") {
     dependsOn(checkNativeAlignment)
     dependsOn(verifyPackagingDecision)
     dependsOn(verifyNativeAlignmentGate)
+    dependsOn(verifyModelDownloadDecision)
 }
 
 // Only download the bundled model when the invocation actually produces a
-// release artifact. Debug-only and verification-only runs skip the 750 MB
-// download to keep CI fast; the app downloads the model at runtime instead.
+// *release* artifact. The debug variant ships without a model on purpose (it
+// downloads one at first run), so `bundleDebug`/`assembleDebug` must never
+// fetch 560 MB.
 //
-// The previous test was `taskNames.any { it.contains("Debug") }`, which skipped
-// the download for `assembleDebug assembleRelease` — so the *release* APK in
-// that invocation was built without the model, silently, exactly like the
-// bundle/APK confusion above. Requiring a release-producing task (and not a
-// lint/test-only run) is the precise condition.
-val isVerificationOnlyRun = requestedTaskNames.isNotEmpty() && requestedTaskNames.all { name ->
-    name.contains("lint", ignoreCase = true) ||
-        name.contains("test", ignoreCase = true) ||
-        name.contains("checkModels", ignoreCase = true)
-}
+// Two earlier predicates were wrong in opposite directions:
+//   * `taskNames.any { it.contains("Debug") }` skipped the download for
+//     `assembleDebug assembleRelease`, so the release APK in that invocation had
+//     no model — silently, exactly like the bundle/APK confusion above;
+//   * `contains("Release") || contains("bundle")` matched any task name with
+//     "bundle" in it, so a plain `./gradlew bundleDebug` downloaded the model.
+// `shouldWireModelDownload` (bottom of this file) now derives the answer from the
+// release variant only, and `verifyModelDownloadDecision` exercises it.
 val copyModelLicense = tasks.register<Copy>("copyModelLicense") {
     description = "Copies MODEL_LICENSE.md and MODEL_NOTICE.md into model_assets for release packaging"
     group = "build"
@@ -988,11 +1042,7 @@ val copyModelLicense = tasks.register<Copy>("copyModelLicense") {
     into(rootProject.file("model_assets/src/main/assets"))
 }
 
-val buildsReleaseArtifact = requestedTaskNames.any { name ->
-    name.contains("Release", ignoreCase = true) || name.contains("bundle", ignoreCase = true)
-}
-
-if (buildsReleaseArtifact && !isVerificationOnlyRun) {
+if (shouldWireModelDownload(requestedTaskNames)) {
     tasks.named("preBuild") {
         dependsOn(downloadModels)
         dependsOn(copyModelLicense)
@@ -1945,6 +1995,42 @@ fun runPackagingDecisionGate(workDir: File) {
     }
     println("  verifyPackagingDecision: ${nativeBuildCases.size} native task selection cases verified")
 }
+
+/**
+ * True when the only thing an invocation does is verify/lint/test the code.
+ * Such a run must never download the 560 MB model.
+ */
+fun isVerificationOnlyRun(taskNames: List<String>): Boolean =
+    taskNames.isNotEmpty() && taskNames.map { it.substringAfterLast(':') }.all { name ->
+        name.contains("lint", ignoreCase = true) ||
+            name.contains("test", ignoreCase = true) ||
+            name.contains("checkModels", ignoreCase = true)
+    }
+
+/**
+ * True when the invocation genuinely needs the bundled GGUF on disk.
+ *
+ * The model is only used by the *release* variant: `assembleRelease`,
+ * `bundleRelease`, `installRelease`, `publishReleaseBundle` and so on. The debug
+ * variant deliberately ships without it (the app downloads one at first run), so
+ * `bundleDebug` must not fetch it - that was the bug this predicate replaced
+ * (`contains("bundle")` matched `bundleDebug`).
+ *
+ * Variant-agnostic umbrella tasks (`build`, `assemble`, `bundle`) do include the
+ * release variant, so they still get the download; excluding them would let them
+ * fail later at `verifyReleaseApkModel` instead of fetching what they need.
+ */
+fun needsBundledModel(taskNames: List<String>): Boolean {
+    val umbrella = setOf("build", "assemble", "bundle", "package", "publish")
+    return taskNames.any { raw ->
+        val name = raw.substringAfterLast(':')
+        name in umbrella || name.contains("Release")
+    }
+}
+
+/** The single decision the `preBuild` wiring uses. */
+fun shouldWireModelDownload(taskNames: List<String>): Boolean =
+    needsBundledModel(taskNames) && !isVerificationOnlyRun(taskNames)
 
 /**
  * Determines whether the Gradle invocation requires building the native Rust library.
