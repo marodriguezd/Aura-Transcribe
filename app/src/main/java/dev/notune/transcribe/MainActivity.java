@@ -790,8 +790,8 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * Transcribes the bundled test clip through the active model and shows the
-     * speed as a real-time factor. The clip is a fixed English recording so
-     * results are comparable across models and devices; the run uses the
+     * speed as a real-time factor. The clip is a fixed eSpeak-synthesized English utterance so
+     * results are comparable across models and devices; the WAV is generated at build time and the run uses the
      * current model settings (language hint, translate).
      */
     private void runBenchmark() {

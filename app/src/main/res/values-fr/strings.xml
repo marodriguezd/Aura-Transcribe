@@ -102,7 +102,7 @@
     <string name="models_backend_cpu">CPU (ARM NEON + dotprod + fp16)</string>
 
     <string name="section_benchmark">Test de performance</string>
-    <string name="desc_benchmark">Mesure la vitesse de transcription du modèle actif sur cet appareil à l\'aide d\'un enregistrement de test en anglais intégré (11 s).</string>
+    <string name="desc_benchmark">Mesure la vitesse de transcription du modèle actif sur cet appareil à l\'aide d\'un échantillon synthétique de parole en anglais intégré (~11 s).</string>
     <string name="btn_benchmark">Lancer le test</string>
     <string name="bench_running">Test en cours…</string>
     <string name="bench_result">%1$s s d\'audio en %2$s s : %3$s× temps réel</string>

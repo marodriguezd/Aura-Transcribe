@@ -102,7 +102,7 @@
     <string name="models_backend_cpu">CPU (ARM NEON + dotprod + fp16)</string>
 
     <string name="section_benchmark">Benchmark</string>
-    <string name="desc_benchmark">Misst, wie schnell das aktive Modell auf diesem Gerät transkribiert, anhand einer integrierten englischen Testaufnahme (11 s).</string>
+    <string name="desc_benchmark">Misst, wie schnell das aktive Modell auf diesem Gerät transkribiert, anhand einer integrierten synthetischen englischen Sprachprobe (~11 s).</string>
     <string name="btn_benchmark">Benchmark starten</string>
     <string name="bench_running">Benchmark läuft…</string>
     <string name="bench_result">%1$s s Audio in %2$s s: %3$s× Echtzeit</string>
