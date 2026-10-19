@@ -248,8 +248,13 @@ platform :android do
                       .gsub("@@VERSION_CODE@@", version_code.to_s)
                       .gsub("@@COMMIT_SHA@@", commit_sha)
 
-    if fdroid_yaml.include?("@@")
-      UI.user_error!("Unsubstituted @@...@@ placeholder left in the F-Droid descriptor template")
+    # Check the three real placeholders, not the substring "@@": the template's
+    # header comment documents them, so a bare `include?("@@")` would always fire.
+    leftover = ["@@VERSION_NAME@@", "@@VERSION_CODE@@", "@@COMMIT_SHA@@"].select do |placeholder|
+      fdroid_yaml.include?(placeholder)
+    end
+    unless leftover.empty?
+      UI.user_error!("Unsubstituted placeholder left in the F-Droid descriptor: #{leftover.join(', ')}")
     end
 
     descriptor_path = File.join(fdroid_dir, "com.auratranscribe.app.yml")

@@ -39,13 +39,13 @@ Description: |
   to that provider with the user's own API key.
 
 Disabled: >-
-  Not buildable on the F-Droid buildserver as of 1.0.0. The release variant
-  carries the 560 MB Nemotron GGUF, which `assembleRelease` downloads from
-  Hugging Face (pinned revision, SHA-256 verified) and which the release gates
-  refuse to publish without; the buildserver has no network access. In
-  addition, `:app:cargoNdkBuild` shells out to `cargo ndk`, and cargo-ndk is
-  not installed in the build image (it cannot be installed offline). See
-  FDROID.md for the evidence and the distribution options.
+  Not buildable on the F-Droid buildserver. The release variant carries the
+  560 MB Nemotron GGUF, which `assembleRelease` downloads from Hugging Face
+  (pinned revision, SHA-256 verified) and which the release gates refuse to
+  publish without; the buildserver has no network access. In addition,
+  `:app:cargoNdkBuild` shells out to `cargo ndk`, and cargo-ndk is not
+  installed in the build image (it cannot be installed offline). See FDROID.md
+  for the evidence and the distribution options.
 
 RepoType: git
 Repo: https://github.com/marodriguezd/Aura-Transcribe.git

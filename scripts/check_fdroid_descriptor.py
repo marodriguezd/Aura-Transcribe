@@ -101,18 +101,45 @@ def check_template(root: Path, rel: str) -> None:
     if re.search(r"(?m)^\s+versionCode: \{", text):
         fail("versionCode must use @@VERSION_CODE@@, not a YAML flow mapping")
 
+    # 7. A misspelt placeholder is worse than a missing one: the lane substitutes
+    #    the three known names, so `@@COMMIT_SHAA@@` would ship verbatim. The
+    #    template may only contain the placeholders the lane knows about.
+    unknown = sorted(set(re.findall(r"@@[A-Za-z_]+@@", text)) - set(PLACEHOLDERS))
+    if unknown:
+        fail(
+            "the template contains placeholder(s) the lane never substitutes: "
+            + ", ".join(unknown)
+        )
+
 
 def check_lane(root: Path, rel: str) -> None:
     fastfile = read(root, rel)
     if "fdroid/com.auratranscribe.app.yml" not in fastfile:
         fail("the fdroid_export lane does not read the committed template")
     if "Unsubstituted" not in fastfile:
-        fail("the lane does not fail on an unsubstituted @@...@@ placeholder")
+        fail("the lane does not fail on an unsubstituted placeholder")
     if "fdroid_yaml = <<~YAML" in fastfile:
         fail(
             "the lane still builds the descriptor from a Ruby heredoc; the "
             "committed template is the single source of truth"
         )
+
+    # The leftover check must name the placeholders. A bare `include?("@@")`
+    # matched the template's own header comment ("substitutes the @@...@@
+    # placeholders"), so the lane failed on every run, even with a perfect
+    # template. Regression: that exact form is rejected here.
+    if re.search(r"fdroid_yaml\.include\?\(\s*[\"']@@[\"']\s*\)", fastfile):
+        fail(
+            'the lane tests `include?("@@")`; the template header mentions the '
+            "placeholders, so that check fires on every run. Check the three "
+            "placeholder names instead"
+        )
+    for placeholder in PLACEHOLDERS:
+        if placeholder not in fastfile:
+            fail(
+                f"the lane's leftover check does not name {placeholder}; it must "
+                "substitute and verify the three known placeholders"
+            )
 
 
 def run(root: Path, template: str, fastfile: str) -> None:

@@ -58,9 +58,15 @@ CurrentVersionCode: @@VERSION_CODE@@
 FASTFILE = """\
 lane :fdroid_export do
   template_path = File.expand_path("fdroid/com.auratranscribe.app.yml", __dir__)
-  fdroid_yaml = File.read(template_path).gsub("@@VERSION_NAME@@", "1.0.0")
-  if fdroid_yaml.include?("@@")
-    UI.user_error!("Unsubstituted placeholder")
+  fdroid_yaml = File.read(template_path)
+                    .gsub("@@VERSION_NAME@@", "1.0.0")
+                    .gsub("@@VERSION_CODE@@", "50")
+                    .gsub("@@COMMIT_SHA@@", "deadbeef")
+  leftover = ["@@VERSION_NAME@@", "@@VERSION_CODE@@", "@@COMMIT_SHA@@"].select do |placeholder|
+    fdroid_yaml.include?(placeholder)
+  end
+  unless leftover.empty?
+    UI.user_error!("Unsubstituted placeholder left in the F-Droid descriptor: #{leftover.join(', ')}")
   end
 end
 """
@@ -177,11 +183,36 @@ class GateTest(unittest.TestCase):
         self.rewrite(self.template, "@@COMMIT_SHA@@", "HEAD")
         self.assert_rejected("placeholder @@COMMIT_SHA@@ is missing")
 
-    # -- lane wiring -----------------------------------------------------
-    def test_lane_not_reading_template_rejected(self) -> None:
-        self.fastfile.write_text("lane :fdroid_export do\nend\n", encoding="utf-8")
-        self.assert_rejected("does not read the committed template")
+    def test_unknown_placeholder_rejected(self) -> None:
+        # A placeholder the lane does not know would survive substitution and
+        # ship as literal YAML; the three known ones are still present here.
+        self.rewrite(
+            self.template,
+            "    ndk: 28.2.13676358",
+            "    ndk: 28.2.13676358\n    ndkVersion: '@@NDK_VERSION@@'",
+        )
+        self.assert_rejected("placeholder(s) the lane never substitutes")
 
+    # -- lane wiring -----------------------------------------------------
+    def test_lane_substring_placeholder_check_rejected(self) -> None:
+        # The regression this gate exists for: `include?("@@")` matches the
+        # template's own header comment, so the lane failed on every run.
+        self.rewrite(
+            self.fastfile,
+            'leftover = ["@@VERSION_NAME@@", "@@VERSION_CODE@@", "@@COMMIT_SHA@@"].select do |placeholder|\n    fdroid_yaml.include?(placeholder)\n  end\n  unless leftover.empty?',
+            'if fdroid_yaml.include?("@@")',
+        )
+        self.assert_rejected('tests `include?("@@")`')
+
+    def test_lane_without_placeholder_names_rejected(self) -> None:
+        self.fastfile.write_text(
+            "lane :fdroid_export do\n"
+            '  fdroid_yaml = File.read("fdroid/com.auratranscribe.app.yml")\n'
+            '  UI.user_error!("Unsubstituted")\n'
+            "end\n",
+            encoding="utf-8",
+        )
+        self.assert_rejected("does not name @@VERSION_NAME@@")
     def test_lane_heredoc_reintroduced_rejected(self) -> None:
         with self.fastfile.open("a", encoding="utf-8") as handle:
             handle.write('fdroid_yaml = <<~YAML\n  License: MIT\nYAML\n')
