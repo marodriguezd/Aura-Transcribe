@@ -39,7 +39,7 @@ WHAT YOU GET
 - Microphone diagnostics with a live level meter and active-device indicator
 - Choose between Bluetooth headset, USB or wired, and built-in microphones
 - Light, dark and Material You dynamic colour
-- Free and open source under the MIT License
+- Free and open source under the MIT License (the bundled speech model keeps its own OpenMDW-1.1 terms)
 
 REQUIREMENTS
 - Android 8.0 (API 26) or newer; built and tested against Android 17 (API 37)

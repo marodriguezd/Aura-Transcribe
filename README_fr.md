@@ -6,6 +6,8 @@
 
 [English](README.md) · [Español](README_es.md) · [Deutsch](README_de.md) · Français · [Italiano](README_it.md) · [中文](README_zh.md)
 
+Le code source de l’application est distribué sous licence MIT. Les composants tiers conservent leurs propres conditions, et le modèle vocal Nemotron inclus **n’est pas** sous MIT : il est régi par l’OpenMDW License Agreement 1.1 (OpenMDW-1.1). Voir [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) et [MODEL_LICENSE.md](MODEL_LICENSE.md).
+
 Aura Transcribe est une application de voix vers texte sur l'appareil et un service de saisie vocale pour Android. Propulsée par Rust, des optimisations SIMD ARM NEON et des noyaux d'inférence GGML, elle effectue la reconnaissance vocale localement sur le CPU de l'appareil sans nécessiter de connexion réseau active.
 
 L'application fonctionne sur plusieurs points d'intégration Android : dictée vocale dans les claviers standard, un éditeur de méthode de saisie (IME) autonome, une surcouche flottante de dictée, des sous-titres en direct de l'audio système et la transcription hors ligne de fichiers audio.
@@ -272,6 +274,6 @@ Les ajouts et changements architecturaux ultérieurs de ce fork — incluant rou
 
 ### Crédits tiers
 
-- **Architecture du modèle vocal :** [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) de NVIDIA, quantisé en GGUF (Q5_K_M) par [handy-computer](https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf) (licence CC-BY 4.0).
+- **Architecture du modèle vocal :** [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) de NVIDIA, quantisé en GGUF (Q5_K_M) par [handy-computer](https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf) (licence du modèle : OpenMDW-1.1 ; voir [MODEL_LICENSE.md](MODEL_LICENSE.md)).
 - **Noyaux d'inférence :** [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp) et [ggml](https://github.com/ggerganov/ggml) de CJ Pais et Georgi Gerganov.
 - **Capture audio :** [cpal](https://github.com/RustAudio/cpal) (Cross-Platform Audio Library).

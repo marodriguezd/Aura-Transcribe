@@ -6,6 +6,8 @@
 
 English · [Español](README_es.md) · [Deutsch](README_de.md) · [Français](README_fr.md) · [Italiano](README_it.md) · [中文](README_zh.md)
 
+The application source code is licensed under MIT. Third-party components keep their own terms, and the bundled Nemotron speech model is **not** MIT: it is distributed under the OpenMDW License Agreement 1.1 (OpenMDW-1.1). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [MODEL_LICENSE.md](MODEL_LICENSE.md).
+
 Aura Transcribe is an on-device speech-to-text application and voice input service for Android. Powered by Rust, ARM NEON SIMD optimizations, and GGML inference kernels, it performs speech recognition locally on the device CPU without requiring an active network connection.
 
 The application functions across multiple Android integration points, providing standard keyboard voice typing, a standalone input method editor (IME), a floating dictation overlay, live captions for system audio, and offline audio file transcription.
@@ -272,6 +274,6 @@ Subsequent additions and architectural changes in this fork—including multi-de
 
 ### Third-Party Credits
 
-- **Speech Model Architecture:** [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) by NVIDIA, quantized to GGUF (Q5_K_M) by [handy-computer](https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf) (licensed under CC-BY 4.0).
+- **Speech Model Architecture:** [Nemotron 3.5 ASR Streaming 0.6B](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b) by NVIDIA, quantized to GGUF (Q5_K_M) by [handy-computer](https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf) (model terms: OpenMDW-1.1; see [MODEL_LICENSE.md](MODEL_LICENSE.md)).
 - **Inference Kernels:** [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp) and [ggml](https://github.com/ggerganov/ggml) by CJ Pais and Georgi Gerganov.
 - **Audio Capture:** [cpal](https://github.com/RustAudio/cpal) (Cross-Platform Audio Library).
