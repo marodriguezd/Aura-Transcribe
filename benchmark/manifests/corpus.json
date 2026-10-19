@@ -4,8 +4,8 @@
   "synthetic": true,
   "description": "Synthetic smoke corpus for pipeline testing only. Audio is generated deterministically by `python3 scripts/prepare_corpus.py --generate-synthetic`; nothing is downloaded or redistributed. Transcripts are placeholder reference strings for the smoke pipeline, not verified speech, and support no accuracy or WER claims.",
   "source_dataset": "none",
-  "license": "GPL-3.0-only",
-  "license_url": "https://www.gnu.org/licenses/gpl-3.0.html",
+  "license": "MIT",
+  "license_url": "https://opensource.org/license/mit",
   "attribution": "Aura-Transcribe contributors",
   "target_audio_format": {
     "sample_rate_hz": 16000,

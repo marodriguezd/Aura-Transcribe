@@ -284,6 +284,14 @@ class GateTest(unittest.TestCase):
         )
         self.assert_rejected("still declares the FLEURS dataset")
 
+    def test_corpus_with_copyleft_label_rejected(self) -> None:
+        self.rewrite(
+            "benchmark/manifests/corpus.json",
+            '"license": "MIT"',
+            '"license": "GPL-3.0-only"',
+        )
+        self.assert_rejected("corpus.json must declare the project's MIT")
+
     def test_json_runtime_dependency_rejected(self) -> None:
         self.rewrite(
             "app/build.gradle.kts",

@@ -151,8 +151,8 @@ class TestManifestIntegrity(unittest.TestCase):
 
         self.assertEqual(data["dataset_name"], "Aura-Transcribe Synthetic ASR Smoke Corpus")
         self.assertEqual(data["source_dataset"], "none")
-        self.assertEqual(data["license"], "GPL-3.0-only")
-        self.assertEqual(data["license_url"], "https://www.gnu.org/licenses/gpl-3.0.html")
+        self.assertEqual(data["license"], "MIT")
+        self.assertEqual(data["license_url"], "https://opensource.org/license/mit")
         self.assertEqual(data["attribution"], "Aura-Transcribe contributors")
         self.assertTrue(data.get("synthetic"), "Corpus must be declared synthetic")
 

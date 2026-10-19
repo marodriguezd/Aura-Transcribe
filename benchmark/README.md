@@ -42,7 +42,7 @@ defined in [`benchmark/manifests/corpus.json`](manifests/corpus.json):
   `scripts/prepare_corpus.py --generate-synthetic` from the manifest's segment
   boundaries. It contains synthetic tones, not recorded speech.
 - **Source dataset**: `none`. Nothing is downloaded and no third-party audio is
-  redistributed. The manifest's license metadata is `GPL-3.0-only` for the
+  redistributed. The manifest's license metadata is `MIT` for the
   Aura-Transcribe project; it does not describe any external dataset.
 - The manifest transcripts are placeholder reference strings used to exercise the
   reporting pipeline. They are not verified human speech and must not be used to
