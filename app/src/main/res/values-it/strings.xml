@@ -101,13 +101,6 @@
     <string name="models_backend_desc">L\'inferenza viene eseguita sulla CPU, con accelerazione ARM NEON, dot-product e fp16. È l\'unico motore implementato dall\'app, quindi è l\'unico disponibile qui. L\'accelerazione NPU (NNAPI) e GPU (Vulkan) non è implementata.</string>
     <string name="models_backend_cpu">CPU (ARM NEON + dotprod + fp16)</string>
 
-    <string name="section_benchmark">Benchmark</string>
-    <string name="desc_benchmark">Misura la velocità di trascrizione del modello attivo su questo dispositivo usando una registrazione di prova in inglese integrata (11 s).</string>
-    <string name="btn_benchmark">Avvia benchmark</string>
-    <string name="bench_running">Benchmark in corso…</string>
-    <string name="bench_result">%1$s s di audio in %2$s s: %3$s× tempo reale</string>
-    <string name="bench_error">Benchmark non riuscito: %1$s</string>
-
     <string name="section_appearance">Aspetto</string>
     <string name="theme_system">Predefinito di sistema</string>
     <string name="theme_light">Chiaro</string>
@@ -235,7 +228,6 @@
     <string name="debug_model_rename_failed">Impossibile rinominare il file del modello scaricato</string>
     <string name="debug_model_http_error">HTTP %1$d</string>
     <string name="debug_model_unknown_reason">sconosciuto</string>
-    <string name="bench_no_data_chunk">nessun blocco dati in %1$s</string>
     <string name="file_error_too_long">Il file audio dura più di 30 minuti. Trascrivi un file più corto.</string>
     <string name="file_error_too_large">Il file audio è troppo grande per essere importato (dimensione massima 1 GB). Scegli un file più piccolo.</string>
 

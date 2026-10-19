@@ -7,9 +7,8 @@ plugins {
 //
 // This module measures *Android platform* performance (cold/warm startup,
 // interaction latency, jank) and generates the Baseline Profile shipped with
-// the release APK. It is complementary to the in-app ASR benchmark
-// (MainActivity.runBenchmark -> main_activity.rs), which measures native
-// inference throughput; neither replaces the other.
+// the release APK. It is unrelated to the synthetic ASR smoke suite under
+// `scripts/` and `benchmark/manifests/`; neither replaces the other.
 //
 // Running it needs a connected arm64 device or emulator:
 //   ./gradlew :benchmark:connectedBenchmarkAndroidTest

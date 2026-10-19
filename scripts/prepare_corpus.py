@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-"""Corpus preparation and validation tool for the Aura-Transcribe multilingual benchmark.
+"""Corpus preparation and validation tool for the Aura-Transcribe synthetic ASR smoke corpus.
 
-Manages the 20-clip evaluation corpus (EN, ES, FR, PT) defined in
-`benchmark/manifests/corpus.json`.
+Manages the 20-clip synthetic smoke corpus (EN, ES, FR, PT) defined in
+`benchmark/manifests/corpus.json`. This tool never touches the network and
+never downloads external audio: every clip is generated locally.
 
 Modes:
   --verify              Validates that audio files exist, have correct format
                         (16 kHz mono 16-bit PCM WAV), valid durations, and transcripts.
+                        Fails with a clear message when audio is missing.
   --generate-synthetic  Generates deterministic, zero-network 16 kHz WAV fixtures
                         matching the exact segment and silence structure of the manifest.
-                        Used for offline development and fast CI testing.
-  --download            Downloads source utterances from Hugging Face FLEURS,
-                        resamples, and stitches with 1.0s silence boundaries.
 """
 
 from __future__ import annotations
@@ -180,7 +179,15 @@ def run_verify(manifest_path: Path = MANIFEST_PATH) -> bool:
         print(f"  - {lang}: {count} valid clips")
 
     if not all_valid:
-        print("\nVerification FAILED: Some audio files are missing, corrupt, or out of spec.", file=sys.stderr)
+        print(
+            "\nVerification FAILED: Some audio files are missing, corrupt, or out of spec.",
+            file=sys.stderr,
+        )
+        print(
+            "Generate the synthetic fixtures locally with: "
+            "python3 scripts/prepare_corpus.py --generate-synthetic",
+            file=sys.stderr,
+        )
         return False
 
     print(f"\nVerification SUCCESSFUL: All {len(clips)} clips match specification.")
@@ -207,39 +214,6 @@ def run_generate_synthetic(manifest_path: Path = MANIFEST_PATH) -> None:
     print("Synthetic audio fixture generation complete.")
 
 
-def run_download_fleurs(manifest_path: Path = MANIFEST_PATH) -> None:
-    """Downloads source utterances from Hugging Face FLEURS and stitches with silence."""
-    print("FLEURS automated downloader requires internet connection and datasets/huggingface hub.")
-    print("Fetching manifest...")
-    manifest = load_manifest(manifest_path)
-    clips = manifest["clips"]
-
-    try:
-        import urllib.request
-    except ImportError:
-        pass
-
-    print(f"Checking {len(clips)} clips for local presence before attempting network operations...")
-    missing = []
-    for clip in clips:
-        p = PROJECT_ROOT / clip["audio_path"]
-        if not p.is_file():
-            missing.append(clip)
-
-    if not missing:
-        print("All audio clips already exist locally. Nothing to download.")
-        return
-
-    print(f"{len(missing)} clips missing. Note: To generate deterministic offline fixtures without network, run:")
-    print("  python3 scripts/prepare_corpus.py --generate-synthetic")
-    print("\nAttempting FLEURS source download for missing clips...")
-    # Generate synthetic fixtures as reproducible fallback if external dataset is unreachable
-    for clip in missing:
-        p = PROJECT_ROOT / clip["audio_path"]
-        generate_synthetic_audio(p, clip["duration_sec"], clip.get("segments", []))
-        print(f"  ✓ Prepared [{clip['language']}] {clip['id']} (fallback synthesis)")
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="Corpus preparation and validation tool")
     parser.add_argument(
@@ -259,11 +233,6 @@ def main() -> int:
         action="store_true",
         help="Generate synthetic 16kHz WAV fixtures for offline testing",
     )
-    group.add_argument(
-        "--download",
-        action="store_true",
-        help="Download and stitch FLEURS utterances",
-    )
 
     args = parser.parse_args()
 
@@ -272,9 +241,6 @@ def main() -> int:
             run_generate_synthetic(args.manifest)
             return 0 if run_verify(args.manifest) else 1
         elif args.verify:
-            return 0 if run_verify(args.manifest) else 1
-        elif args.download:
-            run_download_fleurs(args.manifest)
             return 0 if run_verify(args.manifest) else 1
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)

@@ -872,54 +872,6 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- 7. Benchmark card: measures the active model's speed on this
-                 device against a short bundled speech clip. -->
-            <com.google.android.material.card.MaterialCardView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="16dp"
-                app:contentPadding="16dp">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginBottom="8dp"
-                        app:drawableStartCompat="@drawable/ic_mic"
-                        android:drawablePadding="12dp"
-                        app:drawableTint="?attr/colorPrimary"
-                        android:text="@string/section_benchmark"
-                        android:textAppearance="?attr/textAppearanceTitleLarge"/>
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/desc_benchmark"
-                        android:textAppearance="?attr/textAppearanceBodyMedium"
-                        android:textColor="?attr/colorOnSurfaceVariant"
-                        android:layout_marginBottom="16dp"/>
-
-                    <TextView
-                        android:id="@+id/text_bench_result"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:textAppearance="?attr/textAppearanceBodyLarge"
-                        android:layout_marginBottom="8dp"
-                        android:visibility="gone"/>
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_benchmark"
-                        style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/btn_benchmark"/>
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
         </LinearLayout>
     </ScrollView>
 </LinearLayout>

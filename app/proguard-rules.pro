@@ -33,7 +33,6 @@
     public void onAutoStop();
     public void onAutoStop(int);
     public void onSubtitleText(java.lang.String, boolean);
-    public void onBenchmarkResult(float, float, java.lang.String);
     public void onRmsChanged(float, int);
     public void onReadyForSpeech(int);
     public void onBeginningOfSpeech(int);

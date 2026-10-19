@@ -106,13 +106,6 @@
     <string name="models_backend_desc">Inference runs on the CPU, using ARM NEON with dot-product and fp16 acceleration. That is the only backend the engine implements, so it is the only one offered here. NPU (NNAPI) and GPU (Vulkan) acceleration are not implemented.</string>
     <string name="models_backend_cpu">CPU (ARM NEON + dotprod + fp16)</string>
 
-    <string name="section_benchmark">Benchmark</string>
-    <string name="desc_benchmark">Measures how fast the active model transcribes on this device, using a built-in English test recording (11 s).</string>
-    <string name="btn_benchmark">Run benchmark</string>
-    <string name="bench_running">Running benchmark…</string>
-    <string name="bench_result">%1$s s of audio in %2$s s: %3$s× real time</string>
-    <string name="bench_error">Benchmark failed: %1$s</string>
-
     <string name="section_appearance">Appearance</string>
     <string name="theme_system">System default</string>
     <string name="theme_light">Light</string>
@@ -280,7 +273,6 @@ Core Directives:
     <string name="debug_model_rename_failed">Failed to rename downloaded model file</string>
     <string name="debug_model_http_error">HTTP %1$d</string>
     <string name="debug_model_unknown_reason">unknown</string>
-    <string name="bench_no_data_chunk">no data chunk in %1$s</string>
     <string name="file_error_too_long">The audio file is longer than 30 minutes. Please transcribe a shorter file.</string>
     <string name="file_error_too_large">The audio file is too large to import (maximum size 1 GB). Please choose a smaller file.</string>
 

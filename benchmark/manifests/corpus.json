@@ -1,10 +1,12 @@
 {
   "schema_version": "1.0",
-  "dataset_name": "Aura-Transcribe Multilingual Benchmark Corpus (FLEURS-based)",
-  "source_dataset": "google/fleurs",
-  "license": "CC-BY-4.0",
-  "license_url": "https://creativecommons.org/licenses/by/4.0/",
-  "attribution": "Google LLC and FLEURS dataset contributors",
+  "dataset_name": "Aura-Transcribe Synthetic ASR Smoke Corpus",
+  "synthetic": true,
+  "description": "Synthetic smoke corpus for pipeline testing only. Audio is generated deterministically by `python3 scripts/prepare_corpus.py --generate-synthetic`; nothing is downloaded or redistributed. Transcripts are placeholder reference strings for the smoke pipeline, not verified speech, and support no accuracy or WER claims.",
+  "source_dataset": "none",
+  "license": "GPL-3.0-only",
+  "license_url": "https://www.gnu.org/licenses/gpl-3.0.html",
+  "attribution": "Aura-Transcribe contributors",
   "target_audio_format": {
     "sample_rate_hz": 16000,
     "channels": 1,
@@ -16,28 +18,28 @@
   "total_clips": 20,
   "clips": [
     {
-      "id": "fleurs_en_01",
+      "id": "synthetic_en_01",
       "language": "en",
       "language_bcp47": "en-US",
-      "audio_path": "benchmark/corpus/audio/fleurs_en_01.wav",
+      "audio_path": "benchmark/corpus/audio/synthetic_en_01.wav",
       "duration_sec": 28.4,
       "transcript": "The quick brown fox jumps over the lazy dog near the riverbank. Modern speech recognition systems rely on deep neural networks trained on diverse multilingual datasets to achieve high transcription accuracy. In 2026, mobile devices run quantized models entirely on-device without cloud connectivity.",
-      "assembly_notes": "Stitched 3 verified FLEURS utterances with 1.0s explicit silence gaps. Topics: everyday speech, technical ASR context, numbers/dates.",
+      "assembly_notes": "Synthetic clip: 3 placeholder segments with 1.0s explicit silence gaps. Topics: everyday speech, technical ASR context, numbers/dates.",
       "segments": [
         {
-          "utterance_id": "fleurs_en_1001",
+          "utterance_id": "synthetic_en_1001",
           "start_sec": 0.0,
           "end_sec": 5.8,
           "transcript": "The quick brown fox jumps over the lazy dog near the riverbank."
         },
         {
-          "utterance_id": "fleurs_en_1002",
+          "utterance_id": "synthetic_en_1002",
           "start_sec": 6.8,
           "end_sec": 18.2,
           "transcript": "Modern speech recognition systems rely on deep neural networks trained on diverse multilingual datasets to achieve high transcription accuracy."
         },
         {
-          "utterance_id": "fleurs_en_1003",
+          "utterance_id": "synthetic_en_1003",
           "start_sec": 19.2,
           "end_sec": 28.4,
           "transcript": "In 2026, mobile devices run quantized models entirely on-device without cloud connectivity."
@@ -45,28 +47,28 @@
       ]
     },
     {
-      "id": "fleurs_en_02",
+      "id": "synthetic_en_02",
       "language": "en",
       "language_bcp47": "en-US",
-      "audio_path": "benchmark/corpus/audio/fleurs_en_02.wav",
+      "audio_path": "benchmark/corpus/audio/synthetic_en_02.wav",
       "duration_sec": 31.2,
       "transcript": "Can you please reserve a table for four people at the downtown restaurant tonight at eight thirty? We will need vegetarian options and a quiet booth near the window. Please confirm our reservation by sending an email or text message.",
       "assembly_notes": "Conversational request involving numbers, times, and punctuation-bearing phrasing.",
       "segments": [
         {
-          "utterance_id": "fleurs_en_1004",
+          "utterance_id": "synthetic_en_1004",
           "start_sec": 0.0,
           "end_sec": 9.5,
           "transcript": "Can you please reserve a table for four people at the downtown restaurant tonight at eight thirty?"
         },
         {
-          "utterance_id": "fleurs_en_1005",
+          "utterance_id": "synthetic_en_1005",
           "start_sec": 10.5,
           "end_sec": 20.1,
           "transcript": "We will need vegetarian options and a quiet booth near the window."
         },
         {
-          "utterance_id": "fleurs_en_1006",
+          "utterance_id": "synthetic_en_1006",
           "start_sec": 21.1,
           "end_sec": 31.2,
           "transcript": "Please confirm our reservation by sending an email or text message."
@@ -74,28 +76,28 @@
       ]
     },
     {
-      "id": "fleurs_en_03",
+      "id": "synthetic_en_03",
       "language": "en",
       "language_bcp47": "en-US",
-      "audio_path": "benchmark/corpus/audio/fleurs_en_03.wav",
+      "audio_path": "benchmark/corpus/audio/synthetic_en_03.wav",
       "duration_sec": 27.6,
       "transcript": "The financial report showed a quarterly revenue increase of fourteen point five percent. However, production expenses also increased by two point eight million dollars due to supply chain challenges. The board of directors remains confident about future growth.",
       "assembly_notes": "Formal business/financial narrative with percentages, decimal figures, and formal vocabulary.",
       "segments": [
         {
-          "utterance_id": "fleurs_en_1007",
+          "utterance_id": "synthetic_en_1007",
           "start_sec": 0.0,
           "end_sec": 8.2,
           "transcript": "The financial report showed a quarterly revenue increase of fourteen point five percent."
         },
         {
-          "utterance_id": "fleurs_en_1008",
+          "utterance_id": "synthetic_en_1008",
           "start_sec": 9.2,
           "end_sec": 19.8,
           "transcript": "However, production expenses also increased by two point eight million dollars due to supply chain challenges."
         },
         {
-          "utterance_id": "fleurs_en_1009",
+          "utterance_id": "synthetic_en_1009",
           "start_sec": 20.8,
           "end_sec": 27.6,
           "transcript": "The board of directors remains confident about future growth."
@@ -103,28 +105,28 @@
       ]
     },
     {
-      "id": "fleurs_en_04",
+      "id": "synthetic_en_04",
       "language": "en",
       "language_bcp47": "en-US",
-      "audio_path": "benchmark/corpus/audio/fleurs_en_04.wav",
+      "audio_path": "benchmark/corpus/audio/synthetic_en_04.wav",
       "duration_sec": 29.8,
       "transcript": "Tomorrow's weather forecast predicts heavy rain and thunderstorm across the northern valley. Wind gusts may exceed sixty kilometers per hour in open areas. Residents should secure outdoor furniture and avoid unnecessary travel.",
       "assembly_notes": "Weather announcement featuring units of measurement, directions, and cautionary phrases.",
       "segments": [
         {
-          "utterance_id": "fleurs_en_1010",
+          "utterance_id": "synthetic_en_1010",
           "start_sec": 0.0,
           "end_sec": 9.6,
           "transcript": "Tomorrow's weather forecast predicts heavy rain and thunderstorm across the northern valley."
         },
         {
-          "utterance_id": "fleurs_en_1011",
+          "utterance_id": "synthetic_en_1011",
           "start_sec": 10.6,
           "end_sec": 19.4,
           "transcript": "Wind gusts may exceed sixty kilometers per hour in open areas."
         },
         {
-          "utterance_id": "fleurs_en_1012",
+          "utterance_id": "synthetic_en_1012",
           "start_sec": 20.4,
           "end_sec": 29.8,
           "transcript": "Residents should secure outdoor furniture and avoid unnecessary travel."
@@ -132,28 +134,28 @@
       ]
     },
     {
-      "id": "fleurs_en_05",
+      "id": "synthetic_en_05",
       "language": "en",
       "language_bcp47": "en-US",
-      "audio_path": "benchmark/corpus/audio/fleurs_en_05.wav",
+      "audio_path": "benchmark/corpus/audio/synthetic_en_05.wav",
       "duration_sec": 30.5,
       "transcript": "Doctor Alvarez presented groundbreaking clinical trials on cardiovascular medicine at the annual summit in Chicago. More than three thousand physicians attended the three-day international conference. Further peer-reviewed publications are expected by late November.",
       "assembly_notes": "Scientific and medical discourse with proper names, locations, and calendar months.",
       "segments": [
         {
-          "utterance_id": "fleurs_en_1013",
+          "utterance_id": "synthetic_en_1013",
           "start_sec": 0.0,
           "end_sec": 10.8,
           "transcript": "Doctor Alvarez presented groundbreaking clinical trials on cardiovascular medicine at the annual summit in Chicago."
         },
         {
-          "utterance_id": "fleurs_en_1014",
+          "utterance_id": "synthetic_en_1014",
           "start_sec": 11.8,
           "end_sec": 21.3,
           "transcript": "More than three thousand physicians attended the three-day international conference."
         },
         {
-          "utterance_id": "fleurs_en_1015",
+          "utterance_id": "synthetic_en_1015",
           "start_sec": 22.3,
           "end_sec": 30.5,
           "transcript": "Further peer-reviewed publications are expected by late November."
@@ -161,22 +163,22 @@
       ]
     },
     {
-      "id": "fleurs_es_01",
+      "id": "synthetic_es_01",
       "language": "es",
       "language_bcp47": "es-ES",
-      "audio_path": "benchmark/corpus/audio/fleurs_es_01.wav",
+      "audio_path": "benchmark/corpus/audio/synthetic_es_01.wav",
       "duration_sec": 29.0,
       "transcript": "El rápido desarrollo de la inteligencia artificial en dispositivos móviles permite transcribir voz en tiempo real con gran precisión. Los modelos compactos ejecutan redes neuronales directamente en la memoria del teléfono sin enviar datos a servidores externos.",
       "assembly_notes": "Spanish technical speech covering AI on mobile, offline processing, diacritics (rápidos, precisión, teléfonos).",
       "segments": [
         {
-          "utterance_id": "fleurs_es_2001",
+          "utterance_id": "synthetic_es_2001",
           "start_sec": 0.0,
           "end_sec": 13.5,
           "transcript": "El rápido desarrollo de la inteligencia artificial en dispositivos móviles permite transcribir voz en tiempo real con gran precisión."
         },
         {
-          "utterance_id": "fleurs_es_2002",
+          "utterance_id": "synthetic_es_2002",
           "start_sec": 14.5,
           "end_sec": 29.0,
           "transcript": "Los modelos compactos ejecutan redes neuronales directamente en la memoria del teléfono sin enviar datos a servidores externos."
@@ -184,28 +186,28 @@
       ]
     },
     {
-      "id": "fleurs_es_02",
+      "id": "synthetic_es_02",
       "language": "es",
       "language_bcp47": "es-ES",
-      "audio_path": "benchmark/corpus/audio/fleurs_es_02.wav",
+      "audio_path": "benchmark/corpus/audio/synthetic_es_02.wav",
       "duration_sec": 32.1,
       "transcript": "¿Podría indicarme cómo llegar a la estación central de trenes desde este punto de la ciudad? Tengo que tomar el próximo tren de las quince y cuarenta y cinco hacia Madrid. Muchas gracias por su amable colaboración.",
       "assembly_notes": "Conversational travel query with inverted question mark, numbers/time (15:45), and polite closing.",
       "segments": [
         {
-          "utterance_id": "fleurs_es_2003",
+          "utterance_id": "synthetic_es_2003",
           "start_sec": 0.0,
           "end_sec": 11.2,
           "transcript": "¿Podría indicarme cómo llegar a la estación central de trenes desde este punto de la ciudad?"
         },
         {
-          "utterance_id": "fleurs_es_2004",
+          "utterance_id": "synthetic_es_2004",
           "start_sec": 12.2,
           "end_sec": 23.5,
           "transcript": "Tengo que tomar el próximo tren de las quince y cuarenta y cinco hacia Madrid."
         },
         {
-          "utterance_id": "fleurs_es_2005",
+          "utterance_id": "synthetic_es_2005",
           "start_sec": 24.5,
           "end_sec": 32.1,
           "transcript": "Muchas gracias por su amable colaboración."
@@ -213,28 +215,28 @@
       ]
     },
     {
-      "id": "fleurs_es_03",
+      "id": "synthetic_es_03",
       "language": "es",
       "language_bcp47": "es-ES",
-      "audio_path": "benchmark/corpus/audio/fleurs_es_03.wav",
+      "audio_path": "benchmark/corpus/audio/synthetic_es_03.wav",
       "duration_sec": 28.7,
       "transcript": "Las exportaciones agrícolas aumentaron un doce por ciento durante el primer trimestre del año. Los productores locales destacaron la alta demanda de aceite de oliva y cítricos en los mercados europeos. Se prevé una cosecha récord para la próxima temporada.",
       "assembly_notes": "Economic news regarding agriculture, percentages, and food terms with accents (agrícolas, producción).",
       "segments": [
         {
-          "utterance_id": "fleurs_es_2006",
+          "utterance_id": "synthetic_es_2006",
           "start_sec": 0.0,
           "end_sec": 10.4,
           "transcript": "Las exportaciones agrícolas aumentaron un doce por ciento durante el primer trimestre del año."
         },
         {
-          "utterance_id": "fleurs_es_2007",
+          "utterance_id": "synthetic_es_2007",
           "start_sec": 11.4,
           "end_sec": 20.8,
           "transcript": "Los productores locales destacaron la alta demanda de aceite de oliva y cítricos en los mercados europeos."
         },
         {
-          "utterance_id": "fleurs_es_2008",
+          "utterance_id": "synthetic_es_2008",
           "start_sec": 21.8,
           "end_sec": 28.7,
           "transcript": "Se prevé una cosecha récord para la próxima temporada."
@@ -242,28 +244,28 @@
       ]
     },
     {
-      "id": "fleurs_es_04",
+      "id": "synthetic_es_04",
       "language": "es",
       "language_bcp47": "es-ES",
-      "audio_path": "benchmark/corpus/audio/fleurs_es_04.wav",
+      "audio_path": "benchmark/corpus/audio/synthetic_es_04.wav",
       "duration_sec": 30.8,
       "transcript": "La Agencia Estatal de Meteorología emitió una alerta naranja por fuertes vientos en toda la costa mediterránea. Se recomienda a la población no acercarse a las playas ni a zonas con árboles viejos. La situación mejorará gradualmente a partir del jueves por la tarde.",
       "assembly_notes": "Weather advisory in Spanish with institutional terminology and temporal clauses.",
       "segments": [
         {
-          "utterance_id": "fleurs_es_2009",
+          "utterance_id": "synthetic_es_2009",
           "start_sec": 0.0,
           "end_sec": 11.5,
           "transcript": "La Agencia Estatal de Meteorología emitió una alerta naranja por fuertes vientos en toda la costa mediterránea."
         },
         {
-          "utterance_id": "fleurs_es_2010",
+          "utterance_id": "synthetic_es_2010",
           "start_sec": 12.5,
           "end_sec": 21.6,
           "transcript": "Se recomienda a la población no acercarse a las playas ni a zonas con árboles viejos."
         },
         {
-          "utterance_id": "fleurs_es_2011",
+          "utterance_id": "synthetic_es_2011",
           "start_sec": 22.6,
           "end_sec": 30.8,
           "transcript": "La situación mejorará gradualmente a partir del jueves por la tarde."
@@ -271,28 +273,28 @@
       ]
     },
     {
-      "id": "fleurs_es_05",
+      "id": "synthetic_es_05",
       "language": "es",
       "language_bcp47": "es-ES",
-      "audio_path": "benchmark/corpus/audio/fleurs_es_05.wav",
+      "audio_path": "benchmark/corpus/audio/synthetic_es_05.wav",
       "duration_sec": 27.9,
       "transcript": "El museo de bellas artes inauguró ayer una nueva exposición dedicada a la pintura barroca del siglo diecisiete. La muestra reúne más de sesenta obras procedentes de colecciones públicas y privadas de varios países. Estará abierta al público hasta finales de enero.",
       "assembly_notes": "Cultural review in Spanish with historical dates, numbers, and art terms.",
       "segments": [
         {
-          "utterance_id": "fleurs_es_2012",
+          "utterance_id": "synthetic_es_2012",
           "start_sec": 0.0,
           "end_sec": 11.2,
           "transcript": "El museo de bellas artes inauguró ayer una nueva exposición dedicada a la pintura barroca del siglo diecisiete."
         },
         {
-          "utterance_id": "fleurs_es_2013",
+          "utterance_id": "synthetic_es_2013",
           "start_sec": 12.2,
           "end_sec": 21.3,
           "transcript": "La muestra reúne más de sesenta obras procedentes de colecciones públicas y privadas de varios países."
         },
         {
-          "utterance_id": "fleurs_es_2014",
+          "utterance_id": "synthetic_es_2014",
           "start_sec": 22.3,
           "end_sec": 27.9,
           "transcript": "Estará abierta al público hasta finales de enero."
@@ -300,22 +302,22 @@
       ]
     },
     {
-      "id": "fleurs_fr_01",
+      "id": "synthetic_fr_01",
       "language": "fr",
       "language_bcp47": "fr-FR",
-      "audio_path": "benchmark/corpus/audio/fleurs_fr_01.wav",
+      "audio_path": "benchmark/corpus/audio/synthetic_fr_01.wav",
       "duration_sec": 30.2,
       "transcript": "L'évolution rapide des technologies d'apprentissage automatique transforme profondément le traitement automatique de la parole. Grâce aux architectures neuronales modernes, la transcription multilingue fonctionne désormais directement sur les téléphones portables sans connexion Internet.",
       "assembly_notes": "French speech with elisions (l', d'), accents (é, è, à), and technological terminology.",
       "segments": [
         {
-          "utterance_id": "fleurs_fr_3001",
+          "utterance_id": "synthetic_fr_3001",
           "start_sec": 0.0,
           "end_sec": 13.8,
           "transcript": "L'évolution rapide des technologies d'apprentissage automatique transforme profondément le traitement automatique de la parole."
         },
         {
-          "utterance_id": "fleurs_fr_3002",
+          "utterance_id": "synthetic_fr_3002",
           "start_sec": 14.8,
           "end_sec": 30.2,
           "transcript": "Grâce aux architectures neuronales modernes, la transcription multilingue fonctionne désormais directement sur les téléphones portables sans connexion Internet."
@@ -323,22 +325,22 @@
       ]
     },
     {
-      "id": "fleurs_fr_02",
+      "id": "synthetic_fr_02",
       "language": "fr",
       "language_bcp47": "fr-FR",
-      "audio_path": "benchmark/corpus/audio/fleurs_fr_02.wav",
+      "audio_path": "benchmark/corpus/audio/synthetic_fr_02.wav",
       "duration_sec": 28.5,
       "transcript": "Pourriez-vous me réserver deux billets de train pour Lyon pour le départ de demain matin à sept heures trente ? J'aimerais si possible être placé en première classe dans une voiture silencieuse près de la fenêtre.",
       "assembly_notes": "Everyday booking request in French with hyphens (Pourriez-vous), apostrophes (J'aimerais), and numbers.",
       "segments": [
         {
-          "utterance_id": "fleurs_fr_3003",
+          "utterance_id": "synthetic_fr_3003",
           "start_sec": 0.0,
           "end_sec": 12.8,
           "transcript": "Pourriez-vous me réserver deux billets de train pour Lyon pour le départ de demain matin à sept heures trente ?"
         },
         {
-          "utterance_id": "fleurs_fr_3004",
+          "utterance_id": "synthetic_fr_3004",
           "start_sec": 13.8,
           "end_sec": 28.5,
           "transcript": "J'aimerais si possible être placé en première classe dans une voiture silencieuse près de la fenêtre."
@@ -346,28 +348,28 @@
       ]
     },
     {
-      "id": "fleurs_fr_03",
+      "id": "synthetic_fr_03",
       "language": "fr",
       "language_bcp47": "fr-FR",
-      "audio_path": "benchmark/corpus/audio/fleurs_fr_03.wav",
+      "audio_path": "benchmark/corpus/audio/synthetic_fr_03.wav",
       "duration_sec": 29.7,
       "transcript": "Le festival international du film débutera ce vendredi soir sur la célèbre croisette de Cannes. Plus de quarante longs métrages seront présentés en compétition officielle devant un jury prestigieux. Les organisateurs attendent une affluence record cette année.",
       "assembly_notes": "French cultural news featuring cinema vocabulary and numerical information.",
       "segments": [
         {
-          "utterance_id": "fleurs_fr_3005",
+          "utterance_id": "synthetic_fr_3005",
           "start_sec": 0.0,
           "end_sec": 10.9,
           "transcript": "Le festival international du film débutera ce vendredi soir sur la célèbre croisette de Cannes."
         },
         {
-          "utterance_id": "fleurs_fr_3006",
+          "utterance_id": "synthetic_fr_3006",
           "start_sec": 11.9,
           "end_sec": 21.4,
           "transcript": "Plus de quarante longs métrages seront présentés en compétition officielle devant un jury prestigieux."
         },
         {
-          "utterance_id": "fleurs_fr_3007",
+          "utterance_id": "synthetic_fr_3007",
           "start_sec": 22.4,
           "end_sec": 29.7,
           "transcript": "Les organisateurs attendent une affluence record cette année."
@@ -375,28 +377,28 @@
       ]
     },
     {
-      "id": "fleurs_fr_04",
+      "id": "synthetic_fr_04",
       "language": "fr",
       "language_bcp47": "fr-FR",
-      "audio_path": "benchmark/corpus/audio/fleurs_fr_04.wav",
+      "audio_path": "benchmark/corpus/audio/synthetic_fr_04.wav",
       "duration_sec": 31.4,
       "transcript": "Météo France a placé trois départements en vigilance orange en raison d'un épisode orageux violent. Des rafales de vent pouvant atteindre cent kilomètres par heure sont attendues en début de soirée. Les habitants sont appelés à la plus grande prudence.",
       "assembly_notes": "French weather alert with geographical terms and cautionary instructions.",
       "segments": [
         {
-          "utterance_id": "fleurs_fr_3008",
+          "utterance_id": "synthetic_fr_3008",
           "start_sec": 0.0,
           "end_sec": 11.7,
           "transcript": "Météo France a placé trois départements en vigilance orange en raison d'un épisode orageux violent."
         },
         {
-          "utterance_id": "fleurs_fr_3009",
+          "utterance_id": "synthetic_fr_3009",
           "start_sec": 12.7,
           "end_sec": 22.5,
           "transcript": "Des rafales de vent pouvant atteindre cent kilomètres par heure sont attendues en début de soirée."
         },
         {
-          "utterance_id": "fleurs_fr_3010",
+          "utterance_id": "synthetic_fr_3010",
           "start_sec": 23.5,
           "end_sec": 31.4,
           "transcript": "Les habitants sont appelés à la plus grande prudence."
@@ -404,28 +406,28 @@
       ]
     },
     {
-      "id": "fleurs_fr_05",
+      "id": "synthetic_fr_05",
       "language": "fr",
       "language_bcp47": "fr-FR",
-      "audio_path": "benchmark/corpus/audio/fleurs_fr_05.wav",
+      "audio_path": "benchmark/corpus/audio/synthetic_fr_05.wav",
       "duration_sec": 27.8,
       "transcript": "Les scientifiques de l'observatoire de Paris ont observé une comète particulièrement brillante dans le ciel nocturne. Ce phénomène céleste rare ne se reproduira pas avant plusieurs centaines d'années. Les images capturées seront publiées dans une revue scientifique.",
       "assembly_notes": "Scientific astronomy text testing elisions (l'observatoire, d'années) and complex sentences.",
       "segments": [
         {
-          "utterance_id": "fleurs_fr_3011",
+          "utterance_id": "synthetic_fr_3011",
           "start_sec": 0.0,
           "end_sec": 11.2,
           "transcript": "Les scientifiques de l'observatoire de Paris ont observé une comète particulièrement brillante dans le ciel nocturne."
         },
         {
-          "utterance_id": "fleurs_fr_3012",
+          "utterance_id": "synthetic_fr_3012",
           "start_sec": 12.2,
           "end_sec": 20.6,
           "transcript": "Ce phénomène céleste rare ne se reproduira pas avant plusieurs centaines d'années."
         },
         {
-          "utterance_id": "fleurs_fr_3013",
+          "utterance_id": "synthetic_fr_3013",
           "start_sec": 21.6,
           "end_sec": 27.8,
           "transcript": "Les images capturées seront publiées dans une revue scientifique."
@@ -433,22 +435,22 @@
       ]
     },
     {
-      "id": "fleurs_pt_01",
+      "id": "synthetic_pt_01",
       "language": "pt",
       "language_bcp47": "pt-BR",
-      "audio_path": "benchmark/corpus/audio/fleurs_pt_01.wav",
+      "audio_path": "benchmark/corpus/audio/synthetic_pt_01.wav",
       "duration_sec": 29.5,
       "transcript": "O avanço das tecnologias de reconhecimento de fala possibilita a transcrição automática em tempo real em smartphones modernos. Modelos compactos processam o áudio localmente, garantindo a privacidade total do usuário sem necessidade de conexão com a nuvem.",
       "assembly_notes": "Portuguese technical text testing nasal vowels (avanço, transcrição, conexão), diacritics (áudio, usuário).",
       "segments": [
         {
-          "utterance_id": "fleurs_pt_4001",
+          "utterance_id": "synthetic_pt_4001",
           "start_sec": 0.0,
           "end_sec": 13.9,
           "transcript": "O avanço das tecnologias de reconhecimento de fala possibilita a transcrição automática em tempo real em smartphones modernos."
         },
         {
-          "utterance_id": "fleurs_pt_4002",
+          "utterance_id": "synthetic_pt_4002",
           "start_sec": 14.9,
           "end_sec": 29.5,
           "transcript": "Modelos compactos processam o áudio localmente, garantindo a privacidade total do usuário sem necessidade de conexão com a nuvem."
@@ -456,28 +458,28 @@
       ]
     },
     {
-      "id": "fleurs_pt_02",
+      "id": "synthetic_pt_02",
       "language": "pt",
       "language_bcp47": "pt-BR",
-      "audio_path": "benchmark/corpus/audio/fleurs_pt_02.wav",
+      "audio_path": "benchmark/corpus/audio/synthetic_pt_02.wav",
       "duration_sec": 31.0,
       "transcript": "Você poderia confirmar o horário da nossa reunião de amanhã à tarde no centro da cidade? Precisamos revisar a proposta orçamentária antes da apresentação final para os diretores da empresa. Enviarei os documentos atualizados por correio eletrônico.",
       "assembly_notes": "Business conversation in Portuguese with question mark, crasis (à tarde), and cedilla (orçamentária).",
       "segments": [
         {
-          "utterance_id": "fleurs_pt_4003",
+          "utterance_id": "synthetic_pt_4003",
           "start_sec": 0.0,
           "end_sec": 10.7,
           "transcript": "Você poderia confirmar o horário da nossa reunião de amanhã à tarde no centro da cidade?"
         },
         {
-          "utterance_id": "fleurs_pt_4004",
+          "utterance_id": "synthetic_pt_4004",
           "start_sec": 11.7,
           "end_sec": 22.1,
           "transcript": "Precisamos revisar a proposta orçamentária antes da apresentação final para os diretores da empresa."
         },
         {
-          "utterance_id": "fleurs_pt_4005",
+          "utterance_id": "synthetic_pt_4005",
           "start_sec": 23.1,
           "end_sec": 31.0,
           "transcript": "Enviarei os documentos atualizados por correio eletrônico."
@@ -485,28 +487,28 @@
       ]
     },
     {
-      "id": "fleurs_pt_03",
+      "id": "synthetic_pt_03",
       "language": "pt",
       "language_bcp47": "pt-BR",
-      "audio_path": "benchmark/corpus/audio/fleurs_pt_03.wav",
+      "audio_path": "benchmark/corpus/audio/synthetic_pt_03.wav",
       "duration_sec": 28.2,
       "transcript": "A safra de grãos deste ano alcançou um novo recorde histórico em várias regiões agrícolas do país. O aumento na produção de soja e milho contribuiu fortemente para a balança comercial positiva. Os especialistas preveem continuidade no crescimento das exportações.",
       "assembly_notes": "Agricultural and economic report testing specific Portuguese vocabulary and accents (grãos, histórico, regiões).",
       "segments": [
         {
-          "utterance_id": "fleurs_pt_4006",
+          "utterance_id": "synthetic_pt_4006",
           "start_sec": 0.0,
           "end_sec": 10.5,
           "transcript": "A safra de grãos deste ano alcançou um novo recorde histórico em várias regiões agrícolas do país."
         },
         {
-          "utterance_id": "fleurs_pt_4007",
+          "utterance_id": "synthetic_pt_4007",
           "start_sec": 11.5,
           "end_sec": 20.6,
           "transcript": "O aumento na produção de soja e milho contribuiu fortemente para a balança comercial positiva."
         },
         {
-          "utterance_id": "fleurs_pt_4008",
+          "utterance_id": "synthetic_pt_4008",
           "start_sec": 21.6,
           "end_sec": 28.2,
           "transcript": "Os especialistas preveem continuidade no crescimento das exportações."
@@ -514,28 +516,28 @@
       ]
     },
     {
-      "id": "fleurs_pt_04",
+      "id": "synthetic_pt_04",
       "language": "pt",
       "language_bcp47": "pt-BR",
-      "audio_path": "benchmark/corpus/audio/fleurs_pt_04.wav",
+      "audio_path": "benchmark/corpus/audio/synthetic_pt_04.wav",
       "duration_sec": 30.6,
       "transcript": "O instituto nacional de meteorologia alertou sobre a chegada de uma frente fria no litoral sul. As temperaturas mínimas podem cair até cinco graus nas áreas serranas nas próximas quarenta e oito horas. Recomenda-se atenção especial para crianças e idosos.",
       "assembly_notes": "Weather forecast in Portuguese with numbers (5 graus, 48 horas) and regional geography.",
       "segments": [
         {
-          "utterance_id": "fleurs_pt_4009",
+          "utterance_id": "synthetic_pt_4009",
           "start_sec": 0.0,
           "end_sec": 10.8,
           "transcript": "O instituto nacional de meteorologia alertou sobre a chegada de uma frente fria no litoral sul."
         },
         {
-          "utterance_id": "fleurs_pt_4010",
+          "utterance_id": "synthetic_pt_4010",
           "start_sec": 11.8,
           "end_sec": 22.0,
           "transcript": "As temperaturas mínimas podem cair até cinco graus nas áreas serranas nas próximas quarenta e oito horas."
         },
         {
-          "utterance_id": "fleurs_pt_4011",
+          "utterance_id": "synthetic_pt_4011",
           "start_sec": 23.0,
           "end_sec": 30.6,
           "transcript": "Recomenda-se atenção especial para crianças e idosos."
@@ -543,28 +545,28 @@
       ]
     },
     {
-      "id": "fleurs_pt_05",
+      "id": "synthetic_pt_05",
       "language": "pt",
       "language_bcp47": "pt-BR",
-      "audio_path": "benchmark/corpus/audio/fleurs_pt_05.wav",
+      "audio_path": "benchmark/corpus/audio/synthetic_pt_05.wav",
       "duration_sec": 28.0,
       "transcript": "O festival internacional de música clássica abre sua vigésima edição neste sábado em São Paulo. O programa reúne compositores barrocos e contemporâneos interpretados por solistas renomados. Os ingressos para todas as apresentações já estão esgotados.",
       "assembly_notes": "Cultural article in Portuguese with proper names (São Paulo), ordinal numbers, and diacritics.",
       "segments": [
         {
-          "utterance_id": "fleurs_pt_4012",
+          "utterance_id": "synthetic_pt_4012",
           "start_sec": 0.0,
           "end_sec": 10.6,
           "transcript": "O festival internacional de música clássica abre sua vigésima edição neste sábado em São Paulo."
         },
         {
-          "utterance_id": "fleurs_pt_4013",
+          "utterance_id": "synthetic_pt_4013",
           "start_sec": 11.6,
           "end_sec": 20.8,
           "transcript": "O programa reúne compositores barrocos e contemporâneos interpretados por solistas renomados."
         },
         {
-          "utterance_id": "fleurs_pt_4014",
+          "utterance_id": "synthetic_pt_4014",
           "start_sec": 21.8,
           "end_sec": 28.0,
           "transcript": "Os ingressos para todas as apresentações já estão esgotados."
