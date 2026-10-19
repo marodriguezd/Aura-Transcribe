@@ -298,17 +298,59 @@ jobs:
         VERSION_NAME=$(grep 'versionName' app/build.gradle.kts | head -1 | grep -oP '"[^"]*"' | tr -d '"')
         echo "VERSION_NAME=$VERSION_NAME" >> $GITHUB_ENV
 
-    - name: Rename APK
+    - name: Validate and stage debug APK
       run: |
-        APK_SRC=$(find app/build -name "*debug*.apk" -o -name "*.apk" 2>/dev/null | grep -v "unaligned" | head -1)
-        if [ -z "$APK_SRC" ] || [ ! -f "$APK_SRC" ]; then
-          echo "ERROR: No APK found in app/build!"
-          find app/build -type f || true
+        set -euo pipefail
+        APK_DIR="app/build/outputs/apk/debug"
+        APK_DEST="Aura_Transcribe_v${{ env.VERSION_NAME }}-debug.apk"
+
+        mapfile -t APKS < <(
+          find "$APK_DIR" -maxdepth 1 -type f -name '*.apk' \
+            ! -name '*-unsigned.apk' ! -name '*androidTest*' | sort
+        )
+        if [ "${#APKS[@]}" -ne 1 ]; then
+          echo "ERROR: expected exactly one debug application APK in $APK_DIR, found ${#APKS[@]}:"
+          printf '  %s\n' "${APKS[@]:-}"
+          find app/build/outputs/apk -type f -name '*.apk' -print | sort || true
           exit 1
         fi
-        echo "Found built APK at: $APK_SRC"
-        cp "$APK_SRC" "Aura_Transcribe_v${{ env.VERSION_NAME }}-debug.apk"
-        ls -lh "Aura_Transcribe_v${{ env.VERSION_NAME }}-debug.apk"
+        APK_SRC="${APKS[0]}"
+
+        BT=$(find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+        AAPT="${BT}/aapt"
+        if [ ! -x "$AAPT" ]; then
+          echo "ERROR: aapt not found under ${ANDROID_HOME}/build-tools"
+          exit 1
+        fi
+        EXPECTED_PACKAGE=$(grep -m1 -oP '^\s*applicationId = "\K[^"]+' app/build.gradle.kts)
+        BADGING=$("$AAPT" dump badging "$APK_SRC")
+        ACTUAL_PACKAGE=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<< "$BADGING" | head -n 1)
+        if [ -z "$EXPECTED_PACKAGE" ] || [ "$ACTUAL_PACKAGE" != "$EXPECTED_PACKAGE" ]; then
+          echo "ERROR: expected application package '$EXPECTED_PACKAGE', got '$ACTUAL_PACKAGE' from $APK_SRC"
+          exit 1
+        fi
+
+        APK_ENTRIES=$(unzip -Z1 "$APK_SRC")
+        for LIB in lib/arm64-v8a/libandroid_transcribe_app.so lib/arm64-v8a/libc++_shared.so; do
+          if ! grep -Fqx "$LIB" <<< "$APK_ENTRIES"; then
+            echo "ERROR: $APK_SRC is missing $LIB"
+            exit 1
+          fi
+        done
+        if ! grep -q '^assets/' <<< "$APK_ENTRIES"; then
+          echo "ERROR: $APK_SRC contains no assets; refusing to publish a non-application APK"
+          exit 1
+        fi
+
+        echo "Validated application APK: $APK_SRC"
+        echo "  package: $ACTUAL_PACKAGE"
+        echo "  native libraries:"
+        grep '^lib/.*\.so$' <<< "$APK_ENTRIES" | sed 's/^/    /'
+        echo "  assets:"
+        grep '^assets/' <<< "$APK_ENTRIES" | sed 's/^/    /'
+        cp "$APK_SRC" "$APK_DEST"
+        sha256sum "$APK_DEST"
+        ls -lh "$APK_DEST"
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
