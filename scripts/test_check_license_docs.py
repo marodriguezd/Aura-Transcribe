@@ -224,6 +224,17 @@ class GateTest(unittest.TestCase):
         self.sync_copy("app/src/main/assets/THIRD_PARTY_NOTICES.md")
         self.assert_rejected("separately licensed data asset")
 
+    def test_altered_openmdw_agreement_rejected(self) -> None:
+        path = self.root / "licenses/OpenMDW-1.1.txt"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "permission is hereby granted", "permission is NOT granted"
+            ),
+            encoding="utf-8",
+        )
+        shutil.copyfile(path, self.root / "app/src/main/assets/licenses/OpenMDW-1.1.txt")
+        self.assert_rejected("is not the verbatim upstream agreement")
+
     def test_upstream_notice_removed_rejected(self) -> None:
         self.rewrite(
             "licenses/UPSTREAM-MIT.txt", "Copyright (c) 2025 Noah Mühl", "Copyright"

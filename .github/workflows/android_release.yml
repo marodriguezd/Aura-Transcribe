@@ -414,6 +414,15 @@ jobs:
         }
         echo "OK: assets/MODEL_NOTICE.md verified inside release APK."
 
+        # The §3 agreement must also travel as the verbatim upstream file, not
+        # only as the paraphrase in MODEL_LICENSE.md. Path verified against a
+        # real AAB/APK (base module assets -> assets/, base/assets/ in the AAB).
+        unzip -p "$APK" assets/licenses/OpenMDW-1.1.txt | cmp - licenses/OpenMDW-1.1.txt || {
+          echo "::error::assets/licenses/OpenMDW-1.1.txt is missing or corrupt in release APK"
+          exit 1
+        }
+        echo "OK: assets/licenses/OpenMDW-1.1.txt verified inside release APK."
+
         echo "RELEASE_APK=$APK" >> "$GITHUB_ENV"
 
     - name: Verify bundled model hash (checkModels gate)
@@ -497,6 +506,12 @@ jobs:
           exit 1
         }
         echo "OK: model_assets/assets/MODEL_NOTICE.md verified inside release AAB."
+
+        unzip -p "$AAB" base/assets/licenses/OpenMDW-1.1.txt | cmp - licenses/OpenMDW-1.1.txt || {
+          echo "::error::base/assets/licenses/OpenMDW-1.1.txt is missing or corrupt in release AAB"
+          exit 1
+        }
+        echo "OK: base/assets/licenses/OpenMDW-1.1.txt verified inside release AAB."
 
         echo "RELEASE_AAB=$AAB" >> "$GITHUB_ENV"
 

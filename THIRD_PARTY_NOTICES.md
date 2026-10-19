@@ -26,7 +26,9 @@ Aura Transcribe is an independent fork of [Offline Voice Input](https://github.c
 - **Quantized asset:** [handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf](https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf), revision `53ce288f69326b415aeef030cfcb02a08a8096dd`.
 - **Terms:** OpenMDW License Agreement 1.1 (OpenMDW-1.1)
   (<https://openmdw.ai/license/1-1/>). The agreement is reproduced in
-  [`MODEL_LICENSE.md`](MODEL_LICENSE.md); the model's notice of origin is
+  [`MODEL_LICENSE.md`](MODEL_LICENSE.md) and preserved **byte-for-byte** from the
+  upstream repository as [`licenses/OpenMDW-1.1.txt`](licenses/OpenMDW-1.1.txt)
+  (2,619 bytes, SHA-256 `2ab44b68…6a74df`); the model's notice of origin is
   reproduced in [`MODEL_NOTICE.md`](MODEL_NOTICE.md).
 - **Artifact:** `nemotron-3.5-asr-streaming-0.6b-Q5_K_M.gguf`,
   SHA-256 `86429e8c4f7fdcf9b3312269ad1ca6669478ba7805331c4aea7a2e33e9910d65`.
@@ -127,8 +129,9 @@ no audio fixture either.
 
 The application assets carry copies of the MIT license, the upstream MIT
 license, the `transcribe-cpp` and `ggml` MIT texts, the Apache-2.0 text, the LLVM
-exception text, the libc++ notice, this notice file, and the model's
-`MODEL_LICENSE.md` and `MODEL_NOTICE.md`. Sources live under `licenses/` and the
+exception text, the libc++ notice, the verbatim OpenMDW-1.1 agreement, this
+notice file, and the model's `MODEL_LICENSE.md` and `MODEL_NOTICE.md`.
+Sources live under `licenses/` and the
 repository root; `scripts/check_license_docs.py` fails if any asset copy drifts
 from its source, and the release gates verify the model documents inside the
 built APK/AAB.

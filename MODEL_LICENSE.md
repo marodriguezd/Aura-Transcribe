@@ -10,6 +10,7 @@ satisfied in the distributed application.
 **GGUF conversion:** [handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf](https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf), pinned at revision `53ce288f69326b415aeef030cfcb02a08a8096dd`
 **Model license:** OpenMDW License Agreement, version 1.1 (OpenMDW-1.1)
 **License text:** https://openmdw.ai/license/1-1/
+**Verbatim upstream agreement:** [`licenses/OpenMDW-1.1.txt`](licenses/OpenMDW-1.1.txt), 2,619 bytes, SHA-256 `2ab44b68365473c112f5092211a38f231cb23e50de68b75a13369adbd76a74df` — an unmodified copy of the `LICENSE` file published with the GGUF at the pinned revision
 **Upstream `LICENSE`:** https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf/resolve/53ce288f69326b415aeef030cfcb02a08a8096dd/LICENSE
 **Upstream `NOTICE`:** https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf/resolve/53ce288f69326b415aeef030cfcb02a08a8096dd/NOTICE
 
@@ -41,7 +42,7 @@ that are applicable to your distribution."*
 
 | Obligation | Where it is satisfied |
 |---|---|
-| (1) A copy of the agreement | This file, packaged into every artifact that carries the model: `assets/MODEL_LICENSE.md` in the APK and `model_assets/assets/MODEL_LICENSE.md` in the AAB. |
+| (1) A copy of the agreement | This file **and** the verbatim upstream agreement: `assets/MODEL_LICENSE.md` + `assets/licenses/OpenMDW-1.1.txt` in the APK, `model_assets/assets/MODEL_LICENSE.md` in the AAB (the base module's `assets/licenses/` ships in both). |
 | (2) Notices of origin | [`MODEL_NOTICE.md`](MODEL_NOTICE.md), which reproduces the upstream `NOTICE` verbatim, packaged at the same two locations. |
 
 The copies are enforced mechanically rather than by convention: the build copies

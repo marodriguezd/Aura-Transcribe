@@ -24,6 +24,7 @@ It is not a legal determination and does not certify compatibility.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -36,6 +37,10 @@ from pathlib import Path
 PINNED_GGUF_REVISION = "53ce288f69326b415aeef030cfcb02a08a8096dd"
 MODEL_SHA256 = "86429e8c4f7fdcf9b3312269ad1ca6669478ba7805331c4aea7a2e33e9910d65"
 MODEL_REPO = "handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf"
+# The OpenMDW-1.1 agreement exactly as published in the pinned GGUF repository
+# (`LICENSE`, 2619 bytes). Pinning the digest means a well-meaning "cleanup"
+# of this file cannot silently ship a modified agreement.
+OPENMDW_TEXT_SHA256 = "2ab44b68365473c112f5092211a38f231cb23e50de68b75a13369adbd76a74df"
 
 READMES = [
     "README.md", "README_es.md", "README_de.md",
@@ -45,6 +50,7 @@ LICENSE_TEXTS = [
     "UPSTREAM-MIT.txt", "transcribe-cpp-MIT.txt",
     "ggml-MIT.txt", "Apache-2.0.txt",
     "LLVM-exception.txt", "libc++-NOTICE.txt",
+    "OpenMDW-1.1.txt",
 ]
 MIT_BADGE = (
     "[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)"
@@ -186,6 +192,21 @@ def check_model_documents(root: Path) -> None:
     for name in LICENSE_TEXTS:
         require_phrase("THIRD_PARTY_NOTICES.md", notices, name)
     reject_forbidden("THIRD_PARTY_NOTICES.md", notices, extra=("bench.wav", "FLEURS"))
+
+    # The agreement must be the upstream file, not a retyped paraphrase.
+    agreement = read_bytes(root, "licenses/OpenMDW-1.1.txt")
+    actual = hashlib.sha256(agreement).hexdigest()
+    if actual != OPENMDW_TEXT_SHA256:
+        fail(
+            "licenses/OpenMDW-1.1.txt is not the verbatim upstream agreement: "
+            f"sha256 {actual} != {OPENMDW_TEXT_SHA256}"
+        )
+    agreement_text = agreement.decode("utf-8")
+    require_phrase(
+        "licenses/OpenMDW-1.1.txt",
+        agreement_text,
+        "OpenMDW License Agreement, version 1.1 (OpenMDW-1.1)",
+    )
 
     upstream_mit = read(root, "licenses/UPSTREAM-MIT.txt")
     require_phrase("licenses/UPSTREAM-MIT.txt", upstream_mit, "Copyright (c) 2025 Noah Mühl")
