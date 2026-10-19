@@ -1,0 +1,72 @@
+# ==============================================================================
+# F-Droid metadata descriptor for Aura Transcribe
+#
+# This file is the SOURCE of the descriptor: `fastlane fdroid_export`
+# substitutes the @@...@@ placeholders and writes
+# build/fdroid/com.auratranscribe.app.yml. It is committed (instead of living
+# only inside a Ruby heredoc) so the recipe can be reviewed in a diff and gated
+# by scripts/check_fdroid_descriptor.py.
+#
+# `Disabled:` is deliberate. See FDROID.md for the three verified blockers;
+# do not remove it until all of them are resolved.
+# ==============================================================================
+Categories:
+  - Multimedia
+  - System
+License: MIT
+AuthorName: Aura Transcribe Contributors
+SourceCode: https://github.com/marodriguezd/Aura-Transcribe
+IssueTracker: https://github.com/marodriguezd/Aura-Transcribe/issues
+Changelog: https://github.com/marodriguezd/Aura-Transcribe/releases
+
+AutoName: Aura Transcribe
+Summary: Real-time, private, offline speech-to-text on Android
+Description: |
+  Aura Transcribe is a fully on-device, offline, privacy-first speech recognition
+  and transcription keyboard and dictation tool for Android.
+
+  Features:
+  * On-Device Neural ASR (Nemotron 3.5 Streaming, Q5_K_M GGUF)
+  * Low latency streaming transcription with real-time preview
+  * Native Bluetooth headset and AudioRecord bridge support
+  * System-wide IME Keyboard and Floating Dictation Overlay
+  * 33 selectable languages with automatic language detection
+  * No telemetry and no analytics; speech recognition never leaves the device
+
+  Speech recognition is always local. Optional AI post-processing is off by
+  default and must be configured by the user; if it is pointed at a remote
+  OpenAI-compatible provider, the recognised text (never the audio) is sent
+  to that provider with the user's own API key.
+
+Disabled: >-
+  Not buildable on the F-Droid buildserver. The release variant carries the
+  560 MB Nemotron GGUF, which `assembleRelease` downloads from Hugging Face
+  (pinned revision, SHA-256 verified) and which the release gates refuse to
+  publish without; the buildserver has no network access. In addition,
+  `:app:cargoNdkBuild` shells out to `cargo ndk`, and cargo-ndk is not
+  installed in the build image (it cannot be installed offline). See FDROID.md
+  for the evidence and the distribution options.
+
+RepoType: git
+Repo: https://github.com/marodriguezd/Aura-Transcribe.git
+
+# No `subdir:` here on purpose: the Gradle wrapper (gradlew) and
+# settings.gradle.kts live at the repository root. The previous recipe said
+# `subdir: app`, which pointed F-Droid at a module directory that has no
+# wrapper, so `assembleRelease` could never start.
+Builds:
+  - versionName: '@@VERSION_NAME@@'
+    versionCode: @@VERSION_CODE@@
+    commit: '@@COMMIT_SHA@@'
+    gradle:
+      - assembleRelease
+    # The NDK path only. The Rust build itself is a Gradle task
+    # (:app:cargoNdkBuild) that needs cargo-ndk on PATH; see FDROID.md.
+    prebuild:
+      - export ANDROID_NDK_HOME=$$NDK$$
+    ndk: 28.2.13676358
+
+AutoUpdateMode: Version v%v
+UpdateCheckMode: Tags
+CurrentVersion: '@@VERSION_NAME@@'
+CurrentVersionCode: @@VERSION_CODE@@
