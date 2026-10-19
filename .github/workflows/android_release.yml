@@ -427,15 +427,23 @@ jobs:
           echo "::error::jarsigner did not report a verified jar"
           exit 1
         }
+        # `|| true` is load-bearing, exactly as in the APK step: keytool exits 0
+        # for an archive that is not JAR-signed, so the *empty* result is the only
+        # signal, and without the guard `set -euo pipefail` aborts on grep's
+        # status before a single diagnostic is printed (verified empirically).
         BUNDLE_SHA=$(keytool -printcert -jarfile "$AAB" 2>/dev/null \
-          | grep -oP 'SHA256: \K[0-9A-Fa-f:]+' | tr -d ':' | tr 'A-F' 'a-f' | head -1)
+          | grep -oP 'SHA256: \K[0-9A-Fa-f:]+' | tr -d ':' | tr 'A-F' 'a-f' | head -1 || true)
+        if [ -z "$BUNDLE_SHA" ]; then
+          echo "::error::keytool reported no signer certificate for $AAB — the bundle is not JAR-signed, so its signing identity cannot be verified"
+          exit 1
+        fi
         DEBUG_SHA=$(keytool -list -v -keystore keystore/debug.keystore -storepass android \
           -alias androiddebugkey | grep -oP 'SHA256: \K[0-9A-Fa-f:]+' | tr -d ':' | tr 'A-F' 'a-f')
         if [ -n "$DEBUG_SHA" ] && [ "$BUNDLE_SHA" = "$DEBUG_SHA" ]; then
           echo "::error::the app bundle is signed with the repository's debug key — never distribute this"
           exit 1
         fi
-        echo "OK: bundle signed by ${BUNDLE_SHA:-an unidentified certificate}."
+        echo "OK: bundle signed by $BUNDLE_SHA (not the debug key)."
 
         # Independent trust anchor: same pinned production certificate as the APK
         # (equality between APK and AAB follows from both matching the pin).
