@@ -48,7 +48,11 @@ android {
         // `connectedDebugAndroidTest` runs them on a connected device. Without this runner
         // the platform default would silently skip AndroidJUnit4 classes.
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 50
+        // versionCode 51 = the corrected rebuild of v1.0.0 (2026-10-20): the
+        // originally published build (versionCode 50) shipped without the
+        // required license texts (LICENSE_AUDIT.md F-1/F-2). versionCode must
+        // keep increasing even though the version name stays 1.0.0.
+        versionCode = 51
         versionName = "1.0.0"
         ndk {
             // Android 17 requires 16 KB page-size alignment, which the native
