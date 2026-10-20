@@ -4,6 +4,12 @@ Change log of **Aura Transcribe** (Next-Gen evolution of [notune/android_transcr
 
 ## [Unreleased]
 
+### Changed
+- Post-processing prompts are now user-managed. The style-preset dropdown (Clean / Formal / Casual / Verbatim) is gone: the settings screen selects among **prompt profiles** — the built-in default plus any prompt the user creates and can delete — one file per profile under `filesDir()/pp_prompts/`, with the reserved id `default` for the shipped text and `pp_prompt_profile` recording the selection. Editing a profile and browsing another one keeps both drafts until Save writes them.
+- The shipped default prompt was rewritten to the current post-processing contract (English, meaning-preserving, phonetic-only corrections, dictated punctuation to symbols, transcript treated as text, `${output}` injection preserved).
+- An existing `pp_prompt` customization keeps applying as the default profile's override, and "Restore default" drops it again, so the upgrade never discards a prompt the user had tuned.
+- `PostProcessor` no longer exposes preset ids through its settings seam; the placeholder on-device normalizer receives the neutral `clean` axis directly.
+
 ### Fixed
 - Licensing audit second pass (`LICENSE_AUDIT.md` F-9/F-10/F-11): the notice set now also covers **miniz 3.1.1** (MIT; vendored inside `transcribe-cpp-sys` and compiled into the shipped native library) and the **Public Suffix List** data packaged by OkHttp (MPL-2.0), with verbatim byte-pinned texts (`licenses/miniz-MIT.txt`, `licenses/okhttp-NOTICE.txt`) shipped under `assets/licenses/` and required by `verify_artifact_notices.py` (33 negative tests total in `check_license_docs`). `THIRD_PARTY_NOTICES.md` documents both, plus the ggml per-contributor notices and the Rust-std vendored components. The `ModelsActivity` catalog link for the bundled model is now pinned to the verified revision instead of `resolve/main`. The `v1.0.0` release was then replaced a second time from the verified commit `bb15ec4` (publishing run `39425583352`): the published APK/AAB now carry all 13 required documents per artifact (26/26 checks, pinned signer, model once per artifact). Copies of the earlier binaries already downloaded cannot be recalled — see `LICENSE_AUDIT.md` §“Second replacement”.
 

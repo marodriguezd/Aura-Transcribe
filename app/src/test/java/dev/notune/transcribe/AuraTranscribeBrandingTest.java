@@ -37,11 +37,13 @@ public class AuraTranscribeBrandingTest {
     }
 
     @Test
-    public void testPostProcessorPresets() {
-        assertEquals("clean", SettingsManager.PRESET_CLEAN);
-        assertEquals("formal", SettingsManager.PRESET_FORMAL);
-        assertEquals("casual", SettingsManager.PRESET_CASUAL);
-        assertEquals("verbatim", SettingsManager.PRESET_VERBATIM);
+    public void testPromptProfileIdentifiers() {
+        // The style presets are gone: prompts are the built-in default plus the
+        // ones the user creates. The default id is the one reserved name, and it
+        // is shared by the settings layer and the on-disk store.
+        assertEquals("default", SettingsManager.PROMPT_DEFAULT_ID);
+        assertEquals(SettingsManager.PROMPT_DEFAULT_ID, PromptProfiles.DEFAULT_ID);
+        assertEquals("pp_prompts", PromptProfiles.DIR_NAME);
     }
 
     @Test

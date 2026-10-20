@@ -4,12 +4,15 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.InputType;
 import android.util.Log;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.AutoCompleteTextView;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -21,17 +24,27 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
 import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.textfield.TextInputLayout;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Settings screen for the AI post-processing layer (fork addition).
  * Lets the user toggle post-processing, pick a provider preset (Groq,
  * OpenAI, Cerebras, ... or Custom), and configure API key, model name and
- * the active system prompt. The base-URL field is only shown for Custom;
+ * the active prompt. The base-URL field is only shown for Custom; provider
  * presets carry their endpoint template.
+ *
+ * <p>The prompt is chosen from a list of <b>prompt profiles</b>: the built-in
+ * default that ships with the app, plus any prompt the user creates here and
+ * can delete again. Editing the text edits the selected profile; switching
+ * profiles keeps the unsaved text of the one you leave, so no typing is lost
+ * before the Save button persists everything.
  *
  * The model field is an editable dropdown: the refresh button next to it
  * calls the provider's /models endpoint with the current key and fills the
@@ -42,7 +55,9 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
     private SettingsManager settings;
     private MaterialSwitch switchEnabled;
     private AutoCompleteTextView dropdownProvider;
-    private AutoCompleteTextView dropdownPreset;
+    private AutoCompleteTextView dropdownPromptProfile;
+    private Button btnPromptNew;
+    private Button btnPromptDelete;
     private TextInputLayout layoutApiUrl;
     private TextInputLayout layoutApiKey;
     private TextInputLayout layoutModel;
@@ -66,7 +81,23 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
 
     /** Provider id currently selected in the dropdown. */
     private String selectedProviderId;
-    private String selectedPreset;
+
+    /**
+     * Prompt profile ids in dropdown order: the built-in default first, then the
+     * user's own prompts. Ids double as display names (a profile is a file named
+     * after the prompt), so the position in this list is what maps a tap to an id.
+     */
+    private final List<String> promptProfileIds = new ArrayList<>();
+
+    /** The prompt whose text the editor shows. */
+    private String selectedPromptId;
+
+    /**
+     * Unsaved bodies keyed by profile id. Switching prompts stores the editor
+     * text here and restores it when you come back, so browsing the list never
+     * discards edits; the Save button is what writes them.
+     */
+    private final Map<String, String> draftPromptBodies = new HashMap<>();
 
     /**
      * Suppresses the enable-check listener while the screen sets the switch
@@ -75,20 +106,6 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
      * user did not make.
      */
     private boolean suppressEnableChecks;
-
-    private static final String[] PRESET_IDS = new String[] {
-            SettingsManager.PRESET_CLEAN,
-            SettingsManager.PRESET_FORMAL,
-            SettingsManager.PRESET_CASUAL,
-            SettingsManager.PRESET_VERBATIM
-    };
-
-    private static final int[] PRESET_STRING_RES = new int[] {
-            R.string.pp_preset_clean,
-            R.string.pp_preset_formal,
-            R.string.pp_preset_casual,
-            R.string.pp_preset_verbatim
-    };
 
     @Override
     protected void onDestroy() {
@@ -135,7 +152,9 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
 
         switchEnabled = findViewById(R.id.switch_pp_enabled);
         dropdownProvider = findViewById(R.id.dropdown_provider);
-        dropdownPreset = findViewById(R.id.dropdown_preset);
+        dropdownPromptProfile = findViewById(R.id.dropdown_prompt_profile);
+        btnPromptNew = findViewById(R.id.btn_prompt_new);
+        btnPromptDelete = findViewById(R.id.btn_prompt_delete);
         layoutApiUrl = findViewById(R.id.layout_api_url);
         layoutApiKey = findViewById(R.id.layout_api_key);
         layoutModel = findViewById(R.id.layout_model);
@@ -167,26 +186,16 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
             updateProviderUi(p, true);
         });
 
-        // Preset dropdown: maps localized labels to prompt preset keys
-        String[] presetLabels = new String[PRESET_STRING_RES.length];
-        for (int i = 0; i < PRESET_STRING_RES.length; i++) {
-            presetLabels[i] = getString(PRESET_STRING_RES[i]);
-        }
-        dropdownPreset.setAdapter(new ArrayAdapter<>(
-                this, android.R.layout.simple_list_item_1, presetLabels));
-
-        selectedPreset = settings.getPostProcessPreset();
-        int initialPresetIndex = 0;
-        for (int i = 0; i < PRESET_IDS.length; i++) {
-            if (PRESET_IDS[i].equals(selectedPreset)) {
-                initialPresetIndex = i;
-                break;
-            }
-        }
-        dropdownPreset.setText(presetLabels[initialPresetIndex], false);
-        dropdownPreset.setOnItemClickListener((parent, view, position, id) -> {
-            selectedPreset = PRESET_IDS[position];
+        // Prompt list: the built-in default plus the user's own prompts. A tap
+        // only switches which body the editor shows; the Save button persists
+        // the selection and every edited body (see persistSettings).
+        dropdownPromptProfile.setOnItemClickListener((parent, view, position, id) -> {
+            if (position < 0 || position >= promptProfileIds.size()) return;
+            selectPrompt(promptProfileIds.get(position));
         });
+        btnPromptNew.setOnClickListener(v -> createPromptProfile());
+        btnPromptDelete.setOnClickListener(v -> deleteOrResetSelectedPrompt());
+        rebuildPromptDropdown(settings.getActivePromptProfileId());
 
         // Local S1 model status & download
         updateLocalModelCard();
@@ -222,7 +231,6 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
         });
         editApiUrl.setText(settings.getApiUrl());
         editModel.setText(settings.getModelName());
-        editPrompt.setText(settings.getActivePromptBody());
         // The saved key is loaded asynchronously by loadApiKeyAndState() below:
         // reading it here would decrypt with AndroidKeyStore on the UI thread.
 
@@ -301,6 +309,175 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
         if (btnSave != null) btnSave.setEnabled(enabled);
         if (btnTestConnection != null) btnTestConnection.setEnabled(enabled);
         if (btnRefreshModels != null) btnRefreshModels.setEnabled(enabled);
+    }
+
+    // ----------------------------------------------------------------------
+    // Prompt profiles: select, create, delete (or reset the built-in default)
+    // ----------------------------------------------------------------------
+
+    /** Label shown for a profile: localized for the built-in, the name otherwise. */
+    private String promptLabel(String id) {
+        return SettingsManager.PROMPT_DEFAULT_ID.equals(id)
+                ? getString(R.string.pp_prompt_default_name)
+                : id;
+    }
+
+    /**
+     * Refills the prompt dropdown from the stored profiles and shows
+     * {@code selectId} (the default when it no longer exists).
+     */
+    private void rebuildPromptDropdown(String selectId) {
+        promptProfileIds.clear();
+        promptProfileIds.addAll(settings.getPromptProfileIds());
+
+        String[] labels = new String[promptProfileIds.size()];
+        for (int i = 0; i < labels.length; i++) {
+            labels[i] = promptLabel(promptProfileIds.get(i));
+        }
+        dropdownPromptProfile.setAdapter(new ArrayAdapter<>(
+                this, android.R.layout.simple_list_item_1, labels));
+
+        selectedPromptId = promptProfileIds.contains(selectId)
+                ? selectId : SettingsManager.PROMPT_DEFAULT_ID;
+        dropdownPromptProfile.setText(promptLabel(selectedPromptId), false);
+        editPrompt.setText(promptBodyFor(selectedPromptId));
+        updatePromptActions();
+    }
+
+    /** Switches the editor to another prompt, keeping the one you leave edited. */
+    private void selectPrompt(String id) {
+        if (id == null || id.equals(selectedPromptId)) return;
+        stashPromptDraft();
+        selectedPromptId = id;
+        dropdownPromptProfile.setText(promptLabel(id), false);
+        editPrompt.setText(promptBodyFor(id));
+        updatePromptActions();
+    }
+
+    /** The body to show for {@code id}: the unsaved draft first, then the store. */
+    private String promptBodyFor(String id) {
+        String draft = draftPromptBodies.get(id);
+        return draft != null ? draft : settings.getPromptBody(id);
+    }
+
+    /**
+     * Records the editor text as the draft of the selected prompt.
+     *
+     * <p>A user-created prompt is never stashed empty: an empty body would store
+     * nothing and the profile would silently lose its text, so the stored body
+     * wins instead. The built-in default is the exception — clearing it is a
+     * request to go back to the shipped text.
+     */
+    private void stashPromptDraft() {
+        if (selectedPromptId == null) return;
+        String body = editPrompt.getText().toString();
+        if (body.equals(settings.getPromptBody(selectedPromptId))) {
+            draftPromptBodies.remove(selectedPromptId);
+        } else if (body.trim().isEmpty()
+                && !SettingsManager.PROMPT_DEFAULT_ID.equals(selectedPromptId)) {
+            draftPromptBodies.remove(selectedPromptId);
+        } else {
+            draftPromptBodies.put(selectedPromptId, body);
+        }
+    }
+
+    /**
+     * "Delete" for a user prompt, "Restore default" for the built-in one: the
+     * default cannot be removed, but an edit applied to it can be discarded.
+     */
+    private void updatePromptActions() {
+        boolean isDefault = SettingsManager.PROMPT_DEFAULT_ID.equals(selectedPromptId);
+        btnPromptDelete.setText(isDefault
+                ? R.string.pp_prompt_reset : R.string.pp_prompt_delete);
+    }
+
+    /** Creates a new prompt from the text currently in the editor. */
+    private void createPromptProfile() {
+        EditText input = new EditText(this);
+        input.setHint(R.string.pp_prompt_name_hint);
+        input.setSingleLine(true);
+        input.setInputType(InputType.TYPE_CLASS_TEXT);
+        int padding = (int) (24 * getResources().getDisplayMetrics().density);
+        FrameLayout container = new FrameLayout(this);
+        container.setPadding(padding, padding / 2, padding, 0);
+        container.addView(input, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.pp_prompt_new_title)
+                .setView(container)
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.pp_prompt_new, (dialog, which) -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    String name = PromptProfiles.sanitizeName(input.getText().toString());
+                    if (name == null) {
+                        Toast.makeText(this, R.string.pp_prompt_name_required,
+                                Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    stashPromptDraft();
+                    // The new prompt starts as a copy of what is on screen, which
+                    // is what makes "duplicate and tweak" a two-tap operation. An
+                    // empty editor would create nothing (the store refuses empty
+                    // bodies), so it starts from the shipped prompt instead.
+                    String body = editPrompt.getText().toString();
+                    if (body.trim().isEmpty()) body = settings.getDefaultPrompt();
+                    String created = settings.createPromptProfile(name, body);
+                    if (created == null) {
+                        Toast.makeText(this, R.string.pp_prompt_create_failed,
+                                Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    draftPromptBodies.remove(created);
+                    settings.setActivePromptProfileId(created);
+                    rebuildPromptDropdown(created);
+                    Toast.makeText(this, R.string.pp_prompt_created,
+                            Toast.LENGTH_SHORT).show();
+                })
+                .show();
+    }
+
+    /** Deletes the selected user prompt, or resets the built-in default. */
+    private void deleteOrResetSelectedPrompt() {
+        final String id = selectedPromptId;
+        if (SettingsManager.PROMPT_DEFAULT_ID.equals(id)) {
+            new MaterialAlertDialogBuilder(this)
+                    .setTitle(R.string.pp_prompt_reset_title)
+                    .setMessage(R.string.pp_prompt_reset_message)
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .setPositiveButton(R.string.pp_prompt_reset, (dialog, which) -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        // Empty body = drop the override (and the legacy marker),
+                        // so the shipped prompt applies again.
+                        settings.savePromptBody(id, "");
+                        draftPromptBodies.remove(id);
+                        settings.setActivePromptProfileId(id);
+                        rebuildPromptDropdown(id);
+                        Toast.makeText(this, R.string.pp_prompt_reset_done,
+                                Toast.LENGTH_SHORT).show();
+                    })
+                    .show();
+            return;
+        }
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.pp_prompt_delete_title)
+                .setMessage(getString(R.string.pp_prompt_delete_message, id))
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.pp_prompt_delete, (dialog, which) -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    if (!settings.deletePromptProfile(id)) {
+                        Toast.makeText(this, R.string.pp_prompt_delete_failed,
+                                Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    draftPromptBodies.remove(id);
+                    rebuildPromptDropdown(SettingsManager.PROMPT_DEFAULT_ID);
+                    settings.setActivePromptProfileId(selectedPromptId);
+                    Toast.makeText(this, R.string.pp_prompt_deleted,
+                            Toast.LENGTH_SHORT).show();
+                })
+                .show();
     }
 
     private void updateLocalModelCard() {
@@ -603,21 +780,27 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
         final boolean requestedEnabled = nowEnabled;
 
         settings.setProviderId(selectedProviderId);
-        if (selectedPreset != null) {
-            settings.setPostProcessPreset(selectedPreset);
-        }
         settings.setApiUrl(editApiUrl.getText().toString().trim());
         settings.setModelName(editModel.getText().toString().trim());
 
-        // Only persist the prompt if the user actually changed it; otherwise
-        // leave the marker empty so future updates to the default prompt keep
-        // applying automatically.
-        String prompt = editPrompt.getText().toString().trim();
-        String defaultPrompt = settings.getDefaultPrompt();
-        if (prompt.isEmpty() || prompt.equals(defaultPrompt)) {
-            settings.setActivePromptBody("");
-        } else {
-            settings.setActivePromptBody(prompt);
+        // Prompt profiles: record what the editor holds for the visible profile,
+        // then persist every edited body plus the selection. Writing all drafts
+        // (not just the visible one) means browsing the list before pressing Save
+        // never loses an edit that was made on another prompt.
+        stashPromptDraft();
+        boolean promptsSaved = true;
+        for (Map.Entry<String, String> entry : new ArrayList<>(draftPromptBodies.entrySet())) {
+            if (settings.savePromptBody(entry.getKey(), entry.getValue())) {
+                draftPromptBodies.remove(entry.getKey());
+            } else {
+                promptsSaved = false;
+            }
+        }
+        settings.setActivePromptProfileId(selectedPromptId);
+        if (!promptsSaved) {
+            // The profile is still on screen and its text is still in the editor:
+            // report the failure instead of closing as if everything was written.
+            Toast.makeText(this, R.string.pp_prompt_save_failed, Toast.LENGTH_LONG).show();
         }
 
         setSaving(true);

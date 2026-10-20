@@ -33,7 +33,7 @@ La aplicación funciona en varios puntos de integración de Android: dictado por
 - **Cobertura de idiomas:**
   - **Interfaz de usuario:** disponible en 8 idiomas (inglés base, alemán, español, francés, italiano, portugués, ruso y chino simplificado).
   - **Reconocimiento de voz:** el modelo Nemotron integrado soporta 40 locales de idioma nativamente con autodetección en streaming; 33 locales regionales son seleccionables directamente. Modelos GGUF importados por el usuario (p. ej. Whisper) pueden soportar hasta 99 idiomas.
-- **Post-procesado de texto opcional:** formateo y limpieza configurables con proveedores externos compatibles con la API de OpenAI (OpenAI, Groq, Cerebras, OpenRouter, Mistral, Together, Ollama) o el preset intacto *Verbatim*.
+- **Post-procesado de texto opcional:** formateo y limpieza configurables con proveedores externos compatibles con la API de OpenAI (OpenAI, Groq, Cerebras, OpenRouter, Mistral, Together, Ollama), con un prompt integrado y tus propios prompts con nombre, que puedes crear y eliminar.
 
 ---
 
@@ -41,7 +41,7 @@ La aplicación funciona en varios puntos de integración de Android: dictado por
 
 - **El reconocimiento de voz es 100% local:** toda la inferencia acústica, el procesado de audio y la transcripción se ejecutan íntegramente en tu dispositivo. El micrófono y los archivos de audio nunca se suben a servidores remotos.
 - **Post-procesado remoto opcional:** el post-procesado por IA está **desactivado por defecto**. Si activas un proveedor externo (como Groq u OpenAI), solo el **texto** reconocido (nunca el audio) se transmite a tu endpoint configurado (HTTPS para proveedores remotos; HTTP en claro solo a loopback localhost/127.0.0.1 para un servidor Ollama local). Las API keys se guardan localmente en el almacenamiento privado de la app.
-- **Modos Verbatim y offline:** con el post-procesado apagado o en *Verbatim*, ningún texto sale por la red.
+- **Modo offline:** con el post-procesado apagado, ningún texto sale por la red.
 - **Telemetría y logs en release:** en builds release, el registro del texto transcrito y de detalles sensibles de errores está eliminado.
 
 ---

@@ -33,7 +33,7 @@ Aura Transcribe 是一款设备端语音转文字应用与 Android 语音输入�
 - **语言覆盖：**
   - **用户界面：**支持 8 种语言（英语基础、德语、西班牙语、法语、意大利语、葡萄牙语、俄语与简体中文）。
   - **语音识别：**内置 Nemotron 模型原生支持 40 种语言 locale 并流式自动检测；33 种地区 locale 可直接选择。用户导入的 GGUF 模型（如 Whisper）最多支持 99 种语言。
-- **可选文本后处理：**经外部 OpenAI 兼容 API 提供方（OpenAI、Groq、Cerebras、OpenRouter、Mistral、Together、Ollama）可配置格式化与清理，或使用原样 *Verbatim* 预设。
+- **可选文本后处理：**经外部 OpenAI 兼容 API 提供方（OpenAI、Groq、Cerebras、OpenRouter、Mistral、Together、Ollama）可配置格式化与清理，使用内置提示词和你自建的命名提示词（可创建和删除）。
 
 ---
 
@@ -41,7 +41,7 @@ Aura Transcribe 是一款设备端语音转文字应用与 Android 语音输入�
 
 - **语音识别 100% 本地：**所有声学模型推理、音频处理与转写完全在你的设备上执行。麦克风输入与音频文件永不上传到远程服务器。
 - **可选远程文本后处理：**AI 后处理默认**关闭**。若启用外部 API 提供方（如 Groq 或 OpenAI），仅将识别出的**文本**（绝非音频）发送到你配置的端点（远程提供方使用 HTTPS；仅允许到 loopback localhost/127.0.0.1 的明文 HTTP，用于本地 Ollama 服务器）。API 密钥存于应用私有存储。
-- **Verbatim 与离线模式：**关闭后处理或设为 *Verbatim* 时，没有任何文本经过网络。
+- **离线模式：**关闭后处理时，没有任何文本经过网络。
 - **发布版遥测与日志：**发布构建中已去除转写原文与敏感错误详情的日志记录。
 
 ---

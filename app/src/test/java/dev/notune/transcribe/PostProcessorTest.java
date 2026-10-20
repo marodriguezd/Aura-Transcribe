@@ -105,11 +105,6 @@ public class PostProcessorTest {
         }
 
         @Override
-        public String getPostProcessPreset() {
-            return "clean";
-        }
-
-        @Override
         public java.io.File getLocalS1ModelFile() {
             return new java.io.File("/dev/null");
         }

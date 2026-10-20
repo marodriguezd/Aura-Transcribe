@@ -158,10 +158,14 @@ public class PostProcessor {
     }
 
     public static final String PROVIDER_LOCAL_S1 = "local_s1";
-    public static final String PRESET_CLEAN = "clean";
-    public static final String PRESET_FORMAL = "formal";
-    public static final String PRESET_CASUAL = "casual";
-    public static final String PRESET_VERBATIM = "verbatim";
+
+    /**
+     * Steerable control axis passed to the on-device normalizer. There is no
+     * style-preset selector in the UI any more (the user picks a prompt, not a
+     * preset), so the placeholder on-device path always asks for the neutral
+     * "clean" axis; the native side keeps its own preset vocabulary.
+     */
+    private static final String ON_DEVICE_STYLE = "clean";
 
     private static final java.util.concurrent.ExecutorService onDeviceExecutor =
             java.util.concurrent.Executors.newSingleThreadExecutor();
@@ -210,10 +214,6 @@ public class PostProcessor {
 
         default String getProviderId() {
             return "custom";
-        }
-
-        default String getPostProcessPreset() {
-            return "clean";
         }
 
         default java.io.File getLocalS1ModelFile() {
@@ -550,7 +550,6 @@ public class PostProcessor {
 
         final java.io.File modelFile = settings.getLocalS1ModelFile();
         final String modelPath = (modelFile != null) ? modelFile.getAbsolutePath() : "";
-        final String preset = settings.getPostProcessPreset();
         final String customPrompt = settings.getActivePromptBody();
 
         onDeviceExecutor.execute(() -> {
@@ -558,7 +557,7 @@ public class PostProcessor {
                 nativeSetS1ModelPath(modelPath);
                 if (forceRequest) {
                     // Diagnostic probe for on-device S1 normalizer
-                    String result = nativeNormalizeOnDevice(DIAGNOSTIC_INPUT, "clean", null);
+                    String result = nativeNormalizeOnDevice(DIAGNOSTIC_INPUT, ON_DEVICE_STYLE, null);
                     if (result != null) {
                         dispatchToUi(() -> callback.onSuccess(DIAGNOSTIC_MARKER));
                     } else {
@@ -567,7 +566,7 @@ public class PostProcessor {
                     return;
                 }
 
-                String refined = nativeNormalizeOnDevice(rawText, preset, customPrompt);
+                String refined = nativeNormalizeOnDevice(rawText, ON_DEVICE_STYLE, customPrompt);
                 if (refined != null && !refined.trim().isEmpty()) {
                     dispatchToUi(() -> callback.onSuccess(refined));
                 } else {

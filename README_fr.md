@@ -33,7 +33,7 @@ L'application fonctionne sur plusieurs points d'intégration Android : dictée v
 - **Couverture de langues :**
   - **Interface utilisateur :** disponible en 8 langues (anglais de base, allemand, espagnol, français, italien, portugais, russe et chinois simplifié).
   - **Reconnaissance vocale :** le modèle Nemotron intégré prend en charge 40 locales de langue nativement avec autodétection en streaming ; 33 locales régionales sont directement sélectionnables. Des modèles GGUF importés par l'utilisateur (p. ex. Whisper) peuvent prendre en charge jusqu'à 99 langues.
-- **Post-traitement de texte optionnel :** formatage et nettoyage configurables avec des fournisseurs externes compatibles API OpenAI (OpenAI, Groq, Cerebras, OpenRouter, Mistral, Together, Ollama) ou le preset intact *Verbatim*.
+- **Post-traitement de texte optionnel :** formatage et nettoyage configurables avec des fournisseurs externes compatibles API OpenAI (OpenAI, Groq, Cerebras, OpenRouter, Mistral, Together, Ollama), pilotés par un prompt intégré et tes propres prompts nommés, que tu peux créer et supprimer.
 
 ---
 
@@ -41,7 +41,7 @@ L'application fonctionne sur plusieurs points d'intégration Android : dictée v
 
 - **La reconnaissance vocale est 100 % locale :** toute l'inférence acoustique, le traitement audio et la transcription s'exécutent entièrement sur votre appareil. Le micro et les fichiers audio ne sont jamais téléversés vers des serveurs distants.
 - **Post-traitement distant optionnel :** le post-traitement IA est **désactivé par défaut**. Si vous activez un fournisseur externe (comme Groq ou OpenAI), seul le **texte** reconnu (jamais l'audio) est transmis vers votre endpoint configuré (HTTPS pour les fournisseurs distants ; HTTP en clair uniquement vers le loopback localhost/127.0.0.1 pour un serveur Ollama local). Les clés API sont stockées localement dans le stockage privé de l'app.
-- **Modes Verbatim et hors ligne :** avec le post-traitement coupé ou sur *Verbatim*, aucun texte ne sort sur le réseau.
+- **Mode hors ligne :** avec le post-traitement coupé, aucun texte ne sort sur le réseau.
 - **Télémétrie et logs en release :** dans les builds release, la journalisation du texte transcrit et des détails d'erreur sensibles est supprimée.
 
 ---
