@@ -49,7 +49,18 @@ a short identifier.
 ## 3. Native runtime dependencies
 
 - `transcribe-cpp` 0.1.3 — MIT; see [`licenses/transcribe-cpp-MIT.txt`](licenses/transcribe-cpp-MIT.txt).
-- `ggml`, supplied by `transcribe-cpp` — MIT; see [`licenses/ggml-MIT.txt`](licenses/ggml-MIT.txt).
+- `ggml`, supplied by `transcribe-cpp` — MIT; see [`licenses/ggml-MIT.txt`](licenses/ggml-MIT.txt). Individual ggml sources also carry their merged
+  contributors' copyright notices (including Intel Corporation, Arm Limited,
+  the Mozilla Foundation, and the YaRN authors Jeffrey Quesnelle and Bowen
+  Peng); they are covered by the same ggml MIT grant whose text ships as
+  `licenses/ggml-MIT.txt`.
+- `miniz` 3.1.1 — MIT (Copyright 2013-2014 RAD Game Tools and Valve Software;
+  Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC). Vendored as
+  an unmodified release snapshot inside `transcribe-cpp-sys`
+  (`src/third_party/miniz`) and compiled into the native engine library that
+  ships in the APK/AAB; its license text is preserved as
+  [`licenses/miniz-MIT.txt`](licenses/miniz-MIT.txt), byte-identical to the
+  license traveling with the vendored snapshot.
 - `cpal` — Apache-2.0; see [`licenses/Apache-2.0.txt`](licenses/Apache-2.0.txt).
 - `libc++_shared.so` — the C++ runtime copied from Android NDK 28.2.13676358
   (LLVM libc++), dual-licensed under the University of Illinois/NCSA license and
@@ -60,6 +71,13 @@ a short identifier.
 - Other direct crates declared in `Cargo.toml` (`anyhow`, `log`,
   `android_logger`, `jni`, `libc`, `once_cell`, `crossbeam-channel`, `strsim`)
   use permissive upstream options, commonly MIT and/or Apache-2.0.
+- Every Rust-built binary additionally carries the Rust standard library's own
+  vendored dependencies (`miniz_oxide`, `addr2line`, `gimli`, `hashbrown`,
+  `rustc-demangle`, `object`, `libc`, `memchr`; MIT and/or Apache-2.0). These
+  are toolchain components: they are invisible to `cargo metadata`, so they do
+  not appear in the generated inventories, and their license texts travel with
+  the Rust toolchain. The `miniz_oxide` Rust crate is unrelated to the C
+  `miniz` snapshot above.
 
 **Resolved Rust inventory, regenerated 2026-10-19:** 122 resolved package
 entries, 0 missing both `license` and `license-file` metadata, 3 with composite
@@ -95,6 +113,16 @@ One metadata inconsistency was reconciled manually: `org.jspecify:jspecify:1.0.0
 has a blank license-name field in its manifest while its POM declares
 Apache-2.0. The report records the blank field rather than silently filling it.
 
+`okhttp` 4.12.0 also packages `okhttp3/internal/publicsuffix/publicsuffixes.gz`,
+compiled from **The Public Suffix List**, which is distributed under the
+**Mozilla Public License 2.0** (MPL-2.0). OkHttp's own `NOTICE` for it travels
+inside the APK/AAB at `okhttp3/internal/publicsuffix/NOTICE` and is reproduced
+verbatim as [`licenses/okhttp-NOTICE.txt`](licenses/okhttp-NOTICE.txt). The
+MPL-2.0 source form remains available at
+<https://publicsuffix.org/list/public_suffix_list.dat> and the license text at
+<https://mozilla.org/MPL/2.0/>. MPL-2.0's conditions attach to the PSL data
+file itself and do not relicense the application or OkHttp (Apache-2.0).
+
 `org.json:json`, JUnit and MockWebServer are **test-only**
 (`testImplementation`); `org.json` is not packaged into the app. The app uses the
 platform's `org.json` API at runtime. Build tools and test frameworks are not
@@ -128,9 +156,10 @@ no audio fixture either.
 ## 7. License texts included with the application
 
 The application assets carry copies of the MIT license, the upstream MIT
-license, the `transcribe-cpp` and `ggml` MIT texts, the Apache-2.0 text, the LLVM
-exception text, the libc++ notice, the verbatim OpenMDW-1.1 agreement, this
-notice file, and the model's `MODEL_LICENSE.md` and `MODEL_NOTICE.md`.
+license, the `transcribe-cpp`, `ggml` and `miniz` MIT texts, the Apache-2.0
+text, the LLVM exception text, the libc++ notice, the OkHttp public-suffix
+`NOTICE`, the verbatim OpenMDW-1.1 agreement, this notice file, and the model's
+`MODEL_LICENSE.md` and `MODEL_NOTICE.md`.
 Sources live under `licenses/` and the
 repository root; `scripts/check_license_docs.py` fails if any asset copy drifts
 from its source, `scripts/verify_artifact_notices.py` requires this complete set

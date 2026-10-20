@@ -273,6 +273,35 @@ class GateTest(unittest.TestCase):
         shutil.copyfile(path, self.root / "app/src/main/assets/licenses/ggml-MIT.txt")
         self.assert_rejected("licenses/ggml-MIT.txt is not the verbatim upstream")
 
+    def test_altered_miniz_license_rejected(self) -> None:
+        # miniz is vendored inside transcribe-cpp-sys and compiled into the
+        # shipped native library; its MIT notice must travel unmodified.
+        path = self.root / "licenses/miniz-MIT.txt"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "Copyright 2013-2014 RAD Game Tools and Valve Software",
+                "Copyright 2013-2014 Someone Else",
+            ),
+            encoding="utf-8",
+        )
+        shutil.copyfile(path, self.root / "app/src/main/assets/licenses/miniz-MIT.txt")
+        self.assert_rejected("licenses/miniz-MIT.txt is not the verbatim upstream")
+
+    def test_altered_okhttp_notice_rejected(self) -> None:
+        # The OkHttp NOTICE is the MPL-2.0 attribution for the Public Suffix
+        # List data packaged in the APK; rewording it must fail closed.
+        path = self.root / "licenses/okhttp-NOTICE.txt"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "The Public Suffix List", "a public suffix list"
+            ),
+            encoding="utf-8",
+        )
+        shutil.copyfile(
+            path, self.root / "app/src/main/assets/licenses/okhttp-NOTICE.txt"
+        )
+        self.assert_rejected("licenses/okhttp-NOTICE.txt is not the verbatim upstream")
+
     def test_upstream_notice_removed_rejected(self) -> None:
         self.rewrite(
             "licenses/UPSTREAM-MIT.txt", "Copyright (c) 2025 Noah Mühl", "Copyright"
