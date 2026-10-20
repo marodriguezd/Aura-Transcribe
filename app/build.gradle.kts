@@ -51,7 +51,7 @@ android {
         // versionCode 51 = the corrected rebuild of v1.0.0 (2026-10-20): the
         // originally published build (versionCode 50) shipped without the
         // required license texts (LICENSE_AUDIT.md F-1/F-2). versionCode must
-        // keep increasing even though versionName stays 1.0.0.
+        // keep increasing even though the version name stays 1.0.0.
         versionCode = 51
         versionName = "1.0.0"
         ndk {

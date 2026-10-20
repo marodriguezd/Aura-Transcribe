@@ -603,7 +603,14 @@ jobs:
       id: extract_version
       run: |
         set -euo pipefail
-        VERSION_NAME=$(grep 'versionName' app/build.gradle.kts | head -1 | grep -oP '"[^"]*"' | tr -d '"')
+        # Match the assignment only: a prose comment mentioning the field name
+        # must never win the "first match" (it has no quoted value and the
+        # extraction would die under pipefail).
+        VERSION_NAME=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
+        if [ -z "$VERSION_NAME" ]; then
+          echo "::error::could not extract versionName from app/build.gradle.kts"
+          exit 1
+        fi
         echo "Detected Version: $VERSION_NAME"
         echo "VERSION_NAME=$VERSION_NAME" >> $GITHUB_ENV
 
