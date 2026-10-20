@@ -2,13 +2,17 @@
 
 Change log of **Aura Transcribe** (Next-Gen evolution of [notune/android_transcribe_app](https://github.com/notune/android_transcribe_app)).
 
-## [Unreleased]
+## [1.0.1] - 2026-10-20 (versionCode 52)
 
 ### Changed
 - Post-processing prompts are now user-managed. The style-preset dropdown (Clean / Formal / Casual / Verbatim) is gone: the settings screen selects among **prompt profiles** — the built-in default plus any prompt the user creates and can delete — one file per profile under `filesDir()/pp_prompts/`, with the reserved id `default` for the shipped text and `pp_prompt_profile` recording the selection. Editing a profile and browsing another one keeps both drafts until Save writes them.
 - The shipped default prompt was rewritten to the current post-processing contract (English, meaning-preserving, phonetic-only corrections, dictated punctuation to symbols, transcript treated as text, `${output}` injection preserved).
 - An existing `pp_prompt` customization keeps applying as the default profile's override, and "Restore default" drops it again, so the upgrade never discards a prompt the user had tuned.
 - `PostProcessor` no longer exposes preset ids through its settings seam; the placeholder on-device normalizer receives the neutral `clean` axis directly.
+- 18 new strings in all eight locales; the five `pp_preset*` strings were removed.
+- `PromptProfiles` (file-per-profile store, atomic writes) and `PromptProfilesTest` (12 JVM tests); the suite is now 383 tests, 0 failures, and `lintDebug` keeps the documented 68-warning inventory with 0 errors.
+
+## [Unreleased]
 
 ### Fixed
 - Licensing audit second pass (`LICENSE_AUDIT.md` F-9/F-10/F-11): the notice set now also covers **miniz 3.1.1** (MIT; vendored inside `transcribe-cpp-sys` and compiled into the shipped native library) and the **Public Suffix List** data packaged by OkHttp (MPL-2.0), with verbatim byte-pinned texts (`licenses/miniz-MIT.txt`, `licenses/okhttp-NOTICE.txt`) shipped under `assets/licenses/` and required by `verify_artifact_notices.py` (33 negative tests total in `check_license_docs`). `THIRD_PARTY_NOTICES.md` documents both, plus the ggml per-contributor notices and the Rust-std vendored components. The `ModelsActivity` catalog link for the bundled model is now pinned to the verified revision instead of `resolve/main`. The `v1.0.0` release was then replaced a second time from the verified commit `bb15ec4` (publishing run `39425583352`): the published APK/AAB now carry all 13 required documents per artifact (26/26 checks, pinned signer, model once per artifact). Copies of the earlier binaries already downloaded cannot be recalled — see `LICENSE_AUDIT.md` §“Second replacement”.
@@ -21,6 +25,24 @@ Change log of **Aura Transcribe** (Next-Gen evolution of [notune/android_transcr
 > replaced by this functionally identical corrected rebuild (versionCode 51,
 > `versionName` 1.0.0), which carries the complete, gate-verified notice set.
 > Copies of the original binaries already downloaded cannot be recalled.
+
+### Release note (published)
+
+Reference format for later releases: the text below is the one published for
+this version (125–250 words, no emojis, structured as product statement → what
+changed → technical detail → verification → closing). `RELEASE_NOTES.md` only
+ever carries the version being published, so a published note is archived here
+when the next version takes its place.
+
+Aura Transcribe 1.0.0 is the first stable release of an offline voice-to-text application for Android. Recognition runs entirely on the device: no audio and no transcript leaves the phone unless optional AI post-processing is explicitly enabled, and it is off by default.
+
+The app plugs into the surfaces keyboards and other applications already use: the system voice dialog, the Android SpeechRecognizer service, and a full input-method keyboard. It also offers a floating dictation overlay, live subtitles over system audio, and transcription of shared audio files.
+
+Optional post-processing sends the final transcript to any OpenAI-compatible provider the user configures, with the API key encrypted at rest by a hardware-backed keystore. The transcript is sent once, only after recognition ends, and the raw text is always delivered when a request fails, times out or is cancelled. Live subtitles can be translated on the device.
+
+The release ships the bundled recognition model together with its complete licence and notice set. Signed artifacts are built and verified by an automated release pipeline: the signer certificate and the model digest are pinned, native libraries are checked for 16 KB page alignment, and every required document must sit at its exact delivery path or the build stops before publishing.
+
+The interface is available in eight languages. On-device AI post-processing is not part of this build; cloud providers are.
 
 ### Added
 - First stable release of Aura Transcribe: offline on-device voice transcription built on a Rust/GGML native engine.

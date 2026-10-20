@@ -1,0 +1,4 @@
+• Post-processing prompts are now yours to manage: the style presets are gone and a prompt list replaces them.
+• New built-in prompt for dictation cleanup: keeps meaning, tone and names, fixes only clear recognition errors.
+• Create your own prompts from the text on screen and delete the ones you no longer need.
+• Unsaved edits are kept when you switch between prompts.
