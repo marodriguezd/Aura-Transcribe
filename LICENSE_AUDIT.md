@@ -47,7 +47,8 @@ material claim of this file from primary sources: the upstream `LICENSE`/
 `NOTICE`/agreement were re-fetched at the pinned revision and re-compared
 byte-for-byte; the published v1.0.0 assets were **re-downloaded and re-hashed**
 (`0550c238…`, `f3851510…` — matching the release digests and the publishing
-run's validation report for commit `834fe3f`); the model entry inside both
+run's validation report for commit `834fe3f`; that publication was superseded
+later the same day, see “Second replacement”); the model entry inside both
 artifacts was re-hashed against the pin (`86429e8c…9910d65`, 559,647,200 B,
 exactly once per artifact); the signer of both artifacts was re-checked against
 `keystore/release-cert.sha256` (`2ee6ab00…8483`); `zipalign -c -P 16` and
@@ -215,9 +216,13 @@ license traveling with the vendored snapshot and content-identical to upstream
 `richgel999/miniz` 3.1.1 `LICENSE`, which uses CRLF line endings), packaged at
 `assets/licenses/miniz-MIT.txt`, listed in `THIRD_PARTY_NOTICES.md` §3, and
 required by `verify_artifact_notices.py` with two new negative tests. The
-extended gate re-run against the published APK fails closed with exactly this
-diagnosis. *Residual:* the published v1.0.0 binaries predate the fix and carry
-the pre-fix notice set (same class as F-1/F-2; see Q2).
+extended gate re-run against the v1.0.0 binaries published earlier the same day
+fails closed with exactly this diagnosis. *Residual:* **cured for the shipped
+artifacts.** The second replacement republished `v1.0.0` from the verified
+commit `bb15ec4` later on 2026-10-20, and its published APK/AAB pass 26/26
+notice checks including `miniz-MIT.txt` (§“Second replacement”). Copies of the
+earlier (pre-fix) binaries already downloaded remain outside the project's
+control (same class as F-1/F-2; see Q2).
 
 **F-10 — MEDIUM (unattributed MPL-2.0 data in the distributed artifacts; found
 in the second pass 2026-10-20; remediated at HEAD; residual as F-9).** OkHttp
@@ -382,6 +387,64 @@ What this evidence does **not** establish: it proves what the *current*
 release carries. It cannot recall or alter copies of the original (defective)
 binaries already downloaded, and it is not a legal certification.
 
+## Second replacement — F-9/F-10 shipped in v1.0.0 (2026-10-20)
+
+Executed under the same owner authorization (delete every existing release and
+tag; recreate only `v1.0.0` at the verified commit; let the guarded release
+workflow publish), after PR [#17](https://github.com/marodriguezd/Aura-Transcribe/pull/17)
+(merged as `7133a6d`) and PR [#18](https://github.com/marodriguezd/Aura-Transcribe/pull/18)
+(merged as `bb15ec4`) landed. This closes the residual recorded against F-9 and
+F-10: the artifacts published earlier that day carried the pre-fix notice set.
+
+- **Verified commit:** `bb15ec4eb5253342be67acfab275fce2b8593364` (`main`,
+  versionCode 51, `versionName` 1.0.0). Gates re-run on that exact commit:
+  `cargo fmt --check`; `cargo test --workspace` (68 tests: 33 + 26 + 7 + 2);
+  `:app:testDebugUnitTest` (371 tests, 31 suites, 0 failures, 0 skipped);
+  `:app:lintDebug` (0 errors, 68 documented warnings); the packaging-decision,
+  model-download, native-alignment and `checkModels` gate tasks; and the Python
+  compliance suite (`check_license_docs`, `check_release_workflow`,
+  `check_jni_parity`, `check_translations`, `check_release_notes`,
+  `check_repo_hygiene`, `check_fdroid_descriptor` plus their 200 negative
+  tests).
+- **Pre-publication signed validation:** validation-only release run
+  `39424308202` (`workflow_dispatch`, `validation_only=true`) on `bb15ec4`
+  succeeded: **26/26** notice-set checks (13 documents per artifact), the model
+  once per artifact (559,647,200 B, pinned digest) and the pinned signer
+  `2ee6ab00…8483`. That run created no tag, release or asset.
+- **Replacement:** the sole existing release `v1.0.0` and its tag were deleted
+  (0 releases and 0 tags remained), then annotated tag `v1.0.0` was recreated
+  at `bb15ec4` (tag object `77f61490dabae795df19989802426d46d8214969`, which
+  dereferences to that commit). Publishing run `39425583352` succeeded and its
+  `Create Release` step executed under the guarded condition
+  (`startsWith(github.ref, 'refs/tags/v') && (push || validation_only == false)`).
+- **Published artifacts, re-downloaded and re-hashed after publication:**
+  - `Aura_Transcribe_v1.0.0.apk` — SHA-256
+    `e9bbb41ab034a4459ecaa22dfeb144260e4a801f9ca1e8c79e43baf3b387ae59`
+    (575,258,923 B)
+  - `Aura_Transcribe_v1.0.0.aab` — SHA-256
+    `4fc6b79bc20355afc062510d44c45349f8108beee8df8108a791b82b8df442a8`
+    (558,222,129 B)
+  - Both match the GitHub-reported asset digests. The AAB digest is identical to
+    the validation-only candidate; the APK digest differs from that candidate
+    (`a3eec11f…`) because APK packaging embeds timestamps.
+- **Content inspection of the published bytes:** 13/13 documents per artifact
+  (26 checks total) `OK` — `LICENSE`, `THIRD_PARTY_NOTICES.md`,
+  `MODEL_LICENSE.md`, `MODEL_NOTICE.md` and all 9 `licenses/*` texts, including
+  `miniz-MIT.txt` (1,162 B) and `okhttp-NOTICE.txt` (218 B), each byte-identical
+  to the repository sources at its exact delivery path (`assets/` in the APK;
+  `base/assets/` + `model_assets/assets/` in the AAB). Model present exactly
+  once per artifact (559,647,200 B, `86429e8c…9910d65`).
+- **Signatures:** the APK (`apksigner verify --print-certs`) reports a single V2
+  signer `2ee6ab002e02310523a3e2565b8128a11952d902a2c748d7c5b869bc17208483`; the
+  AAB (`jarsigner -verify` → *jar verified*) carries the same certificate
+  (`keytool -printcert -jarfile`). Both match the pinned trust anchor.
+- **Alignment:** `zipalign -c -P 16 -v 4` reports “Verification successful”.
+
+What this evidence does **not** establish: copies of the pre-fix v1.0.0
+binaries obtained before the replacement cannot be recalled, and the Q2
+counsel question about the earlier omission is unaffected by it. It is not a
+legal certification.
+
 ## Second-pass remediation evidence (2026-10-20, F-9/F-10/F-11)
 
 - Branch `licensing/notice-gap-remediation`, candidate commit
@@ -483,17 +546,18 @@ answers them, and **no legal certification is claimed**:
 | 7 | Model pinned by revision + SHA-256 everywhere it is fetched | ✅ |
 | 8 | Dependency inventories generated, reviewed, retained as CI artifact | ✅ (3 expressions flagged, non-Android — F-5) |
 | 9 | No audio or unprovenanced fixtures bundled | ✅ gate-enforced |
-| 10 | Publication of a corrected release to supersede v1.0.0's notice defect | ✅ done 2026-10-20 (owner-authorized): Release `v1.0.0` + tag replaced and republished from verified commit `834fe3f` (versionCode 51); published bytes inspected — 22/22 notice checks OK, pinned signer, no `bench.wav` (§“Remediation evidence”). Copies of the original binaries already downloaded remain outside the project's control (Q2) |
-| 11 | Vendored native code (`miniz`) and jar-resource third-party data (PSL/MPL-2.0) identified, attributed and shipped | ✅ at HEAD (second-pass F-9/F-10, gate-enforced); the published v1.0.0 binaries carry the pre-fix notice set (residual, same class as Q2) |
+| 10 | Publication of a corrected release to supersede v1.0.0's notice defect | ✅ done 2026-10-20 (owner-authorized): Release `v1.0.0` + tag replaced twice; the final publication is from verified commit `bb15ec4` (versionCode 51) and its published bytes were re-downloaded and inspected — 26/26 notice checks OK, pinned signer, model once per artifact, 16 KB aligned (§“Second replacement”). Copies of the original binaries already downloaded remain outside the project's control (Q2) |
+| 11 | Vendored native code (`miniz`) and jar-resource third-party data (PSL/MPL-2.0) identified, attributed and shipped | ✅ at HEAD **and in the published v1.0.0 artifacts** (second-pass F-9/F-10): gate-enforced at HEAD and verified on the published bytes — `miniz-MIT.txt` and `okhttp-NOTICE.txt` present, byte-identical (§“Second replacement”) |
 
 **Verdict:** no repository-level licensing blocker remains for producing and
 publishing artifacts **from HEAD**: the corrected v1.0.0 (versionCode 51) is
-published and its bytes were independently inspected (§“Remediation
-evidence”), and the second-pass gaps (F-9/F-10/F-11) are remediated and
-gate-enforced at HEAD. The published v1.0.0 binaries themselves predate the
-F-9/F-10 notice additions and carry the pre-fix notice set; that residual is
-not claimed to be cured and can only be addressed by a future release (out of
-scope for this audit — no tag, release or asset was created or replaced by it).
+published from the verified commit `bb15ec4`, its bytes were independently
+re-downloaded and inspected (§“Remediation evidence” and “Second replacement”),
+and the second-pass gaps (F-9/F-10/F-11) are remediated, gate-enforced at HEAD
+**and present in the published artifacts** (26/26 notice checks). The earlier
+publication of 2026-10-20 carried the pre-fix notice set; it was replaced the
+same day and no release or tag other than `v1.0.0` exists. Copies of the
+pre-fix binaries already downloaded cannot be recalled.
 The open items are the counsel questions above (Q1–Q7) — above all Q2, since
 deleting the old release cannot recall copies already downloaded and no claim
 is made that historical liability or legal uncertainty has disappeared. This
