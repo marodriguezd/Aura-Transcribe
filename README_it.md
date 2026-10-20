@@ -33,7 +33,7 @@ L'applicazione opera su più punti di integrazione Android: dettatura vocale nel
 - **Copertura lingue:**
   - **Interfaccia utente:** disponibile in 8 lingue (inglese base, tedesco, spagnolo, francese, italiano, portoghese, russo e cinese semplificato).
   - **Riconoscimento vocale:** il modello Nemotron integrato supporta 40 locale di lingua nativamente con auto-rilevamento in streaming; 33 locale regionali sono direttamente selezionabili. Modelli GGUF importati dall'utente (es. Whisper) possono supportare fino a 99 lingue.
-- **Post-elaborazione testo opzionale:** formattazione e pulizia configurabili con provider esterni compatibili API OpenAI (OpenAI, Groq, Cerebras, OpenRouter, Mistral, Together, Ollama) o il preset intatto *Verbatim*.
+- **Post-elaborazione testo opzionale:** formattazione e pulizia configurabili con provider esterni compatibili API OpenAI (OpenAI, Groq, Cerebras, OpenRouter, Mistral, Together, Ollama), guidati da un prompt integrato e da prompt personalizzati con nome, che puoi creare ed eliminare.
 
 ---
 
@@ -41,7 +41,7 @@ L'applicazione opera su più punti di integrazione Android: dettatura vocale nel
 
 - **Il riconoscimento vocale è 100% locale:** tutta l'inferenza acustica, l'elaborazione audio e la trascrizione sono eseguite interamente sul tuo dispositivo. Microfono e file audio non sono mai caricati su server remoti.
 - **Post-elaborazione remota opzionale:** la post-elaborazione IA è **disattivata di default**. Se attivi un provider esterno (come Groq o OpenAI), solo il **testo** riconosciuto (mai l'audio) è trasmesso al tuo endpoint configurato (HTTPS per provider remoti; HTTP in chiaro solo verso il loopback localhost/127.0.0.1 per un server Ollama locale). Le API key sono salvate localmente nello storage privato dell'app.
-- **Modalità Verbatim e offline:** con la post-elaborazione spenta o su *Verbatim*, nessun testo esce in rete.
+- **Modalità offline:** con la post-elaborazione spenta, nessun testo esce in rete.
 - **Telemetria e log in release:** nelle build release, la registrazione del testo trascritto e dei dettagli sensibili di errore è rimossa.
 
 ---

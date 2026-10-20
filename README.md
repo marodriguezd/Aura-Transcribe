@@ -33,7 +33,7 @@ The application functions across multiple Android integration points, providing 
 - **Language Coverage:**
   - **User Interface:** Available in 8 languages (English base, German, Spanish, French, Italian, Portuguese, Russian, and Simplified Chinese).
   - **Speech Recognition:** The built-in Nemotron model supports 40 language-locales natively with streaming auto-detection; 33 regional locales are directly selectable from the language picker. Additional user-imported GGUF models (e.g., Whisper) can support up to 99 languages.
-- **Optional Text Post-Processing:** Configurable formatting and cleanup using external OpenAI-compatible API providers (OpenAI, Groq, Cerebras, OpenRouter, Mistral, Together, Ollama) or an untouched *Verbatim* preset.
+- **Optional Text Post-Processing:** Configurable formatting and cleanup using external OpenAI-compatible API providers (OpenAI, Groq, Cerebras, OpenRouter, Mistral, Together, Ollama), driven by a built-in prompt plus your own named prompts, which you can create and delete.
 
 ---
 
@@ -41,7 +41,7 @@ The application functions across multiple Android integration points, providing 
 
 - **Speech Recognition is 100% Local:** All acoustic model inference, audio processing, and transcription are executed entirely on your device. Microphone input and audio files are never uploaded to remote servers.
 - **Optional Remote Text Post-Processing:** AI post-processing is **disabled by default**. If you choose to enable an external API provider (such as Groq or OpenAI), only the recognized **text** (never audio) is transmitted to your configured endpoint (HTTPS for remote providers; cleartext HTTP is permitted only to loopback localhost/127.0.0.1 for a local Ollama server). API keys are stored locally in the application's private storage.
-- **Verbatim and Offline Modes:** When post-processing is turned off or set to *Verbatim*, no text is sent over the network.
+- **Offline Mode:** When post-processing is turned off, no text is sent over the network.
 - **Release Telemetry and Logging:** In release builds, logging of raw transcription text and sensitive error details is stripped.
 
 ---

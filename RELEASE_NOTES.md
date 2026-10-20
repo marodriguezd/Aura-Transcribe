@@ -1,7 +1,9 @@
-# Aura Transcribe v1.0.0
+# Aura Transcribe v1.0.1
 
-This is the corrected rebuild of the v1.0.0 release (versionCode 51). It replaces binaries that carried the bundled model weights but none of the license texts the distribution requires. Every APK and App Bundle produced from this commit ships the complete license and notice set alongside the application: the MIT license with its upstream copyright notice, the third-party notices file, the full set of verbatim third-party license texts, and the bundled model's agreement and notice of origin, each byte-identical to the repository sources and placed at its exact delivery path.
+Aura Transcribe 1.0.1 changes how AI post-processing is configured. The style-preset selector is gone: the correction is driven by a prompt the user picks, and that prompt is the complete instruction the model receives.
 
-A release gate now opens the signed artifacts and fails closed unless every required document is present exactly once: model bytes are checked against the pinned digest, the signer against the pinned production certificate, and native libraries against the 16 KB alignment requirement. The upstream notice and the native license texts are pinned by digest, so a drifted copy cannot ship, and copyleft expressions cannot pass the dependency inventory without explicit review.
+The release introduces a new default prompt written for dictation cleanup. It preserves meaning, negations, tone, language and order; it fixes recognition errors only when phonetic similarity and context support the correction; it keeps proper names, software versions, figures and dates untouched; it turns dictated punctuation into symbols and spoken quantities into digits when there is no ambiguity. The transcript is treated as text, never as instructions, and only the commands that clearly edit the dictation are applied. Nothing is added before or after the corrected text.
 
-Functionally identical to the originally published build: same recognition engine, input surfaces, latency and memory behavior. Copies of the earlier binaries already downloaded cannot be recalled; the licensing audit records the remediation and its limits.
+The prompt list holds the built-in default plus any prompt the user creates and can delete. A new prompt starts as a copy of the text on screen, deletion asks for confirmation, and the default cannot be removed but can be restored to the shipped wording. Unsaved edits survive switching between prompts until the settings screen is saved. Every prompt is a single file in the app's private storage, written atomically.
+
+The recognition engine, the dictation surfaces and the release verification pipeline are unchanged.

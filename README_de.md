@@ -33,7 +33,7 @@ Die Anwendung arbeitet über mehrere Android-Integrationspunkte: Standard-Tastat
 - **Sprachabdeckung:**
   - **Benutzeroberfläche:** In 8 Sprachen verfügbar (Englisch als Basis, Deutsch, Spanisch, Französisch, Italienisch, Portugiesisch, Russisch und vereinfachtes Chinesisch).
   - **Spracherkennung:** Das integrierte Nemotron-Modell unterstützt 40 Sprach-Locales nativ mit Streaming-Autoerkennung; 33 regionale Locales sind direkt in der Sprachauswahl wählbar. Zusätzlich vom Anwender importierte GGUF-Modelle (z. B. Whisper) können bis zu 99 Sprachen unterstützen.
-- **Optionale Textnachbearbeitung:** Konfigurierbare Formatierung und Bereinigung über externe OpenAI-kompatible API-Anbieter (OpenAI, Groq, Cerebras, OpenRouter, Mistral, Together, Ollama) oder ein unberührtes *Verbatim*-Preset.
+- **Optionale Textnachbearbeitung:** Konfigurierbare Formatierung und Bereinigung über externe OpenAI-kompatible API-Anbieter (OpenAI, Groq, Cerebras, OpenRouter, Mistral, Together, Ollama), gesteuert durch einen integrierten Prompt und eigene benannte Prompts, die du erstellen und löschen kannst.
 
 ---
 
@@ -41,7 +41,7 @@ Die Anwendung arbeitet über mehrere Android-Integrationspunkte: Standard-Tastat
 
 - **Spracherkennung ist zu 100 % lokal:** Sämtliche akustische Modellinferenz, Audioverarbeitung und Transkription laufen vollständig auf deinem Gerät. Mikrofoneingaben und Audiodateien werden niemals auf entfernte Server hochgeladen.
 - **Optionale entfernte Textnachbearbeitung:** KI-Nachbearbeitung ist standardmäßig **deaktiviert**. Wenn du einen externen API-Anbieter aktivierst (z. B. Groq oder OpenAI), wird nur der erkannte **Text** (niemals Audio) an deinen konfigurierten Endpunkt übertragen (HTTPS für entfernte Anbieter; Klartext-HTTP nur zu Loopback localhost/127.0.0.1 für einen lokalen Ollama-Server). API-Schlüssel werden lokal im privaten Speicher der Anwendung abgelegt.
-- **Verbatim- und Offline-Modi:** Bei ausgeschalteter Nachbearbeitung oder auf *Verbatim* verlässt kein Text das Netzwerk.
+- **Offline-Modus:** Bei ausgeschalteter Nachbearbeitung verlässt kein Text das Netzwerk.
 - **Release-Telemetrie und Logging:** In Release-Builds ist das Logging von rohem Transkriptionstext und sensiblen Fehlerdetails entfernt.
 
 ---

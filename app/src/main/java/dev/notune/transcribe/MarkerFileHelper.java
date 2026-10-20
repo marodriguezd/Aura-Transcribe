@@ -20,6 +20,14 @@ import java.nio.file.StandardCopyOption;
  */
 public final class MarkerFileHelper {
     private static final String TAG = "MarkerFileHelper";
+
+    /**
+     * Infix of the per-write temporary files created next to a marker (see
+     * {@link #uniqueTempName}). Exposed so directory scans that interpret
+     * marker <i>names</i> can skip a temporary left behind by a crash instead
+     * of mistaking it for a real entry.
+     */
+    public static final String TEMP_MARKER = ".tmp";
     private static final Object IF_ABSENT_LOCK = new Object();
 
     private MarkerFileHelper() {
@@ -208,9 +216,9 @@ public final class MarkerFileHelper {
       * partially-written target). Thread id + a monotonic nanoTime keep names
       * distinct across threads and repeated calls.
       */
-     private static String uniqueTempName(String fileName) {
-         return fileName + ".tmp" + Thread.currentThread().getId() + "-" + System.nanoTime();
-     }
+    private static String uniqueTempName(String fileName) {
+        return fileName + TEMP_MARKER + Thread.currentThread().getId() + "-" + System.nanoTime();
+    }
 
      public static int readIntFromFile(File dir, String fileName, int defaultValue) {
          String s = readStringFromFile(dir, fileName, null);

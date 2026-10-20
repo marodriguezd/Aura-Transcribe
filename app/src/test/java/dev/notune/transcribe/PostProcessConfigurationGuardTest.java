@@ -58,11 +58,6 @@ public class PostProcessConfigurationGuardTest {
         }
 
         @Override
-        public String getPostProcessPreset() {
-            return "clean";
-        }
-
-        @Override
         public File getLocalS1ModelFile() {
             return new File("/dev/null");
         }

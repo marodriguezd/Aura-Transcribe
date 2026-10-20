@@ -18,6 +18,8 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
@@ -88,10 +90,13 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
     private static final String PP_PROVIDER_FILE = "pp_provider";
     private static final String PP_API_URL_FILE = "pp_api_url";
     private static final String PP_MODEL_FILE = "pp_model";
+    // Legacy single-prompt marker (and the target of the SharedPreferences
+    // migration). Still read as the default prompt body when no override exists,
+    // so a prompt saved by an older build keeps applying after the upgrade.
     private static final String PP_PROMPT_FILE = "pp_prompt";
+    private static final String PP_PROMPT_PROFILE_FILE = "pp_prompt_profile";
     // Same file the credential store reads and removes (single source of truth).
     private static final String PP_API_KEY_FILE = SecureCredentialStore.LEGACY_MARKER_FILE;
-    private static final String PP_PRESET_FILE = "pp_preset";
     private static final String MIC_MODE_FILE = "mic_mode";
 
     // Sentinel that guarantees the legacy -> marker migration runs at most once.
@@ -156,11 +161,6 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
     public static boolean resolveEnabledOnSave(String providerId, boolean requested) {
         return requested && isProviderAvailable(providerId);
     }
-
-    public static final String PRESET_CLEAN = "clean";
-    public static final String PRESET_FORMAL = "formal";
-    public static final String PRESET_CASUAL = "casual";
-    public static final String PRESET_VERBATIM = "verbatim";
 
     /**
      * Provider presets: known OpenAI-compatible endpoints. The user picks a
@@ -501,26 +501,117 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
         writeMarker(PP_MODEL_FILE, model);
     }
 
+    // ----------------------------------------------------------------------
+    // Prompt profiles: one shipped default plus the user's own prompts
+    // ----------------------------------------------------------------------
+
+    /**
+     * What the LLM receives as its system instruction: the body of the prompt
+     * the user selected. There are no style presets any more — the built-in
+     * default prompt plus any prompt the user creates are the whole catalogue.
+     */
     public String getActivePromptBody() {
-        String p = readMarker(PP_PROMPT_FILE);
-        return (p == null || p.trim().isEmpty()) ? getDefaultPrompt() : p;
+        return getPromptBody(getActivePromptProfileId());
     }
 
-    public void setActivePromptBody(String prompt) {
-        writeMarker(PP_PROMPT_FILE, prompt);
+    /** Id of the shipped default prompt (always present, never deletable). */
+    public static final String PROMPT_DEFAULT_ID = PromptProfiles.DEFAULT_ID;
+
+    /** Every selectable prompt id: the built-in default first, then the user's own. */
+    public List<String> getPromptProfileIds() {
+        List<String> ids = new ArrayList<>();
+        ids.add(PROMPT_DEFAULT_ID);
+        ids.addAll(PromptProfiles.customIds(appContext.getFilesDir()));
+        return ids;
+    }
+
+    /** The prompt selected by the user; the built-in default when unset or unknown. */
+    public String getActivePromptProfileId() {
+        String id = readMarker(PP_PROMPT_PROFILE_FILE);
+        return (id == null || id.trim().isEmpty()) ? PROMPT_DEFAULT_ID : id.trim();
+    }
+
+    public void setActivePromptProfileId(String id) {
+        writeMarker(PP_PROMPT_PROFILE_FILE,
+                (id == null || id.trim().isEmpty()) ? PROMPT_DEFAULT_ID : id.trim());
+    }
+
+    /**
+     * The body of prompt {@code id}: the user's edited copy when one was saved,
+     * otherwise the shipped default.
+     *
+     * <p>The pre-profile customization marker ({@code pp_prompt}, written by
+     * older builds and by the SharedPreferences migration) is honoured as the
+     * default prompt's override, so an upgrade never silently discards a prompt
+     * the user had tuned.
+     */
+    public String getPromptBody(String id) {
+        String stored = PromptProfiles.read(appContext.getFilesDir(), id);
+        if (stored != null) return stored;
+        if (PROMPT_DEFAULT_ID.equals(id)) {
+            String legacy = readMarker(PP_PROMPT_FILE);
+            if (legacy != null && !legacy.trim().isEmpty()) return legacy;
+        }
+        // A deleted/unknown profile must never leave the request without a
+        // system instruction: fall back to the shipped prompt.
+        return getDefaultPrompt();
     }
 
     public String getDefaultPrompt() {
         return appContext.getString(R.string.pp_default_prompt);
     }
 
-    public String getPostProcessPreset() {
-        String p = readMarker(PP_PRESET_FILE);
-        return (p == null || p.isEmpty()) ? PRESET_CLEAN : p;
+    /**
+     * Stores the body of prompt {@code id}.
+     *
+     * <p>For the built-in default a body identical to the shipped prompt (or an
+     * empty one) removes the override instead of storing a frozen copy, so
+     * future updates to the default keep applying. A user-created profile is
+     * never emptied this way: that would silently delete it.
+     *
+     * @return true when the store is in the requested state
+     */
+    public boolean savePromptBody(String id, String body) {
+        if (id == null || id.trim().isEmpty()) return false;
+        File filesDir = appContext.getFilesDir();
+        if (PROMPT_DEFAULT_ID.equals(id)) {
+            String trimmed = body == null ? "" : body.trim();
+            if (trimmed.isEmpty() || trimmed.equals(getDefaultPrompt().trim())) {
+                boolean removed = PromptProfiles.delete(filesDir, id);
+                // Clearing the legacy marker is part of the same reset: leaving
+                // it behind would resurrect the old custom prompt on next read.
+                writeMarker(PP_PROMPT_FILE, "");
+                return removed;
+            }
+        }
+        return PromptProfiles.write(filesDir, id, body);
     }
 
-    public void setPostProcessPreset(String preset) {
-        writeMarker(PP_PRESET_FILE, preset);
+    /**
+     * Creates a prompt named {@code name} with {@code body}.
+     *
+     * @return the new profile's id (its display name), or {@code null} when the
+     *         name is unusable or the body could not be written
+     */
+    public String createPromptProfile(String name, String body) {
+        File filesDir = appContext.getFilesDir();
+        String id = PromptProfiles.uniqueId(filesDir, name);
+        if (id == null) return null;
+        return PromptProfiles.write(filesDir, id, body) ? id : null;
+    }
+
+    /**
+     * Deletes a user-created prompt and selects the default again when the
+     * deleted one was active. The built-in default cannot be deleted (that is
+     * a reset, done through {@link #savePromptBody} with the shipped text).
+     */
+    public boolean deletePromptProfile(String id) {
+        if (id == null || PROMPT_DEFAULT_ID.equals(id)) return false;
+        boolean deleted = PromptProfiles.delete(appContext.getFilesDir(), id);
+        if (deleted && id.equals(getActivePromptProfileId())) {
+            setActivePromptProfileId(PROMPT_DEFAULT_ID);
+        }
+        return deleted;
     }
 
     public File getLocalS1ModelFile() {
