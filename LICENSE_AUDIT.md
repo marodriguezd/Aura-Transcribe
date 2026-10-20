@@ -384,11 +384,15 @@ binaries already downloaded, and it is not a legal certification.
 
 ## Second-pass remediation evidence (2026-10-20, F-9/F-10/F-11)
 
-- Branch `licensing/notice-gap-remediation`, merged through a PR after the full
-  validation suite (Python compliance gates, Rust fmt + workspace tests,
-  Android JVM tests, lint, packaging-decision gates, release-workflow guards)
-  and a validation-only signed release build against the exact candidate
-  commit (no tag, no release, no asset published).
+- Branch `licensing/notice-gap-remediation`, candidate commit
+  `377cf5d969c71eacb0a5aeb35c73d497c4d18298`, merged as PR
+  [#17](https://github.com/marodriguezd/Aura-Transcribe/pull/17) into `main`
+  as `7133a6d0cd9cc737c24e4fc3fd0365c81301159b`, after the full validation
+  suite (Python compliance gates, Rust fmt + workspace tests, Android JVM
+  tests, lint, packaging-decision gates, release-workflow guards; PR CI run
+  `39419197557` green) and a **validation-only signed release build** against
+  the exact candidate commit (run `39419225434`, `validation_only=true`,
+  success; no tag, no release, no asset published).
 - New verbatim texts: `licenses/miniz-MIT.txt` (SHA-256 `6f20fa76…464d3d`, the
   license of the miniz 3.1.1 snapshot vendored in `transcribe-cpp-sys` and
   compiled into the shipped native library) and `licenses/okhttp-NOTICE.txt`
@@ -401,6 +405,14 @@ binaries already downloaded, and it is not a legal certification.
   (33 total) pin the new byte-identity requirements.
 - The `ModelsActivity` catalog link for the bundled Nemotron artifact is
   pinned to revision `53ce288f…8096dd` (F-11).
+- The validation-only run's real signed artifacts (inspected through its
+  retained `release-validation-report.txt`) pass **26/26** notice-set checks —
+  13 documents per artifact, including `miniz-MIT.txt` (1,162 B) and
+  `okhttp-NOTICE.txt` (218 B), each byte-identical to the repository sources —
+  with the model present exactly once per artifact (559,647,200 B) and the
+  pinned signer `2ee6ab00…8483`. Candidate hashes, for the record and **not
+  published anywhere**: APK `b43eb05a0ca6b8f87971c9419b1b1ae673620aa3565ee37a2d71a8ea33996e7b`,
+  AAB `ae7df172f9a250c8f8bfd4ec8a3a9fd02b4fd7b16038351d374b86ffae0e1927`.
 - Re-running the extended `verify_artifact_notices.py` against the **published**
   v1.0.0 artifacts fails closed with exactly the expected residual: the two new
   texts and the updated notices file are absent there. That residual is real
