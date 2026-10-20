@@ -1,5 +1,5 @@
-• Corrected compliance release: APK/AAB now include the complete license and notice set (MIT license, third-party notices, model agreement and notice of origin).
-• New release gate verifies every packaged license and notice byte-for-byte before anything can be published.
+• Corrected rebuild of this release: APK/AAB now include the complete license and notice set (MIT license, third-party notices, model agreement and notice of origin).
+• A release gate verifies every packaged license and notice byte-for-byte before anything can be published.
 • Fixed dictation routing to output-only LE Audio speakers: only real microphones are selected now.
 • Routing state and audio mode are handled truthfully and restored after recording; "Bluetooth only" reports a clear error instead of silently using the built-in mic.
 • Release pipeline now pins and verifies the production signing certificate.

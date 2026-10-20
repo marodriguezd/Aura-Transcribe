@@ -2,19 +2,14 @@
 
 Change log of **Aura Transcribe** (Next-Gen evolution of [notune/android_transcribe_app](https://github.com/notune/android_transcribe_app)).
 
-## [1.0.1] - 2026-10-20
+## [1.0.0] - 2026-10-18 · corrected rebuild 2026-10-20 (versionCode 51)
 
-Corrected compliance release: the previously published artifacts shipped the bundled model weights **without any license text or notice** (MIT license, third-party notices, `licenses/*`, model notice — see `LICENSE_AUDIT.md` F-1/F-2). Every artifact produced from this version carries the complete notice set, and a gate refuses to publish one that does not.
-
-### Added
-- Artifact notice-set gate: `scripts/verify_artifact_notices.py` (+18 negative tests) requires the complete license/notice set (MIT `LICENSE`, `THIRD_PARTY_NOTICES.md`, all `licenses/*` texts, `MODEL_LICENSE.md`, `MODEL_NOTICE.md`) inside every release APK/AAB, at its exact delivery path and byte-identical to the repository sources — closing the gap where v1.0.0 shipped the model without any license text (see `LICENSE_AUDIT.md` F-1/F-2).
-- Byte-level pins in `scripts/check_license_docs.py` for the upstream `NOTICE` (SHA-256 `e6ffd58b…`) and the verbatim native license texts (`transcribe-cpp-MIT.txt`, `ggml-MIT.txt`, `UPSTREAM-MIT.txt`), verified against their authoritative upstreams.
-
-### Fixed
-- Removed the stale `GPL-3.0-only` entry from the Cargo license allowlist (leftover of the withdrawn GPL migration): copyleft expressions now always require explicit review and can never pass pre-approved.
-- `LICENSE_AUDIT.md` rewritten as the definitive audit: MIT for the application (no migration to GPL-3.0-only/Apache-2.0), OpenMDW-1.1 for the Nemotron model, evidence base with hashes, obligations matrix, severity-ranked findings, counsel questions and go/no-go checklist.
-
-## [1.0.0] - 2026-10-18
+> The originally published v1.0.0 binaries (versionCode 50) shipped the bundled
+> model weights **without any license text or notice** (`LICENSE_AUDIT.md`
+> F-1/F-2). Under explicit owner authorization, the v1.0.0 release and tag are
+> replaced by this functionally identical corrected rebuild (versionCode 51,
+> `versionName` 1.0.0), which carries the complete, gate-verified notice set.
+> Copies of the original binaries already downloaded cannot be recalled.
 
 ### Added
 - First stable release of Aura Transcribe: offline on-device voice transcription built on a Rust/GGML native engine.
@@ -24,6 +19,8 @@ Corrected compliance release: the previously published artifacts shipped the bun
 - Eight locales: English, Spanish, German, French, Italian, Portuguese, Russian, Simplified Chinese.
 - Release-signing identity pinning: `keystore/release-cert.sha256` records the production certificate fingerprint.
 - Repository-hygiene gate (`scripts/check_repo_hygiene.py`).
+- Artifact notice-set gate: `scripts/verify_artifact_notices.py` (+18 negative tests) requires the complete license/notice set (MIT `LICENSE`, `THIRD_PARTY_NOTICES.md`, all `licenses/*` texts, `MODEL_LICENSE.md`, `MODEL_NOTICE.md`) inside every release APK/AAB, at its exact delivery path and byte-identical to the repository sources.
+- Byte-level pins in `scripts/check_license_docs.py` for the upstream `NOTICE` (SHA-256 `e6ffd58b…`) and the verbatim native license texts (`transcribe-cpp-MIT.txt`, `ggml-MIT.txt`, `UPSTREAM-MIT.txt`), verified against their authoritative upstreams.
 
 ### Fixed & Optimized
 - Native Rust audio capture: zero-copy buffer transfers (`mem::take`) and allocation-free bigram tuples `(char, char)`.
@@ -32,6 +29,8 @@ Corrected compliance release: the previously published artifacts shipped the bun
 - Android audio capture bridge: cached buffer views in high-frequency loops and eliminated redundant microphone acquisitions.
 - Output-only LE Audio speakers (`TYPE_BLE_SPEAKER`) are no longer treated as microphone candidates.
 - Bundled Nemotron streaming model quantized to Q5_K_M for smaller footprint and lower memory use.
+- Removed the stale `GPL-3.0-only` entry from the Cargo license allowlist (leftover of the withdrawn GPL migration): copyleft expressions now always require explicit review and can never pass pre-approved.
+- `LICENSE_AUDIT.md` rewritten as the definitive audit: MIT for the application (no migration to GPL-3.0-only/Apache-2.0), OpenMDW-1.1 for the Nemotron model, evidence base with hashes, obligations matrix, severity-ranked findings, counsel questions and go/no-go checklist.
 
 # v0.3.4 — hardening
 

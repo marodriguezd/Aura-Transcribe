@@ -255,20 +255,24 @@ answers them, and **no legal certification is claimed**:
   terms with field-of-use or copyleft conditions, or if the notices stopped
   travelling with the model.
 - **Q2 — Remediation of the published v1.0.0 artifacts (F-1/F-2); exact open
-  decision.** The repository-side remediation is complete: release **v1.0.1**
-  (release candidate prepared 2026-10-20) ships the complete notice set in its
-  APK and AAB, verified byte-for-byte by gate before anything can be published,
-  and a validation-only signed run inspected the real artifact contents. The
-  **exact decision that remains for external legal counsel** is whether
-  publishing v1.0.1 as a superseding release fully cures the omission in
-  v1.0.0 binaries that users already downloaded, or whether the project must
-  additionally (a) replace or annotate the published v1.0.0 release assets,
-  (b) notify users who obtained v1.0.0, or (c) take other remedial steps in the
-  distributing jurisdictions. Until counsel rules on that question, this
-  repository deliberately performs **no** action that alters, replaces or
-  deletes published v1.0.0 assets (which would also require explicit owner
-  authorization), and creates no tag or release on its own: v1.0.1 is prepared
-  as a validated candidate only.
+  decision.** The repository-side remediation is complete and
+  owner-authorized (2026-10-20): the v1.0.0 release and its tag are being
+  **replaced** by a functionally identical corrected rebuild (versionCode 51,
+  `versionName` 1.0.0) whose APK and AAB carry the complete notice set —
+  verified byte-for-byte by gate and by direct inspection of the real signed
+  artifacts before publication (evidence recorded in this file when the
+  replacement completes). The replacement proceeds only under that explicit
+  authorization: it deletes the existing Release `v1.0.0`, its attached assets
+  and the remote tag `v1.0.0`, and recreates the tag at the verified corrected
+  commit through the guarded release workflow. The **exact decision that
+  remains for external legal counsel** is whether replacing the release cures
+  the omission in v1.0.0 binaries that users already downloaded — copies
+  already obtained cannot be recalled — or whether the project must
+  additionally (a) notify users who obtained the original binaries, (b) keep a
+  public record of the replacement (this file serves as one), or (c) take
+  other remedial steps in the distributing jurisdictions. **Historical
+  liability and legal uncertainty are not extinguished by the replacement**,
+  and nothing in this document claims that they are.
 - **Q3 — ML Kit attribution.** Whether the app's on-device translation of
   finalized subtitles triggers Google's ML Kit usage/attribution guidelines in
   the UI, in the documentation only, or not at all, and whether those terms
@@ -298,7 +302,7 @@ answers them, and **no legal certification is claimed**:
 | 7 | Model pinned by revision + SHA-256 everywhere it is fetched | ✅ |
 | 8 | Dependency inventories generated, reviewed, retained as CI artifact | ✅ (3 expressions flagged, non-Android — F-5) |
 | 9 | No audio or unprovenanced fixtures bundled | ✅ gate-enforced |
-| 10 | Publication of a new release to supersede v1.0.0's notice defect | 🔶 v1.0.1 release candidate prepared, versioned and validated (complete notice set verified in the real signed APK/AAB); tagging `v1.0.1` and publishing require explicit owner authorization and are **not** done by this audit (Q2) |
+| 10 | Publication of a corrected release to supersede v1.0.0's notice defect | 🔶 owner-authorized and in progress (2026-10-20): corrected build (versionCode 51) validated in the real signed APK/AAB; the Release `v1.0.0` + tag are being replaced via the guarded workflow and the outcome is recorded here once complete (Q2) |
 
 **Verdict:** no repository-level licensing blocker remains for producing and
 publishing artifacts from HEAD. The only open items are the counsel questions
