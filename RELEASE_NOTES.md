@@ -1,9 +1,7 @@
-# Aura Transcribe v1.0.0
+# Aura Transcribe v1.0.1
 
-Aura Transcribe 1.0.0 marks the initial production release of the fully offline, on-device speech-to-text platform for Android, featuring embedded Whisper inference powered by a customized GGML engine. This release delivers complete architectural hardening, low-latency audio capture pipelines, and multi-surface integration across keyboard IME, system speech recognition services, and floating overlays.
+This release corrects a distribution-compliance defect and adds the gates that keep it corrected. Every APK and App Bundle now ships the complete license and notice set alongside the application: the MIT license with its upstream copyright notice, the third-party notices file, the full set of verbatim third-party license texts, and the bundled model's agreement and notice of origin. The previously published binaries carried the model weights but none of these texts; releasing a corrected build is this repository's remediation, and what further steps may be owed for the earlier binaries is an open question for external legal counsel, documented in the licensing audit.
 
-Native audio processing in Rust has been optimized to eliminate unnecessary memory churn. The audio capture subsystem replaces multi-megabyte heap cloning with zero-copy buffer transfers and substitutes dynamic bigram allocations with stack-allocated primitive tuples. The JNI boundary is secured against reference leaks through explicit frame scoping, while SIMD vector processing routines guarantee deterministic initialization. Panics across the foreign function interface boundary have been eliminated in favor of structured logging and error propagation.
+A new release gate opens the signed artifacts and fails closed unless every required document is present exactly once, at its exact delivery path, and byte-identical to the repository sources. The upstream notice and the native license texts are now pinned by digest, so a rewritten or drifted copy cannot ship, and copyleft license expressions can no longer pass the dependency license inventory without explicit review.
 
-On Android, the audio recording bridge caches audio buffer views in high-frequency capture loops, preventing garbage collector pauses during continuous transcription. Background services and animators properly release resources upon cancellation, and credential storage enforces hardware-backed AES-256-GCM encryption via the Android KeyStore.
-
-All native binaries are aligned to 16 KB boundaries for Android 15 and 17 compatibility on arm64-v8a architectures with dotprod and fp16 vector extensions.
+There are no functional changes: the recognition engine, input surfaces, latency and memory behavior are unchanged.

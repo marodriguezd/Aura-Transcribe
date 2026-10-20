@@ -650,6 +650,53 @@ jobs:
             "${BT}apksigner" verify --print-certs "$APK" 2>/dev/null || true
           } >> "$REPORT"
         fi
+        # Content inspection of the real artifacts: the notice-set inventory
+        # with per-document digests compared against the repository sources, and
+        # the entry listing of every asset tree. This is what makes a
+        # validation-only run inspectable without retaining the ~560 MB
+        # artifacts; the model bytes themselves are covered by
+        # verify_release_artifact.py, which runs earlier in this job.
+        AAB="Aura_Transcribe_v${VERSION_NAME:-unknown}.aab"
+        doc_check() {  # $1=archive $2=entry $3=source
+          [ -f "$1" ] || return 0
+          if ! unzip -l "$1" "$2" >/dev/null 2>&1; then
+            echo "MISSING  $1 :: $2" >> "$REPORT"
+            return 0
+          fi
+          packed=$(unzip -p "$1" "$2" | sha256sum | cut -d' ' -f1)
+          src=$(sha256sum "$3" 2>/dev/null | cut -d' ' -f1)
+          if [ "$packed" = "$src" ]; then
+            echo "OK       $1 :: $2" >> "$REPORT"
+          else
+            echo "MISMATCH $1 :: $2 (packed ${packed:0:16}... source ${src:0:16}...)" >> "$REPORT"
+          fi
+        }
+        {
+          echo
+          echo "notice-set inventory (packed vs repository source):"
+        } >> "$REPORT"
+        for doc in LICENSE THIRD_PARTY_NOTICES.md MODEL_LICENSE.md MODEL_NOTICE.md; do
+          case "$doc" in
+            MODEL_*) apk_entry="assets/$doc"; aab_entry="model_assets/assets/$doc" ;;
+            *)       apk_entry="assets/$doc"; aab_entry="base/assets/$doc" ;;
+          esac
+          doc_check "$APK" "$apk_entry" "$doc"
+          doc_check "$AAB" "$aab_entry" "$doc"
+        done
+        for text in licenses/*; do
+          [ -f "$text" ] || continue
+          doc_check "$APK" "assets/$text" "$text"
+          doc_check "$AAB" "base/assets/$text" "$text"
+        done
+        {
+          echo
+          echo "asset entries:"
+          for a in "$APK" "$AAB"; do
+            [ -f "$a" ] || continue
+            echo "[$a]"
+            unzip -l "$a" 2>/dev/null | awk 'NR>3 {print $1, $4}' | grep -E 'assets/' || true
+          done
+        } >> "$REPORT"
         {
           echo "### Release validation report"
           echo '```'

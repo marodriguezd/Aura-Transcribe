@@ -2,7 +2,9 @@
 
 Change log of **Aura Transcribe** (Next-Gen evolution of [notune/android_transcribe_app](https://github.com/notune/android_transcribe_app)).
 
-## [Unreleased]
+## [1.0.1] - 2026-10-20
+
+Corrected compliance release: the previously published artifacts shipped the bundled model weights **without any license text or notice** (MIT license, third-party notices, `licenses/*`, model notice — see `LICENSE_AUDIT.md` F-1/F-2). Every artifact produced from this version carries the complete notice set, and a gate refuses to publish one that does not.
 
 ### Added
 - Artifact notice-set gate: `scripts/verify_artifact_notices.py` (+18 negative tests) requires the complete license/notice set (MIT `LICENSE`, `THIRD_PARTY_NOTICES.md`, all `licenses/*` texts, `MODEL_LICENSE.md`, `MODEL_NOTICE.md`) inside every release APK/AAB, at its exact delivery path and byte-identical to the repository sources — closing the gap where v1.0.0 shipped the model without any license text (see `LICENSE_AUDIT.md` F-1/F-2).
