@@ -352,6 +352,12 @@ Executed under the owner's explicit authorization (delete Release `v1.0.0` +
 its attached assets + remote tag `v1.0.0`; recreate the tag at the verified
 corrected commit; let the guarded release workflow publish):
 
+> **Superseded later the same day.** This section documents the *first*
+> replacement (from `834fe3f`). Its artifacts carried 11 documents per artifact
+> because the F-9/F-10 notice additions had not landed yet. The `v1.0.0`
+> binaries published today come from the **second replacement** described in the
+> next section; every figure below describes the superseded publication only.
+
 - **Candidate process:** PR #15 (superseding #14, closed by a branch rename),
   green CI, merged to `main` as `834fe3f5b8c9f69242e9fdea1eab9ca1bab9ec0b`.
   Validation-only signed runs against the candidate (`39406276811`) and the
