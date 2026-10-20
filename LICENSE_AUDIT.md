@@ -66,10 +66,13 @@ the audit window. Hashes are SHA-256.
    the **published** v1.0.0 APK and AAB were re-hashed against the same pin and
    match. The download URL is pinned to the verified commit, never
    `resolve/main`.
-5. **Published v1.0.0 distribution surface (defective — see F-1/F-2).**
-   Inspected 2026-10-20 via the zip central directories of the release assets
+5. **Originally published v1.0.0 distribution surface (defective — see
+   F-1/F-2; superseded, kept as the historical record).** Inspected 2026-10-20
+   via the zip central directories of the then-published release assets
    (`Aura_Transcribe_v1.0.0.apk` 575,589,524 B, `Aura_Transcribe_v1.0.0.aab`
-   558,508,606 B):
+   558,508,606 B). These binaries were replaced the same day under explicit
+   owner authorization (§“Remediation evidence”); copies already downloaded
+   remain out of the project's control:
    - APK `assets/`: `MODEL_LICENSE.md`, `bench.wav`,
      `builtin-model/nemotron-3.5-asr-streaming-0.6b-Q5_K_M.gguf` (+ `dexopt/`
      profiles). **Absent:** `LICENSE`, `THIRD_PARTY_NOTICES.md`, all
@@ -131,9 +134,10 @@ exposure).** The v1.0.0 APK and AAB shipped the model and `MODEL_LICENSE.md`
 but **none** of the MIT `LICENSE`, `THIRD_PARTY_NOTICES.md` or `licenses/*`
 texts (evidence §2.5). The model-focused gates did not catch this because the
 *model* was present. *Remediation:* `scripts/verify_artifact_notices.py` +
-18 negative tests, wired into both workflows and the release verification
-(2026-10-20). *Residual:* the already-published v1.0.0 binaries remain as they
-are; see counsel question Q2 and the go/no-go checklist.
+18 negative tests, wired into both workflows and the release verification  (2026-10-20). *Remediation of the surface itself:* the v1.0.0 release and tag
+  were replaced by a corrected rebuild the same day (§“Remediation evidence”).
+  *Residual:* copies of the original binaries already downloaded cannot be
+  recalled; see counsel question Q2.
 
 **F-2 — MEDIUM (published artifacts; remediated at HEAD).** v1.0.0 also lacked
 `MODEL_NOTICE.md` (the upstream `NOTICE` of origin existed only from a later
@@ -241,6 +245,47 @@ match is not a complete license clearance. Review the generated inventories
 before each release and verify any unknown or non-standard license statement
 manually.
 
+## Remediation evidence — the v1.0.0 replacement (2026-10-20)
+
+Executed under the owner's explicit authorization (delete Release `v1.0.0` +
+its attached assets + remote tag `v1.0.0`; recreate the tag at the verified
+corrected commit; let the guarded release workflow publish):
+
+- **Candidate process:** PR #15 (superseding #14, closed by a branch rename),
+  green CI, merged to `main` as `834fe3f5b8c9f69242e9fdea1eab9ca1bab9ec0b`.
+  Validation-only signed runs against the candidate (`39406276811`) and the
+  exact tag-target commit (`39409321129`) both passed before anything was
+  deleted.
+- **Replacement:** Release `v1.0.0` (3 assets) and tag `v1.0.0` deleted;
+  annotated tag `v1.0.0` recreated at `834fe3f`; publishing run `39410426931`
+  succeeded. No other release or tag exists or was created.
+- **Published artifacts, verified after publication by downloading them:**
+  - `Aura_Transcribe_v1.0.0.apk` — SHA-256
+    `0550c238b22418111adb8cffd350ad7358c09890627a37039056cdbeb44916b0`
+  - `Aura_Transcribe_v1.0.0.aab` — SHA-256
+    `f3851510151cec5a25ad7fdb4d91dbe3aa8260969f3117dc582597b8e9c21001`
+  - Both hashes match the publishing run's validation report for the exact
+    staged files.
+- **Content inspection (the real published bytes):** 22/22 notice-set checks
+  `OK` — 11 documents (MIT `LICENSE`, `THIRD_PARTY_NOTICES.md`,
+  `MODEL_LICENSE.md`, `MODEL_NOTICE.md` and the 7 `licenses/*` texts) in both
+  artifacts, each byte-identical to the repository sources at its exact
+  delivery path (`assets/` in the APK; `base/assets/` +
+  `model_assets/assets/` in the AAB). Model present exactly once (559,647,200
+  B) and verified against the pinned SHA-256. **No `bench.wav` or other audio
+  entry in either artifact.**
+- **Signatures:** the APK (`apksigner verify --print-certs`) and the AAB
+  (`keytool -printcert -jarfile`; `jarsigner` reports *jar verified.*) are both
+  signed by the pinned production certificate
+  `2ee6ab002e02310523a3e2565b8128a11952d902a2c748d7c5b869bc17208483`.
+- **Alignment:** `zipalign -c -P 16` “Verification successful” on the APK;
+  `checkNativeAlignment` reports 16384 B LOAD alignment for every shipped
+  `.so`.
+
+What this evidence does **not** establish: it proves what the *current*
+release carries. It cannot recall or alter copies of the original (defective)
+binaries already downloaded, and it is not a legal certification.
+
 ## Questions that genuinely require external legal counsel
 
 These are open questions for qualified counsel. Nothing in this repository
@@ -254,25 +299,21 @@ answers them, and **no legal certification is claimed**:
   only if the code were relicensed to copyleft, if OpenMDW-1.1 were replaced by
   terms with field-of-use or copyleft conditions, or if the notices stopped
   travelling with the model.
-- **Q2 — Remediation of the published v1.0.0 artifacts (F-1/F-2); exact open
-  decision.** The repository-side remediation is complete and
-  owner-authorized (2026-10-20): the v1.0.0 release and its tag are being
+- **Q2 — Remediation of the originally published v1.0.0 artifacts (F-1/F-2);
+  exact open decision.** The repository-side remediation is complete and was
+  owner-authorized (2026-10-20): the v1.0.0 release and its tag were
   **replaced** by a functionally identical corrected rebuild (versionCode 51,
-  `versionName` 1.0.0) whose APK and AAB carry the complete notice set —
-  verified byte-for-byte by gate and by direct inspection of the real signed
-  artifacts before publication (evidence recorded in this file when the
-  replacement completes). The replacement proceeds only under that explicit
-  authorization: it deletes the existing Release `v1.0.0`, its attached assets
-  and the remote tag `v1.0.0`, and recreates the tag at the verified corrected
-  commit through the guarded release workflow. The **exact decision that
-  remains for external legal counsel** is whether replacing the release cures
-  the omission in v1.0.0 binaries that users already downloaded — copies
-  already obtained cannot be recalled — or whether the project must
-  additionally (a) notify users who obtained the original binaries, (b) keep a
-  public record of the replacement (this file serves as one), or (c) take
-  other remedial steps in the distributing jurisdictions. **Historical
-  liability and legal uncertainty are not extinguished by the replacement**,
-  and nothing in this document claims that they are.
+  `versionName` 1.0.0) carrying the complete notice set, verified before and
+  after publication (§“Remediation evidence”). The **exact decision that
+  remains for external legal counsel** is whether the replacement cures the
+  omission in v1.0.0 binaries that users already downloaded — copies already
+  obtained cannot be recalled — or whether the project must additionally
+  (a) notify users who obtained the original binaries, (b) keep a public
+  record of the replacement (this file serves as one), or (c) take other
+  remedial steps in the distributing jurisdictions. **Deleting the old release
+  cannot recall copies already downloaded; historical liability and legal
+  uncertainty are not extinguished by the replacement**, and nothing in this
+  document claims that they are.
 - **Q3 — ML Kit attribution.** Whether the app's on-device translation of
   finalized subtitles triggers Google's ML Kit usage/attribution guidelines in
   the UI, in the documentation only, or not at all, and whether those terms
@@ -302,10 +343,13 @@ answers them, and **no legal certification is claimed**:
 | 7 | Model pinned by revision + SHA-256 everywhere it is fetched | ✅ |
 | 8 | Dependency inventories generated, reviewed, retained as CI artifact | ✅ (3 expressions flagged, non-Android — F-5) |
 | 9 | No audio or unprovenanced fixtures bundled | ✅ gate-enforced |
-| 10 | Publication of a corrected release to supersede v1.0.0's notice defect | 🔶 owner-authorized and in progress (2026-10-20): corrected build (versionCode 51) validated in the real signed APK/AAB; the Release `v1.0.0` + tag are being replaced via the guarded workflow and the outcome is recorded here once complete (Q2) |
+| 10 | Publication of a corrected release to supersede v1.0.0's notice defect | ✅ done 2026-10-20 (owner-authorized): Release `v1.0.0` + tag replaced and republished from verified commit `834fe3f` (versionCode 51); published bytes inspected — 22/22 notice checks OK, pinned signer, no `bench.wav` (§“Remediation evidence”). Copies of the original binaries already downloaded remain outside the project's control (Q2) |
 
 **Verdict:** no repository-level licensing blocker remains for producing and
-publishing artifacts from HEAD. The only open items are the counsel questions
-above (Q1–Q6) and the release decision in item 10. This document does not
+publishing artifacts from HEAD: the corrected v1.0.0 (versionCode 51) is
+published and verified (§“Remediation evidence”). The only open items are the
+counsel questions above (Q1–Q6) — above all Q2, since deleting the old release
+cannot recall copies already downloaded and no claim is made that historical
+liability or legal uncertainty has disappeared. This document does not
 constitute legal advice; see [`MODEL_LICENSE.md`](MODEL_LICENSE.md) for the
 model terms themselves.
