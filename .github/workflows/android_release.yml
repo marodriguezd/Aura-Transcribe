@@ -93,7 +93,9 @@ jobs:
     # still rejects a missing, duplicated, misplaced, truncated or corrupted
     # bundled model. This is the check that runs before any artifact exists.
     - name: Test the release-artifact verifier (hard gate)
-      run: python3 scripts/test_verify_release_artifact.py
+      run: |
+        python3 scripts/test_verify_release_artifact.py
+        python3 scripts/test_verify_artifact_notices.py
 
     # JNI integrity gate: every Java `native` declaration must have its Rust
     # export and vice versa (same gate as the debug workflow).
@@ -473,6 +475,12 @@ jobs:
         # bytes in the artifact must equal the verified source asset.
         python3 scripts/verify_release_artifact.py --kind apk --archive "$APK"
 
+        # Full notice-set verification: MIT LICENSE, THIRD_PARTY_NOTICES.md,
+        # every licenses/* text and the model documents must be in the APK,
+        # exactly once, byte-identical to the repository sources (v1.0.0 shipped
+        # the model without any of them; this gate is what closes that gap).
+        python3 scripts/verify_artifact_notices.py --kind apk --archive "$APK" --require-model-docs
+
         # Verify MODEL_LICENSE.md is packaged inside APK assets and matches source
         unzip -p "$APK" assets/MODEL_LICENSE.md | cmp - MODEL_LICENSE.md || {
           echo "::error::assets/MODEL_LICENSE.md is missing or corrupt in release APK"
@@ -565,6 +573,10 @@ jobs:
         # Proves the model is inside the :model_assets pack, exactly once, and not
         # duplicated into the base module (which would deliver ~750 MB twice).
         python3 scripts/verify_release_artifact.py --kind aab --archive "$AAB"
+
+        # Full notice-set verification, same contract as the APK: every required
+        # license and notice text in the bundle, byte-identical to the sources.
+        python3 scripts/verify_artifact_notices.py --kind aab --archive "$AAB" --require-model-docs
 
         # Verify MODEL_LICENSE.md is packaged inside AAB asset pack and matches source
         unzip -p "$AAB" model_assets/assets/MODEL_LICENSE.md | cmp - MODEL_LICENSE.md || {

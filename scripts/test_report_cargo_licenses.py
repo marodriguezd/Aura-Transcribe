@@ -59,11 +59,29 @@ class ClassifyLicenseTest(unittest.TestCase):
             "declared",
         )
 
-    def test_project_dual_expression_is_known(self) -> None:
+    def test_copyleft_expression_is_flagged_for_review(self) -> None:
+        # The 2026-10 definitive licensing decision keeps the application MIT
+        # and never migrates to GPL-3.0-only, so the default allowlist must not
+        # pre-approve a copyleft identifier: it has to surface as "unknown" and
+        # go through an explicit --allowed-license review.
+        self.assertNotIn("GPL-3.0-only", report.AUDITED_LICENSE_IDS)
+        self.assertEqual(
+            report.classify_license(
+                "GPL-3.0-only", None, report.AUDITED_LICENSE_IDS
+            ),
+            "unknown",
+        )
         self.assertEqual(
             report.classify_license(
                 "MIT AND GPL-3.0-only", None, report.AUDITED_LICENSE_IDS
             ),
+            "unknown",
+        )
+
+    def test_copyleft_expression_passes_only_after_explicit_review(self) -> None:
+        allowed = set(report.AUDITED_LICENSE_IDS) | {"GPL-3.0-only"}
+        self.assertEqual(
+            report.classify_license("MIT AND GPL-3.0-only", None, allowed),
             "declared",
         )
 

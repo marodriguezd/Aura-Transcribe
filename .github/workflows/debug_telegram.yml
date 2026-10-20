@@ -108,7 +108,9 @@ jobs:
     # model. Same gate the release workflow runs, so a regression is caught on
     # the pull request instead of on the release tag.
     - name: Test the release-artifact verifier (hard gate)
-      run: python3 scripts/test_verify_release_artifact.py
+      run: |
+        python3 scripts/test_verify_release_artifact.py
+        python3 scripts/test_verify_artifact_notices.py
 
     # JNI integrity gate: every Java `native` declaration must have its Rust
     # export and vice versa. This is the drift that silently killed the overlay

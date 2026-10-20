@@ -236,6 +236,43 @@ class GateTest(unittest.TestCase):
         shutil.copyfile(path, self.root / "app/src/main/assets/licenses/OpenMDW-1.1.txt")
         self.assert_rejected("is not the verbatim upstream agreement")
 
+    def test_altered_upstream_notice_block_rejected(self) -> None:
+        # The reproduced upstream NOTICE must be byte-identical to the file
+        # published with the model; a subtle rewording must not slip through.
+        # Mutate wording the phrase checks do not look at, so the rejection
+        # must come from the byte-for-byte comparison of the fenced block.
+        self.rewrite(
+            "MODEL_NOTICE.md",
+            "renaming and re-laying-out tensors",
+            "renaming and rearranging the tensors",
+        )
+        self.sync_copy("model_assets/src/main/assets/MODEL_NOTICE.md")
+        self.assert_rejected("is not the verbatim upstream file")
+
+    def test_altered_transcribe_cpp_license_rejected(self) -> None:
+        path = self.root / "licenses/transcribe-cpp-MIT.txt"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "Copyright (c) 2026 The transcribe.cpp authors",
+                "Copyright (c) 2026 Someone Else",
+            ),
+            encoding="utf-8",
+        )
+        shutil.copyfile(path, self.root / "app/src/main/assets/licenses/transcribe-cpp-MIT.txt")
+        self.assert_rejected("licenses/transcribe-cpp-MIT.txt is not the verbatim upstream")
+
+    def test_altered_ggml_license_rejected(self) -> None:
+        path = self.root / "licenses/ggml-MIT.txt"
+        path.write_text(
+            path.read_text(encoding="utf-8").replace(
+                "Copyright (c) 2023-2026 The ggml authors",
+                "Copyright (c) 2023-2026 The ggml contributors",
+            ),
+            encoding="utf-8",
+        )
+        shutil.copyfile(path, self.root / "app/src/main/assets/licenses/ggml-MIT.txt")
+        self.assert_rejected("licenses/ggml-MIT.txt is not the verbatim upstream")
+
     def test_upstream_notice_removed_rejected(self) -> None:
         self.rewrite(
             "licenses/UPSTREAM-MIT.txt", "Copyright (c) 2025 Noah Mühl", "Copyright"
