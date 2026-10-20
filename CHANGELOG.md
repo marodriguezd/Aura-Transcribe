@@ -2,6 +2,16 @@
 
 Change log of **Aura Transcribe** (Next-Gen evolution of [notune/android_transcribe_app](https://github.com/notune/android_transcribe_app)).
 
+## [Unreleased]
+
+### Added
+- Artifact notice-set gate: `scripts/verify_artifact_notices.py` (+18 negative tests) requires the complete license/notice set (MIT `LICENSE`, `THIRD_PARTY_NOTICES.md`, all `licenses/*` texts, `MODEL_LICENSE.md`, `MODEL_NOTICE.md`) inside every release APK/AAB, at its exact delivery path and byte-identical to the repository sources — closing the gap where v1.0.0 shipped the model without any license text (see `LICENSE_AUDIT.md` F-1/F-2).
+- Byte-level pins in `scripts/check_license_docs.py` for the upstream `NOTICE` (SHA-256 `e6ffd58b…`) and the verbatim native license texts (`transcribe-cpp-MIT.txt`, `ggml-MIT.txt`, `UPSTREAM-MIT.txt`), verified against their authoritative upstreams.
+
+### Fixed
+- Removed the stale `GPL-3.0-only` entry from the Cargo license allowlist (leftover of the withdrawn GPL migration): copyleft expressions now always require explicit review and can never pass pre-approved.
+- `LICENSE_AUDIT.md` rewritten as the definitive audit: MIT for the application (no migration to GPL-3.0-only/Apache-2.0), OpenMDW-1.1 for the Nemotron model, evidence base with hashes, obligations matrix, severity-ranked findings, counsel questions and go/no-go checklist.
+
 ## [1.0.0] - 2026-10-18
 
 ### Added

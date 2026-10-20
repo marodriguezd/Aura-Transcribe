@@ -133,8 +133,9 @@ exception text, the libc++ notice, the verbatim OpenMDW-1.1 agreement, this
 notice file, and the model's `MODEL_LICENSE.md` and `MODEL_NOTICE.md`.
 Sources live under `licenses/` and the
 repository root; `scripts/check_license_docs.py` fails if any asset copy drifts
-from its source, and the release gates verify the model documents inside the
-built APK/AAB.
+from its source, `scripts/verify_artifact_notices.py` requires this complete set
+inside the built APK/AAB byte-identical to the repository sources, and the
+release gates additionally verify the model documents in the artifact.
 
 ## 8. Re-audit rule
 
