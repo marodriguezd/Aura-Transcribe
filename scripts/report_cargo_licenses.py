@@ -41,6 +41,13 @@ UNRECOGNIZED_LICENSE_MARKERS = frozenset(
 
 # SPDX identifiers accepted for the repository's reviewed Cargo graph plus
 # common permissive identifiers. Extend via --allowed-license after review.
+#
+# `GPL-3.0-only` deliberately has no entry here (2026-10 definitive licensing
+# decision: the application stays MIT and never migrates to GPL-3.0-only; see
+# LICENSE_AUDIT.md). A pre-approved GPL identifier would let a copyleft
+# dependency silently pass the inventory and conflict with the MIT grant over
+# the combined binary; such an expression must surface as "unrecognized" and be
+# reviewed explicitly instead.
 AUDITED_LICENSE_IDS = frozenset({
     "0BSD",
     "Apache-2.0",
@@ -48,7 +55,6 @@ AUDITED_LICENSE_IDS = frozenset({
     "BSD-3-Clause",
     "BSL-1.0",
     "CC0-1.0",
-    "GPL-3.0-only",
     "ISC",
     "MIT",
     "MIT-0",

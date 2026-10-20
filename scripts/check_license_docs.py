@@ -41,6 +41,25 @@ MODEL_REPO = "handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf"
 # (`LICENSE`, 2619 bytes). Pinning the digest means a well-meaning "cleanup"
 # of this file cannot silently ship a modified agreement.
 OPENMDW_TEXT_SHA256 = "2ab44b68365473c112f5092211a38f231cb23e50de68b75a13369adbd76a74df"
+# The upstream `NOTICE` (411 bytes) exactly as published in the pinned GGUF
+# repository. OpenMDW-1.1 requires notices of origin to be retained, so the
+# fenced block in MODEL_NOTICE.md is checked byte-for-byte (2026-10 audit:
+# phrase checks alone would accept a subtly reworded notice).
+UPSTREAM_NOTICE_SHA256 = "e6ffd58bf2373a13db1f59ed9d96399e49b6c97a3e88aca340c054ed55fa4bac"
+# License texts copied verbatim from authoritative upstream sources, pinned for
+# the same reason as the OpenMDW agreement:
+#   * transcribe-cpp-MIT.txt  == LICENSE of the `transcribe-cpp` 0.1.3 crate
+#     published on crates.io (checksum 4c3c4d61…cded);
+#   * ggml-MIT.txt            == LICENSE of github.com/ggml-org/ggml.
+# A drift here would mean the app ships a rewritten third-party license.
+NATIVE_LICENSE_TEXTS = {
+    "transcribe-cpp-MIT.txt": (
+        "86a53633b56f6b029d3cb42158bcc7aac0cdff898aceb13e83b93e368bbc4ac6"
+    ),
+    "ggml-MIT.txt": (
+        "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d"
+    ),
+}
 
 READMES = [
     "README.md", "README_es.md", "README_de.md",
@@ -193,6 +212,19 @@ def check_model_documents(root: Path) -> None:
     require_phrase("MODEL_NOTICE.md", notice, "not retrained or fine-tuned")
     require_phrase("MODEL_NOTICE.md", notice, PINNED_GGUF_REVISION)
 
+    # The reproduced upstream NOTICE must stay byte-identical to the file
+    # published with the model, not merely similar in wording.
+    notice_raw = read(root, "MODEL_NOTICE.md")
+    block = re.search(r"```text\n(.*?)```", notice_raw, re.S)
+    if not block:
+        fail("MODEL_NOTICE.md has no ```text block reproducing the upstream NOTICE")
+    notice_digest = hashlib.sha256(block.group(1).encode("utf-8")).hexdigest()
+    if notice_digest != UPSTREAM_NOTICE_SHA256:
+        fail(
+            "the upstream NOTICE reproduced in MODEL_NOTICE.md is not the verbatim "
+            f"upstream file: sha256 {notice_digest} != {UPSTREAM_NOTICE_SHA256}"
+        )
+
     notices = read(root, "THIRD_PARTY_NOTICES.md")
     flat = normalize(notices)
     for phrase in ("OpenMDW-1.1", "MODEL_NOTICE.md", "separately licensed data asset"):
@@ -219,6 +251,14 @@ def check_model_documents(root: Path) -> None:
     upstream_mit = read(root, "licenses/UPSTREAM-MIT.txt")
     require_phrase("licenses/UPSTREAM-MIT.txt", upstream_mit, "Copyright (c) 2025 Noah Mühl")
     require_phrase("licenses/UPSTREAM-MIT.txt", upstream_mit, "Permission is hereby granted")
+
+    for name, expected in NATIVE_LICENSE_TEXTS.items():
+        actual = hashlib.sha256(read_bytes(root, f"licenses/{name}")).hexdigest()
+        if actual != expected:
+            fail(
+                f"licenses/{name} is not the verbatim upstream license text: "
+                f"sha256 {actual} != {expected}"
+            )
 
     llvm_exception = read(root, "licenses/LLVM-exception.txt")
     for phrase in (
