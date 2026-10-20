@@ -51,6 +51,14 @@ UPSTREAM_NOTICE_SHA256 = "e6ffd58bf2373a13db1f59ed9d96399e49b6c97a3e88aca340c054
 #   * transcribe-cpp-MIT.txt  == LICENSE of the `transcribe-cpp` 0.1.3 crate
 #     published on crates.io (checksum 4c3c4d61…cded);
 #   * ggml-MIT.txt            == LICENSE of github.com/ggml-org/ggml.
+#   * miniz-MIT.txt           == LICENSE of the miniz 3.1.1 release snapshot
+#     vendored into `transcribe-cpp-sys` 0.1.3 (src/third_party/miniz) and
+#     compiled into the shipped native library. Byte-identical to the license
+#     traveling with that snapshot; content-identical to upstream's
+#     richgel999/miniz 3.1.1 LICENSE (upstream uses CRLF line endings).
+#   * okhttp-NOTICE.txt       == okhttp3/internal/publicsuffix/NOTICE inside
+#     the okhttp 4.12.0 jar (MPL-2.0 attribution for the Public Suffix List
+#     data packaged in the same jar, and in the APK/AAB).
 # A drift here would mean the app ships a rewritten third-party license.
 NATIVE_LICENSE_TEXTS = {
     "transcribe-cpp-MIT.txt": (
@@ -58,6 +66,12 @@ NATIVE_LICENSE_TEXTS = {
     ),
     "ggml-MIT.txt": (
         "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d"
+    ),
+    "miniz-MIT.txt": (
+        "6f20fa7672b00e2e975c291df737cf227addf3ad32e36fef3fe0f416e4664d3d"
+    ),
+    "okhttp-NOTICE.txt": (
+        "8a9c58fbded5ea3474315e4a9824ca8b1486098a1a03e897e0b19419d5e1876a"
     ),
 }
 
@@ -67,7 +81,8 @@ READMES = [
 ]
 LICENSE_TEXTS = [
     "UPSTREAM-MIT.txt", "transcribe-cpp-MIT.txt",
-    "ggml-MIT.txt", "Apache-2.0.txt",
+    "ggml-MIT.txt", "miniz-MIT.txt",
+    "Apache-2.0.txt", "okhttp-NOTICE.txt",
     "LLVM-exception.txt", "libc++-NOTICE.txt",
     "OpenMDW-1.1.txt",
 ]

@@ -42,6 +42,22 @@ This decision is final for the repository and constrains every other document:
 Every item below was verified directly against an authoritative source during
 the audit window. Hashes are SHA-256.
 
+A **second independent pass** (2026-10-20, audit of the audit) reproduced every
+material claim of this file from primary sources: the upstream `LICENSE`/
+`NOTICE`/agreement were re-fetched at the pinned revision and re-compared
+byte-for-byte; the published v1.0.0 assets were **re-downloaded and re-hashed**
+(`0550c238…`, `f3851510…` — matching the release digests and the publishing
+run's validation report for commit `834fe3f`); the model entry inside both
+artifacts was re-hashed against the pin (`86429e8c…9910d65`, 559,647,200 B,
+exactly once per artifact); the signer of both artifacts was re-checked against
+`keystore/release-cert.sha256` (`2ee6ab00…8483`); `zipalign -c -P 16` and
+16 KB LOAD alignment of all three shipped `.so` files were re-verified; and both
+dependency inventories were regenerated with identical results (97 Gradle
+modules with the `jspecify` blank-field entry; 122 Cargo entries, 0 missing, 3
+unrecognized). The pass found three additional repository-level defects that
+the first pass had missed — F-9, F-10 and F-11 — all remediated at HEAD as
+described in the findings register and in “Second-pass remediation evidence”.
+
 1. **Application license.** `LICENSE` is the upstream MIT text with
    `Copyright (c) 2025 Noah Mühl`, unmodified. `licenses/UPSTREAM-MIT.txt` is
    byte-identical to it and to the upstream repository's `LICENSE`.
@@ -120,6 +136,8 @@ the audit window. Hashes are SHA-256.
 | Apache-2.0 (crates, AndroidX, Material, OkHttp, …) | License text; keep `NOTICE` files where provided | `assets/licenses/Apache-2.0.txt`, `THIRD_PARTY_NOTICES.md` | `check_license_docs.py`, `verify_artifact_notices.py` |
 | Illinois-NCSA / Apache-2.0 WITH LLVM-exception (`libc++_shared.so`) | Retain the notice and exception text | `assets/licenses/libc++-NOTICE.txt` + `assets/licenses/LLVM-exception.txt` | same |
 | MIT (`transcribe-cpp`, `ggml`, upstream app) | Retain copyright notice | `assets/licenses/transcribe-cpp-MIT.txt`, `ggml-MIT.txt`, `UPSTREAM-MIT.txt` | same |
+| MIT (`miniz` 3.1.1, vendored in `transcribe-cpp-sys` and compiled into the shipped `.so`) | Retain copyright and permission notice | `assets/licenses/miniz-MIT.txt` (F-9 remediation) | `check_license_docs.py` byte pin, `verify_artifact_notices.py` |
+| MPL-2.0 (Public Suffix List data inside `okhttp`) | Keep attribution notices; source remains available | `assets/licenses/okhttp-NOTICE.txt` + the in-jar `okhttp3/internal/publicsuffix/NOTICE`; source at publicsuffix.org (F-10 remediation) | same |
 
 OpenMDW-1.1 imposes **no conditions on outputs**: transcribed text is
 unaffected. It is identified by NVIDIA's model-card metadata as
@@ -179,6 +197,83 @@ redistributing the app must evaluate them; see Q3/Q4.
 CC-BY-4.0 in all six READMEs, and the earlier silence of the Cargo manifests,
 were corrected in the first audit pass; the gate suite keeps them corrected.
 
+**F-9 — MEDIUM (notice gap in the distributed native code; found in the second
+independent pass 2026-10-20; remediated at HEAD; residual exposure on the
+published v1.0.0).** `transcribe-cpp-sys` 0.1.3 vendors **miniz 3.1.1**
+(`src/third_party/miniz`, MIT — Copyright 2013-2014 RAD Game Tools and Valve
+Software; Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC) and
+compiles it into `libtranscribe`, which is statically linked into
+`libandroid_transcribe_app.so` in every artifact (evidence: the crate's
+`src/CMakeLists.txt` lists `third_party/miniz/miniz.c` in the library sources;
+the vendored `UPSTREAM` file documents the snapshot and its license). Neither
+the notice set nor `licenses/` carried its license text, so the MIT retention
+condition for that component was not satisfied by the repository's notice set
+for the distributed binaries. *Remediation:* verbatim
+[`licenses/miniz-MIT.txt`](licenses/miniz-MIT.txt) (SHA-256
+`6f20fa76…464d3d`, pinned in `check_license_docs.py`; byte-identical to the
+license traveling with the vendored snapshot and content-identical to upstream
+`richgel999/miniz` 3.1.1 `LICENSE`, which uses CRLF line endings), packaged at
+`assets/licenses/miniz-MIT.txt`, listed in `THIRD_PARTY_NOTICES.md` §3, and
+required by `verify_artifact_notices.py` with two new negative tests. The
+extended gate re-run against the published APK fails closed with exactly this
+diagnosis. *Residual:* the published v1.0.0 binaries predate the fix and carry
+the pre-fix notice set (same class as F-1/F-2; see Q2).
+
+**F-10 — MEDIUM (unattributed MPL-2.0 data in the distributed artifacts; found
+in the second pass 2026-10-20; remediated at HEAD; residual as F-9).** OkHttp
+4.12.0 packages `okhttp3/internal/publicsuffix/publicsuffixes.gz`, compiled
+from **The Public Suffix List** under the **Mozilla Public License 2.0**, and it
+ships in the published APK/AAB (confirmed by entry inventory of both artifacts).
+OkHttp's own `NOTICE` travels inside the jar and therefore inside the APK, so
+the upstream attribution is physically present in the binaries — but the
+repository's "complete notice set" never mentioned the PSL, MPL-2.0, or the
+source-availability pointer, so the completeness claim was wrong at
+documentation level. *Remediation:* verbatim
+[`licenses/okhttp-NOTICE.txt`](licenses/okhttp-NOTICE.txt) (byte-identical to
+the `NOTICE` inside `okhttp-4.12.0.jar`, SHA-256 `8a9c58fb…5e1876a`, pinned),
+packaged at `assets/licenses/`, documented in `THIRD_PARTY_NOTICES.md` §4 with
+the MPL-2.0 and PSL source pointers, and required by the artifact gate
+(negative test added). MPL-2.0's conditions attach to the PSL data file itself
+and do not relicense the application or OkHttp. *Residual:* the published
+artifacts rely on OkHttp's in-jar `NOTICE` alone (F-9/Q2 class).
+
+**F-11 — LOW (supply-chain pinning consistency; remediated).** `ModelsActivity`'s
+user-facing model catalog linked the *bundled* Nemotron artifact from
+`resolve/main` — the exact anti-pattern the pin policy forbids for automated
+fetches. The app never downloads from that URL programmatically (it is opened
+via `ACTION_VIEW`), so no automated fetch was unpinned and no shipped byte is
+affected; but a user following the link could obtain bytes different from the
+verified SHA-256. *Remediation:* the catalog entry is now pinned to revision
+`53ce288f…8096dd`, the same verified artifact. The other catalog entries are
+third-party models outside the bundled-model pin policy and remain as-is by
+design.
+
+**F-12 — INFORMATIONAL (toolchain components).** Every Rust-built binary also
+carries the standard library's vendored dependencies (`miniz_oxide` 0.9.1,
+`addr2line`, `gimli`, `hashbrown`, `rustc-demangle`, `object`, `libc`, `memchr`;
+MIT and/or Apache-2.0). Verified as toolchain-inherent, not an app dependency:
+a plain `hello.rs` build contains the same `/rust/deps/` path strings as the
+shipped `.so`, and the workspace graph has no `miniz_oxide` at all. They are
+invisible to `cargo metadata` and their license texts travel with the Rust
+toolchain. Documented in `THIRD_PARTY_NOTICES.md` §3 so the `miniz_oxide`
+(Rust) and `miniz` (C) names are never conflated.
+
+**F-13 — INFORMATIONAL (attribution richness).** Individual ggml sources carry
+merged contributors' copyright notices (Intel Corporation, Arm Limited, the
+Mozilla Foundation, and the YaRN authors Jeffrey Quesnelle and Bowen Peng,
+MIT). They fall under the ggml MIT grant whose text ships as
+`licenses/ggml-MIT.txt`; recorded in `THIRD_PARTY_NOTICES.md` §3. Whether
+per-file notices must be reproduced in a *binary* distribution in addition to
+the license text is a counsel-level question (Q7).
+
+**F-14 — INFORMATIONAL (document formatting).** The "full text" embedded in
+`MODEL_LICENSE.md` is typographically normalized (line re-wrapping, curly
+quotes) relative to the upstream agreement; the **byte-exact** copy travels in
+both artifacts as `assets/licenses/OpenMDW-1.1.txt` (verified byte-identical to
+the upstream `LICENSE` at the pinned revision, SHA-256 `2ab44b68…a74df`), so
+the OpenMDW-1.1 "copy of this agreement" retention rests on that file, not on
+the reformatted rendering.
+
 ## 5. Facts vs. interpretations
 
 **Facts** (verifiable, §2): hashes, byte comparisons, archive inventories,
@@ -217,10 +312,11 @@ commit of origin, Cargo manifests, Fastlane and store metadata all say MIT.
 ## 7. Verification (how this is kept true)
 
 - `scripts/check_license_docs.py` + `scripts/test_check_license_docs.py`
-  (31 negative tests): fails on a non-MIT root license, a stale license badge
+  (33 negative tests): fails on a non-MIT root license, a stale license badge
   in any README, an MIT claim over the model, a CC-BY or copyleft claim on the
   publication surface, a Cargo license mismatch, a drifted asset copy, a
-  rewritten upstream `NOTICE` or native license text (byte pins), a missing
+  rewritten upstream `NOTICE` or native license text (byte pins — now covering
+  `miniz-MIT.txt` and `okhttp-NOTICE.txt` as well), a missing
   model document, a `bench.wav` in assets, or an unpinned model URL.
 - `scripts/verify_artifact_notices.py` + `scripts/test_verify_artifact_notices.py`
   (18 negative tests): opens the produced APK/AAB and requires every license
@@ -286,6 +382,32 @@ What this evidence does **not** establish: it proves what the *current*
 release carries. It cannot recall or alter copies of the original (defective)
 binaries already downloaded, and it is not a legal certification.
 
+## Second-pass remediation evidence (2026-10-20, F-9/F-10/F-11)
+
+- Branch `licensing/notice-gap-remediation`, merged through a PR after the full
+  validation suite (Python compliance gates, Rust fmt + workspace tests,
+  Android JVM tests, lint, packaging-decision gates, release-workflow guards)
+  and a validation-only signed release build against the exact candidate
+  commit (no tag, no release, no asset published).
+- New verbatim texts: `licenses/miniz-MIT.txt` (SHA-256 `6f20fa76…464d3d`, the
+  license of the miniz 3.1.1 snapshot vendored in `transcribe-cpp-sys` and
+  compiled into the shipped native library) and `licenses/okhttp-NOTICE.txt`
+  (SHA-256 `8a9c58fb…5e1876a`, the Public Suffix List / MPL-2.0 attribution
+  from `okhttp-4.12.0.jar`); both are byte-pinned in `check_license_docs.py`,
+  packaged at `assets/licenses/`, and required by `verify_artifact_notices.py`.
+- `THIRD_PARTY_NOTICES.md` (+ its packaged copy) now documents miniz, the
+  ggml contributor notices, the Rust-std vendored components, and the PSL /
+  MPL-2.0 data with its source-availability pointer. Two new negative tests
+  (33 total) pin the new byte-identity requirements.
+- The `ModelsActivity` catalog link for the bundled Nemotron artifact is
+  pinned to revision `53ce288f…8096dd` (F-11).
+- Re-running the extended `verify_artifact_notices.py` against the **published**
+  v1.0.0 artifacts fails closed with exactly the expected residual: the two new
+  texts and the updated notices file are absent there. That residual is real
+  and is **not** claimed to be cured: like F-1/F-2 it can only be addressed in
+  a future release (see Q2; publishing new artifacts was out of scope for this
+  audit and was not done).
+
 ## Questions that genuinely require external legal counsel
 
 These are open questions for qualified counsel. Nothing in this repository
@@ -329,6 +451,12 @@ answers them, and **no legal certification is claimed**:
 - **Q6 — Nominative branding.** Whether store/README references to "NVIDIA
   Nemotron" and "Hugging Face" are nominative use in each distributing
   jurisdiction.
+- **Q7 — Per-file copyright notices in binary form (F-13).** Whether MIT's
+  "this copyright notice" retention duty, for multi-contributor trees such as
+  ggml (Intel, Arm, Mozilla, YaRN authors), requires reproducing the individual
+  per-file copyright lines in a binary distribution in addition to the
+  aggregate license text the project ships, or whether the upstream license
+  text suffices.
 
 ## Go / No-Go checklist
 
@@ -344,12 +472,18 @@ answers them, and **no legal certification is claimed**:
 | 8 | Dependency inventories generated, reviewed, retained as CI artifact | ✅ (3 expressions flagged, non-Android — F-5) |
 | 9 | No audio or unprovenanced fixtures bundled | ✅ gate-enforced |
 | 10 | Publication of a corrected release to supersede v1.0.0's notice defect | ✅ done 2026-10-20 (owner-authorized): Release `v1.0.0` + tag replaced and republished from verified commit `834fe3f` (versionCode 51); published bytes inspected — 22/22 notice checks OK, pinned signer, no `bench.wav` (§“Remediation evidence”). Copies of the original binaries already downloaded remain outside the project's control (Q2) |
+| 11 | Vendored native code (`miniz`) and jar-resource third-party data (PSL/MPL-2.0) identified, attributed and shipped | ✅ at HEAD (second-pass F-9/F-10, gate-enforced); the published v1.0.0 binaries carry the pre-fix notice set (residual, same class as Q2) |
 
 **Verdict:** no repository-level licensing blocker remains for producing and
-publishing artifacts from HEAD: the corrected v1.0.0 (versionCode 51) is
-published and verified (§“Remediation evidence”). The only open items are the
-counsel questions above (Q1–Q6) — above all Q2, since deleting the old release
-cannot recall copies already downloaded and no claim is made that historical
-liability or legal uncertainty has disappeared. This document does not
-constitute legal advice; see [`MODEL_LICENSE.md`](MODEL_LICENSE.md) for the
-model terms themselves.
+publishing artifacts **from HEAD**: the corrected v1.0.0 (versionCode 51) is
+published and its bytes were independently inspected (§“Remediation
+evidence”), and the second-pass gaps (F-9/F-10/F-11) are remediated and
+gate-enforced at HEAD. The published v1.0.0 binaries themselves predate the
+F-9/F-10 notice additions and carry the pre-fix notice set; that residual is
+not claimed to be cured and can only be addressed by a future release (out of
+scope for this audit — no tag, release or asset was created or replaced by it).
+The open items are the counsel questions above (Q1–Q7) — above all Q2, since
+deleting the old release cannot recall copies already downloaded and no claim
+is made that historical liability or legal uncertainty has disappeared. This
+document does not constitute legal advice; see
+[`MODEL_LICENSE.md`](MODEL_LICENSE.md) for the model terms themselves.

@@ -2,6 +2,11 @@
 
 Change log of **Aura Transcribe** (Next-Gen evolution of [notune/android_transcribe_app](https://github.com/notune/android_transcribe_app)).
 
+## [Unreleased]
+
+### Fixed
+- Licensing audit second pass (`LICENSE_AUDIT.md` F-9/F-10/F-11): the notice set now also covers **miniz 3.1.1** (MIT; vendored inside `transcribe-cpp-sys` and compiled into the shipped native library) and the **Public Suffix List** data packaged by OkHttp (MPL-2.0), with verbatim byte-pinned texts (`licenses/miniz-MIT.txt`, `licenses/okhttp-NOTICE.txt`) shipped under `assets/licenses/` and required by `verify_artifact_notices.py` (33 negative tests total in `check_license_docs`). `THIRD_PARTY_NOTICES.md` documents both, plus the ggml per-contributor notices and the Rust-std vendored components. The `ModelsActivity` catalog link for the bundled model is now pinned to the verified revision instead of `resolve/main`. Note: the already-published v1.0.0 artifacts predate these additions and carry the pre-fix notice set (recorded as residual exposure in `LICENSE_AUDIT.md`).
+
 ## [1.0.0] - 2026-10-18 · corrected rebuild 2026-10-20 (versionCode 51)
 
 > The originally published v1.0.0 binaries (versionCode 50) shipped the bundled
