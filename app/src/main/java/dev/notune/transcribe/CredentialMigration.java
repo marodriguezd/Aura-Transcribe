@@ -4,58 +4,13 @@ import java.io.File;
 import java.io.IOException;
 
 /**
- * Orchestrates the one-time (and retried) import of the post-processing API key
- * from every historical storage location into the encrypted
- * {@link SecureCredentialStore}.
+ * Orchestrates importing post-processing API keys from legacy storage locations
+ * into {@link SecureCredentialStore}.
  *
- * <p><b>Why this class exists.</b> The import rules are not "read the old value
- * and write the new one": three legacy sources can coexist, the encrypted store
- * is authoritative unless it cannot be decrypted, nothing may be deleted before
- * the replacement has been verified, and a failure at any step must leave the
- * user's credential recoverable. Those rules used to live inside
- * {@code SettingsManager}, where the {@code Context}/{@code SharedPreferences}/
- * {@code EncryptedSharedPreferences} dependencies made them reachable only from
- * instrumentation tests that never run in CI (AGENTS.md §5.4). The decision
- * logic lives here against the injected {@link LegacySources} seam, so it is
- * covered by plain JVM tests ({@code CredentialMigrationTest}); the Android
- * implementation is supplied by {@code SettingsManager}.
- *
- * <p><b>Precedence</b> (newest source first): legacy Base64 marker → legacy
- * {@code EncryptedSharedPreferences} → plain {@code SharedPreferences}. A marker
- * is never overwritten by an older prefs value, and the encrypted store is never
- * overwritten by a legacy copy while it still decrypts.
- *
- * <p><b>Write before delete.</b> Every import goes through
- * {@link SecureCredentialStore#store}, which encrypts, persists atomically and
- * verifies the round-trip before returning. Legacy copies are removed only after
- * that. A removal that fails is reported and retried on the next start instead of
- * being silently forgotten — and it never turns into "prefer the stale plaintext
- * over the verified encrypted value", because the encrypted copy is already
- * authoritative once it has been verified.
- *
- * <p><b>Sentinel semantics.</b> The {@code pp_api_key_migrated} file records what
- * the last pass found:
- * <ul>
- *   <li><em>absent or empty</em> — "checked, nothing to import". An empty sentinel
- *       deliberately does <b>not</b> suppress a legacy copy that shows up later:
- *       a downgraded build can write one after the sentinel exists, and that
- *       credential is real. The Base64 marker has always had this rule; the
- *       prefs sources now have it too.</li>
- *   <li><em>{@code deleted}</em> — a deletion tombstone, written by
- *       {@link #forget()} <b>before</b> it removes anything and for as long as an
- *       explicit user deletion is unfinished. It outranks every source, in both
- *       directions: the import path refuses to re-import any copy while it is
- *       present, and readers ({@link CredentialRead}) serve "no credential" for
- *       its whole lifetime. So a deleted credential can neither resurrect itself
- *       through a copy that reappears nor stay readable from a copy whose removal
- *       failed — the encrypted store included, where an unlink that fails leaves
- *       the credential readable, which {@code forget()} reports rather than
- *       hides. It is cleared once every copy is actually gone, or by
- *       {@link #store} when the user stores a new credential (which supersedes
- *       the deletion; a tombstone must never hide a key stored after it).</li>
- * </ul>
- *
- * <p>No method here logs, returns or otherwise exposes key material.
+ * <p>Precedence (newest first): legacy Base64 marker, legacy EncryptedSharedPreferences,
+ * plain SharedPreferences. Writes are verified before removing legacy copies.
+ * The {@code pp_api_key_migrated} sentinel file tracks completed migrations and
+ * deletion tombstones.</p>
  */
 final class CredentialMigration {
 
@@ -345,9 +300,7 @@ final class CredentialMigration {
         return true;
     }
 
-    // ------------------------------------------------------------------
     // Internals: non-public migration steps, exercised via injected seams
-    // ------------------------------------------------------------------
 
     private boolean anyLegacyCopyPresent() {
         return legacy.hasMarker() || legacy.hasLegacyEncrypted() || legacy.hasLegacyPlain();
@@ -425,7 +378,7 @@ final class CredentialMigration {
 
     /** Drops a deletion tombstone that is no longer needed. */
     private void clearTombstoneIfSet() {
-        if (isDeletionTombstone()) clearTombstone();
+        clearTombstone();
     }
 
     /** Leaves an empty "checked" sentinel in place of a tombstone. */

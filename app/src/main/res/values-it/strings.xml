@@ -134,7 +134,7 @@
     <string name="pp_models_loaded">Modelli caricati — tocca il campo per sceglierne uno</string>
     <string name="pp_models_error">Impossibile ottenere i modelli</string>
     <string name="pp_prompt">Prompt di sistema</string>
-    <string name="pp_prompt_profile">Prompt</string>
+    <string name="pp_prompt_profile">Profilo prompt</string>
     <string name="pp_prompt_default_name">Predefinito</string>
     <string name="pp_prompt_new">Nuovo</string>
     <string name="pp_prompt_delete">Elimina</string>
@@ -198,7 +198,7 @@
     <string name="ime_listening">In ascolto…</string>
     <string name="ime_processing">Elaborazione…</string>
     <string name="ime_refining">Ottimizzazione…</string>
-    <string name="ime_ai_fix_toggle">AI Fix</string>
+    <string name="ime_ai_fix_toggle">Correzione IA</string>
     <string name="ime_no_mic_permission">Nessun permesso microfono: concedilo nell\'app</string>
     <string name="ime_open_app_for_permission">Apri l\'app per concedere il permesso</string>
     <string name="ime_error_loading_keyboard">Errore durante il caricamento della tastiera: %1$s</string>
@@ -221,8 +221,8 @@
     <string name="file_error_no_audio">Errore: nessun file audio</string>
     <string name="file_error_no_speech">Errore: nessun parlato rilevato nel file audio</string>
     <string name="file_error_format">Errore: %1$s</string>
-    <string name="file_error_decode">Error: could not decode the audio file.</string>
-    <string name="file_error_timeout">Timed out waiting for a transcription chunk</string>
+    <string name="file_error_decode">Errore: impossibile decodificare il file audio.</string>
+    <string name="file_error_timeout">Tempo scaduto in attesa di un segmento di trascrizione</string>
     <string name="subs_grant_overlay_permission">Concedi l\'autorizzazione \'Visualizza su altre app\'</string>
     <string name="subs_enable_overlay_app_settings">Attiva \'Visualizza su altre app\' nelle impostazioni dell\'app</string>
     <string name="subs_enable_overlay_settings">Attiva l\'autorizzazione di sovrapposizione nelle impostazioni</string>
@@ -252,7 +252,7 @@
     <string name="floating_status_ready">Pronto</string>
     <string name="floating_action_cancel">Annulla</string>
     <string name="floating_action_insert">Inserisci</string>
-    <string name="floating_ai_fix_toggle">AI Fix</string>
+    <string name="floating_ai_fix_toggle">Correzione IA</string>
     <string name="floating_overlay_permission_title">Autorizzazione sovrapposizione richiesta</string>
     <string name="floating_overlay_permission_msg">Concedi l\'autorizzazione per la visualizzazione sopra altre app per usare la bolla fluttuante di dettatura.</string>
     <string name="floating_service_name">Sovrapposizione di dettatura mobile</string>
@@ -301,5 +301,5 @@
     <!-- App UI language (auto = follow system) -->
     <string name="setting_language">Lingua dell\'app</string>
     <string name="language_auto">Automatico (sistema)</string>
-    <string name="ime_subtype_voice">Voice</string>
+    <string name="ime_subtype_voice">Voce</string>
 </resources>

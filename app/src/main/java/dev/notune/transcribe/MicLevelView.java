@@ -35,10 +35,6 @@ public class MicLevelView extends View {
         paint.setColor(baseColor);
     }
 
-    private float dp(float v) {
-        return v * getResources().getDisplayMetrics().density;
-    }
-
     /** Override the glow color (defaults to the theme's colorPrimary). */
     public void setColor(int color) {
         baseColor = color;

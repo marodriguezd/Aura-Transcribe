@@ -311,9 +311,7 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
         if (btnRefreshModels != null) btnRefreshModels.setEnabled(enabled);
     }
 
-    // ----------------------------------------------------------------------
     // Prompt profiles: select, create, delete (or reset the built-in default)
-    // ----------------------------------------------------------------------
 
     /** Label shown for a profile: localized for the built-in, the name otherwise. */
     private String promptLabel(String id) {

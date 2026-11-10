@@ -7,7 +7,6 @@
 use once_cell::sync::Lazy;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
 
 use jni::objects::{JClass, JString};
 use jni::sys::{jboolean, jint, jstring};
@@ -15,17 +14,12 @@ use jni::JNIEnv;
 
 pub use aura_core::normalizer::*;
 
-/// Inactivity duration before the loaded S1 model is automatically unloaded
-/// from RAM to preserve mobile system memory (60 seconds).
-const INACTIVITY_UNLOAD_SECS: u64 = 60;
-
-/// Global state holding the active S1 model context and timestamp.
+/// Global state holding the active S1 model context.
 static S1_STATE: Lazy<Mutex<S1Manager>> = Lazy::new(|| Mutex::new(S1Manager::new()));
 
-/// Manages S1-mini model session and keep-alive lifecycle.
+/// Manages S1-mini model state and memory lifecycle.
 pub struct S1Manager {
     model_path: Option<PathBuf>,
-    last_used: Option<Instant>,
     is_loaded: bool,
 }
 
@@ -33,7 +27,6 @@ impl S1Manager {
     pub fn new() -> Self {
         Self {
             model_path: None,
-            last_used: None,
             is_loaded: false,
         }
     }
@@ -53,67 +46,23 @@ impl S1Manager {
         if self.is_loaded {
             log::info!("S1Manager: unloading S1-mini model from RAM");
             self.is_loaded = false;
-            self.last_used = None;
-        }
-    }
-
-    pub fn touch(&mut self) {
-        self.last_used = Some(Instant::now());
-    }
-
-    pub fn check_inactivity(&mut self) {
-        if let Some(last) = self.last_used {
-            if last.elapsed() > Duration::from_secs(INACTIVITY_UNLOAD_SECS) {
-                log::info!("S1Manager: auto-unloading idle S1-mini model (>60s)");
-                self.unload();
-            }
         }
     }
 }
 
-/// Normalizes transcript text using on-device heuristics & S1 prompt normalization.
+/// Normalizes transcript text on-device.
 ///
 /// # Status: PLACEHOLDER — no inference is performed here
+/// Validates that the downloaded model file exists on disk, updates `is_loaded`,
+/// and returns the trimmed input text.
 ///
-/// This function does NOT run the S1-mini GGUF. It validates that the model file
-/// the user downloaded still exists, builds the real S1 prompt and **discards
-/// it** (`_formatted_prompt`), flips `is_loaded` and returns the trimmed input
-/// text.
-///
-/// ## Why it cannot be completed here
-///
-/// The only inference backend in this dependency graph is `transcribe-cpp
-/// 0.1.3`, whose public API is speech recognition:
-/// `Session::run(pcm: &[f32], &RunOptions)` with `Task::Transcribe |
-/// Task::Translate`. It exposes no text-generation entry point — no prompt
-/// decode, no sampler, no completion, and no tokenizer encode path for a
-/// Qwen-family model (its `Feature::InitialPrompt` is a Whisper decode hint, not
-/// generation). SuperWhisper S1-mini is a Qwen-based causal LM, so running it
-/// requires a text-generation engine (llama.cpp or equivalent) plus a BPE
-/// tokenizer, KV cache and sampler, none of which this project ships.
-/// `crates/aura-core` is pure text processing (phonetic corrector, bigram
-/// cosine, prompt construction) and contains no inference either.
-///
-/// Every layer *around* inference is real — the model download, the on-disk path
-/// resolution, `aura_core::normalizer::build_s1_prompt`, the 60-second
-/// inactivity unload and the `onTrimMemory` hook — so completing the path is
-/// additive rather than a rewrite.
-///
-/// ## What the rest of the app does about it
-///
-/// `SettingsManager.LOCAL_S1_INFERENCE_AVAILABLE` is `false`, which keeps the
-/// provider out of reach: it cannot be enabled in the settings screen, an
-/// already-enabled marker is refused and reported instead of being answered with
-/// the unchanged transcript, and the model download control is disabled. That
-/// flag, this comment and AGENTS.md §5.4 item 1 must be flipped together with a
-/// real implementation — never separately.
-///
-/// `is_loaded` therefore records "a usable model path was seen", not "weights are
-/// resident", so `unload()` releases no memory.
+/// Text generation inference requires a causal LM engine (e.g. llama.cpp) not
+/// currently bundled by `transcribe-cpp`. Controlled by
+/// `SettingsManager.LOCAL_S1_INFERENCE_AVAILABLE = false` (see AGENTS.md §5.4).
 pub fn normalize_text_on_device(
     raw_text: &str,
     preset: &str,
-    custom_prompt: Option<&str>,
+    _custom_prompt: Option<&str>,
 ) -> Result<String, String> {
     if raw_text.trim().is_empty() {
         return Ok(raw_text.to_string());
@@ -124,7 +73,6 @@ pub fn normalize_text_on_device(
     }
 
     let mut guard = S1_STATE.lock().unwrap_or_else(|p| p.into_inner());
-    guard.touch();
 
     // Guard: refuse without a downloaded S1 model file on disk
     let _model_path = match &guard.model_path {
@@ -134,7 +82,6 @@ pub fn normalize_text_on_device(
         }
     };
 
-    let _formatted_prompt = build_s1_prompt(raw_text, preset, custom_prompt);
     log::info!(
         "S1Manager: normalizing text on-device (length: {}, preset: '{}')",
         raw_text.len(),
@@ -148,9 +95,7 @@ pub fn normalize_text_on_device(
     Ok(cleaned)
 }
 
-// ----------------------------------------------------------------------------
-// JNI Exports for dev.notune.transcribe.PostProcessor
-// ----------------------------------------------------------------------------
+// JNI exports for dev.notune.transcribe.PostProcessor
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_dev_notune_transcribe_PostProcessor_nativeNormalizeOnDevice(

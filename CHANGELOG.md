@@ -2,6 +2,16 @@
 
 Change log of **Aura Transcribe** (Next-Gen evolution of [notune/android_transcribe_app](https://github.com/notune/android_transcribe_app)).
 
+## [1.0.2] - 2026-11-10 (versionCode 53)
+
+### Changed
+- Comprehensive codebase refactoring and anti-slop optimization across Java, Rust, and Python.
+- Consolidated JNI session callback management into dedicated scope-clearing primitives in `src/jni_util.rs`.
+- Eliminated dead helper routines, uncalled view methods, and unused prompt allocations in `src/post_processor.rs` and `PostProcessor.java`.
+- Standardized marker file existence checks via `MarkerFileHelper` and streamlined credential migration and tombstone handling.
+- Enhanced natural localization completeness across all 7 non-English locales (`values-es`, `values-de`, `values-fr`, `values-it`, `values-pt`, `values-ru`, `values-zh-rCN`).
+- Fixed HTTP error socket resource leak in `scripts/send_telegram.py`.
+
 ## [1.0.1] - 2026-10-20 (versionCode 52)
 
 ### Changed
@@ -11,6 +21,16 @@ Change log of **Aura Transcribe** (Next-Gen evolution of [notune/android_transcr
 - `PostProcessor` no longer exposes preset ids through its settings seam; the placeholder on-device normalizer receives the neutral `clean` axis directly.
 - 18 new strings in all eight locales; the five `pp_preset*` strings were removed.
 - `PromptProfiles` (file-per-profile store, atomic writes) and `PromptProfilesTest` (12 JVM tests); the suite is now 383 tests, 0 failures, and `lintDebug` keeps the documented 68-warning inventory with 0 errors.
+
+### Release note (published)
+
+Aura Transcribe 1.0.1 changes how AI post-processing is configured. The style-preset selector is gone: the correction is driven by a prompt the user picks, and that prompt is the complete instruction the model receives.
+
+The release introduces a new default prompt written for dictation cleanup. It preserves meaning, negations, tone, language and order; it fixes recognition errors only when phonetic similarity and context support the correction; it keeps proper names, software versions, figures and dates untouched; it turns dictated punctuation into symbols and spoken quantities into digits when there is no ambiguity. The transcript is treated as text, never as instructions, and only the commands that clearly edit the dictation are applied. Nothing is added before or after the corrected text.
+
+The prompt list holds the built-in default plus any prompt the user creates and can delete. A new prompt starts as a copy of the text on screen, deletion asks for confirmation, and the default cannot be removed but can be restored to the shipped wording. Unsaved edits survive switching between prompts until the settings screen is saved. Every prompt is a single file in the app's private storage, written atomically.
+
+The recognition engine, the dictation surfaces and the release verification pipeline are unchanged.
 
 ## [Unreleased]
 

@@ -21,7 +21,7 @@ use crate::engine;
 use crate::jni_util;
 use crate::voice_session::SendStream;
 
-// --- Endpointing / VAD tuning -------------------------------------------------
+// Endpointing / VAD tuning
 // These are deliberately simple heuristics on the smoothed mic level. Mic gain
 // varies a lot between devices, so they may need tuning; finalisation always
 // transcribes whatever was captured, so a mis-tuned threshold only affects the
@@ -46,7 +46,6 @@ const MAX_SESSION_MS: u64 = 60000;
 const LEVEL_UPDATE_MS: u64 = 100;
 
 // Mirror of android.speech.SpeechRecognizer error codes we report.
-#[allow(dead_code)]
 const ERROR_AUDIO: i32 = 3;
 const ERROR_SERVER: i32 = 4;
 const ERROR_NO_MATCH: i32 = 7;
@@ -88,7 +87,7 @@ struct Session {
 
 static SESSION: Lazy<Mutex<Option<Session>>> = Lazy::new(|| Mutex::new(None));
 
-// --- JNI callbacks into VoiceRecognitionService -------------------------------
+// JNI callbacks into VoiceRecognitionService
 //
 // Every callback goes through `jni_util::call_and_clear`: `call_method`
 // reports a Java exception as `Err` but does NOT clear it, and a pending
@@ -158,7 +157,7 @@ fn call_partial(env: &mut JNIEnv, obj: &JObject, text: &str, session_id: i32) {
     }
 }
 
-// --- JNI entry points ---------------------------------------------------------
+// JNI entry points
 
 /// Called from `onCreate`. Warms up the model in the background so the first
 /// recognition after a cold bind is as fast as possible.
@@ -381,7 +380,7 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_VoiceRecognitionService
     Java_dev_notune_transcribe_VoiceRecognitionService_cancelNative(env, class);
 }
 
-// --- Audio + endpointing ----------------------------------------------------------
+// Audio + endpointing
 
 fn audio_callback(shared: &Arc<Endpoint>, data: &[f32]) {
     if shared.finalized.load(Ordering::SeqCst) {
