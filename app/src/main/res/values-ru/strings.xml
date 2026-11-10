@@ -134,7 +134,7 @@
     <string name="pp_models_loaded">Модели загружены — коснитесь поля, чтобы выбрать</string>
     <string name="pp_models_error">Не удалось получить модели</string>
     <string name="pp_prompt">Системный промпт</string>
-    <string name="pp_prompt_profile">Промпт</string>
+    <string name="pp_prompt_profile">Профиль промпта</string>
     <string name="pp_prompt_default_name">По умолчанию</string>
     <string name="pp_prompt_new">Создать</string>
     <string name="pp_prompt_delete">Удалить</string>
@@ -198,7 +198,7 @@
     <string name="ime_listening">Слушаю…</string>
     <string name="ime_processing">Обработка…</string>
     <string name="ime_refining">Уточнение…</string>
-    <string name="ime_ai_fix_toggle">AI Fix</string>
+    <string name="ime_ai_fix_toggle">ИИ-исправление</string>
     <string name="ime_no_mic_permission">Нет доступа к микрофону — разрешите в приложении</string>
     <string name="ime_open_app_for_permission">Откройте приложение, чтобы разрешить доступ</string>
     <string name="ime_error_loading_keyboard">Ошибка загрузки клавиатуры: %1$s</string>
@@ -221,8 +221,8 @@
     <string name="file_error_no_audio">Ошибка: нет аудиофайла</string>
     <string name="file_error_no_speech">Ошибка: в аудиофайле не обнаружена речь</string>
     <string name="file_error_format">Ошибка: %1$s</string>
-    <string name="file_error_decode">Error: could not decode the audio file.</string>
-    <string name="file_error_timeout">Timed out waiting for a transcription chunk</string>
+    <string name="file_error_decode">Ошибка: не удалось декодировать аудиофайл.</string>
+    <string name="file_error_timeout">Время ожидания сегмента транскрипции истекло</string>
     <string name="subs_grant_overlay_permission">Разрешите доступ «Поверх других приложений»</string>
     <string name="subs_enable_overlay_app_settings">Включите «Поверх других приложений» в настройках приложения</string>
     <string name="subs_enable_overlay_settings">Включите разрешение на наложение в настройках</string>
@@ -252,7 +252,7 @@
     <string name="floating_status_ready">Готово</string>
     <string name="floating_action_cancel">Отмена</string>
     <string name="floating_action_insert">Вставить</string>
-    <string name="floating_ai_fix_toggle">AI Fix</string>
+    <string name="floating_ai_fix_toggle">ИИ-исправление</string>
     <string name="floating_overlay_permission_title">Требуется разрешение на наложение</string>
     <string name="floating_overlay_permission_msg">Предоставьте разрешение на отображение поверх других приложений для использования плавающего пузыря диктовки.</string>
     <string name="floating_service_name">Плавающий оверлей диктовки</string>
@@ -301,5 +301,5 @@
     <!-- App UI language (auto = follow system) -->
     <string name="setting_language">Язык приложения</string>
     <string name="language_auto">Автоматически (система)</string>
-    <string name="ime_subtype_voice">Voice</string>
+    <string name="ime_subtype_voice">Голос</string>
 </resources>

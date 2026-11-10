@@ -91,15 +91,6 @@ public class PostProcessor {
      * fails without using the partial data.
      */
     public static final int MAX_RESPONSE_BODY_BYTES = 1024 * 1024;
-    /** Alias kept for callers/tests that name the limit differently. */
-    public static final int MAX_RESPONSE_BODY_SIZE = MAX_RESPONSE_BODY_BYTES;
-    public static final int MAX_RESPONSE_BYTES = MAX_RESPONSE_BODY_BYTES;
-    public static final int MAX_BODY_BYTES = MAX_RESPONSE_BODY_BYTES;
-    public static final int MAX_RESPONSE_BODY_LIMIT = MAX_RESPONSE_BODY_BYTES;
-    public static final int RESPONSE_BODY_CAP = MAX_RESPONSE_BODY_BYTES;
-    public static final int RESPONSE_BODY_LIMIT = MAX_RESPONSE_BODY_BYTES;
-    public static final int BODY_CAP = MAX_RESPONSE_BODY_BYTES;
-    public static final int BODY_LIMIT = MAX_RESPONSE_BODY_BYTES;
 
     private static volatile OkHttpClient sharedClient;
     private static final Object CLIENT_LOCK = new Object();

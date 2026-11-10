@@ -134,7 +134,7 @@
     <string name="pp_models_loaded">Modelos cargados — toca el campo para elegir uno</string>
     <string name="pp_models_error">No se pudieron obtener los modelos</string>
     <string name="pp_prompt">Prompt de sistema</string>
-    <string name="pp_prompt_profile">Prompt</string>
+    <string name="pp_prompt_profile">Perfil de prompt</string>
     <string name="pp_prompt_default_name">Predeterminado</string>
     <string name="pp_prompt_new">Nuevo</string>
     <string name="pp_prompt_delete">Eliminar</string>
@@ -198,7 +198,7 @@
     <string name="ime_listening">Escuchando…</string>
     <string name="ime_processing">Procesando…</string>
     <string name="ime_refining">Refinando…</string>
-    <string name="ime_ai_fix_toggle">AI Fix</string>
+    <string name="ime_ai_fix_toggle">Corrección IA</string>
     <string name="ime_no_mic_permission">Sin permiso de micrófono: concédelo en la app</string>
     <string name="ime_open_app_for_permission">Abre la app para conceder el permiso</string>
     <string name="ime_error_loading_keyboard">Error al cargar el teclado: %1$s</string>
@@ -221,8 +221,8 @@
     <string name="file_error_no_audio">Error: no hay archivo de audio</string>
     <string name="file_error_no_speech">Error: no se detectó voz en el archivo de audio</string>
     <string name="file_error_format">Error: %1$s</string>
-    <string name="file_error_decode">Error: could not decode the audio file.</string>
-    <string name="file_error_timeout">Timed out waiting for a transcription chunk</string>
+    <string name="file_error_decode">Error: no se pudo decodificar el archivo de audio.</string>
+    <string name="file_error_timeout">Se agotó el tiempo de espera para un segmento de transcripción</string>
     <string name="subs_grant_overlay_permission">Concede el permiso \'Mostrar sobre otras apps\'</string>
     <string name="subs_enable_overlay_app_settings">Activa \'Mostrar sobre otras apps\' en los ajustes de la app</string>
     <string name="subs_enable_overlay_settings">Activa el permiso de superposición en los ajustes</string>
@@ -252,7 +252,7 @@
     <string name="floating_status_ready">Listo</string>
     <string name="floating_action_cancel">Cancelar</string>
     <string name="floating_action_insert">Insertar</string>
-    <string name="floating_ai_fix_toggle">AI Fix</string>
+    <string name="floating_ai_fix_toggle">Corrección IA</string>
     <string name="floating_overlay_permission_title">Permiso de superposición requerido</string>
     <string name="floating_overlay_permission_msg">Concede el permiso de Mostrar sobre otras aplicaciones para usar la burbuja flotante de dictado.</string>
     <string name="floating_service_name">Superposición de dictado flotante</string>
@@ -301,5 +301,5 @@
     <!-- App UI language (auto = follow system) -->
     <string name="setting_language">Idioma de la app</string>
     <string name="language_auto">Automático (sistema)</string>
-    <string name="ime_subtype_voice">Voice</string>
+    <string name="ime_subtype_voice">Voz</string>
 </resources>

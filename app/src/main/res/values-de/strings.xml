@@ -134,7 +134,7 @@
     <string name="pp_models_loaded">Modelle geladen — tippe auf das Feld, um eines zu wählen</string>
     <string name="pp_models_error">Modelle konnten nicht abgerufen werden</string>
     <string name="pp_prompt">System-Prompt</string>
-    <string name="pp_prompt_profile">Prompt</string>
+    <string name="pp_prompt_profile">Prompt-Profil</string>
     <string name="pp_prompt_default_name">Standard</string>
     <string name="pp_prompt_new">Neu</string>
     <string name="pp_prompt_delete">Löschen</string>
@@ -198,7 +198,7 @@
     <string name="ime_listening">Höre zu…</string>
     <string name="ime_processing">Verarbeite…</string>
     <string name="ime_refining">Verfeinere…</string>
-    <string name="ime_ai_fix_toggle">AI Fix</string>
+    <string name="ime_ai_fix_toggle">KI-Korrektur</string>
     <string name="ime_no_mic_permission">Kein Mikrofonzugriff – in der App erlauben</string>
     <string name="ime_open_app_for_permission">Öffne die App, um die Berechtigung zu erteilen</string>
     <string name="ime_error_loading_keyboard">Fehler beim Laden der Tastatur: %1$s</string>
@@ -221,8 +221,8 @@
     <string name="file_error_no_audio">Fehler: keine Audiodatei</string>
     <string name="file_error_no_speech">Fehler: in der Audiodatei wurde keine Sprache erkannt</string>
     <string name="file_error_format">Fehler: %1$s</string>
-    <string name="file_error_decode">Error: could not decode the audio file.</string>
-    <string name="file_error_timeout">Timed out waiting for a transcription chunk</string>
+    <string name="file_error_decode">Fehler: Die Audiodatei konnte nicht dekodiert werden.</string>
+    <string name="file_error_timeout">Zeitüberschreitung beim Warten auf ein Transkriptionssegment</string>
     <string name="subs_grant_overlay_permission">Bitte erteile die Berechtigung \'Über anderen Apps anzeigen\'</string>
     <string name="subs_enable_overlay_app_settings">Aktiviere \'Über anderen Apps anzeigen\' in den App-Einstellungen</string>
     <string name="subs_enable_overlay_settings">Bitte aktiviere die Overlay-Berechtigung in den Einstellungen</string>
@@ -252,7 +252,7 @@
     <string name="floating_status_ready">Bereit</string>
     <string name="floating_action_cancel">Abbrechen</string>
     <string name="floating_action_insert">Einfügen</string>
-    <string name="floating_ai_fix_toggle">AI Fix</string>
+    <string name="floating_ai_fix_toggle">KI-Korrektur</string>
     <string name="floating_overlay_permission_title">Überlagerungsberechtigung erforderlich</string>
     <string name="floating_overlay_permission_msg">Bitte erteilen Sie die Berechtigung Über anderen Apps anzeigen, um die schwebende Diktierblase zu verwenden.</string>
     <string name="floating_service_name">Schwebendes Diktat-Overlay</string>
@@ -301,5 +301,5 @@
     <!-- App UI language (auto = follow system) -->
     <string name="setting_language">App-Sprache</string>
     <string name="language_auto">Automatisch (System)</string>
-    <string name="ime_subtype_voice">Voice</string>
+    <string name="ime_subtype_voice">Sprache</string>
 </resources>

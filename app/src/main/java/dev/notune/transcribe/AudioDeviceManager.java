@@ -472,7 +472,7 @@ public final class AudioDeviceManager {
     private static boolean routeAuto(Context context, AudioManager am) {
         if (isBluetoothConnected(context)) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                return routeAutoApi31(context, am);
+                return routeAutoApi31(am);
             }
             // Android 8 - 11 legacy SCO activation
             rememberAudioMode(am);
@@ -484,7 +484,7 @@ public final class AudioDeviceManager {
     }
 
     @RequiresApi(Build.VERSION_CODES.S)
-    private static boolean routeAutoApi31(Context context, AudioManager am) {
+    private static boolean routeAutoApi31(AudioManager am) {
         try {
             AudioRoutingPolicy.Candidate selected = AudioRoutingPolicy.selectInputCandidate(
                     toCandidates(am.getAvailableCommunicationDevices()),

@@ -46,9 +46,7 @@ DEFAULT_CORPUS_DIR = PROJECT_ROOT / "benchmark" / "corpus" / "audio"
 DEFAULT_RESULTS_DIR = PROJECT_ROOT / "benchmark" / "results"
 
 
-# ---------------------------------------------------------------------------
 # Text Normalization & Metric Calculation
-# ---------------------------------------------------------------------------
 
 def normalize_multilingual_text(text: str) -> str:
     """Standardized multilingual ASR normalizer.
@@ -64,17 +62,17 @@ def normalize_multilingual_text(text: str) -> str:
     if not text:
         return ""
 
-    # 1. Unicode NFC
+    # Unicode NFC
     s = unicodedata.normalize("NFC", text)
 
-    # 2. Lowercase
+    # Lowercase
     s = s.lower()
 
-    # 3. Normalize quotes and dashes
+    # Normalize quotes and dashes
     s = s.replace("’", "'").replace("`", "'").replace("´", "'")
     s = s.replace("—", " ").replace("–", " ")
 
-    # 4. Remove punctuation but keep letters, digits, whitespace, and internal apostrophes/hyphens
+    # Remove punctuation while preserving letters, digits, whitespace, and internal apostrophes/hyphens
     # Inverted Spanish marks
     s = s.replace("¿", "").replace("¡", "")
     # Punctuation to remove
@@ -195,9 +193,7 @@ def calculate_wer_cer(
     }
 
 
-# ---------------------------------------------------------------------------
 # Data Models
-# ---------------------------------------------------------------------------
 
 @dataclass
 class ClipResult:
@@ -258,9 +254,7 @@ class QuantizationAggregate:
     simulated: bool = True
 
 
-# ---------------------------------------------------------------------------
 # Model Download & Verification
-# ---------------------------------------------------------------------------
 
 def verify_file_sha256(path: Path, expected_sha256: str) -> bool:
     if not path.is_file():
@@ -313,9 +307,7 @@ def ensure_model_downloaded(
     return target_path
 
 
-# ---------------------------------------------------------------------------
 # Execution Backends
-# ---------------------------------------------------------------------------
 
 class BenchmarkBackend:
     """Base interface for model transcription execution."""
@@ -473,9 +465,7 @@ class AdbDeviceBackend(BenchmarkBackend):
         raise NotImplementedError("ADB device inference requires connected device with app installed.")
 
 
-# ---------------------------------------------------------------------------
 # Runner & Analysis Engine
-# ---------------------------------------------------------------------------
 
 class BenchmarkRunner:
     def __init__(
@@ -743,7 +733,7 @@ class BenchmarkRunner:
             else "Metrics produced by a real backend; no quantization recommendation is emitted."
         )
 
-        # 1. JSON
+        # JSON
         json_path = out_dir / f"benchmark_results_{timestamp}.json"
         payload = {
             "metadata": {
@@ -762,7 +752,7 @@ class BenchmarkRunner:
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2, ensure_ascii=False)
 
-        # 2. CSV
+        # CSV
         csv_path = out_dir / f"benchmark_results_{timestamp}.csv"
         with open(csv_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
@@ -808,7 +798,7 @@ class BenchmarkRunner:
                     "yes" if self.simulated else "no",
                 ])
 
-        # 3. Markdown Report
+        # Markdown report
         md_path = out_dir / f"benchmark_report_{timestamp}.md"
         sim_prefix = "Sim. " if self.simulated else ""
         title_suffix = " (SIMULATED)" if self.simulated else ""
@@ -886,9 +876,7 @@ these metrics are simulated, so they cannot justify a deployment decision.
         return {"json": json_path, "csv": csv_path, "markdown": md_path}
 
 
-# ---------------------------------------------------------------------------
 # CLI Entry Point
-# ---------------------------------------------------------------------------
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Aura-Transcribe ASR smoke-test runner (synthetic metrics are SIMULATED)")

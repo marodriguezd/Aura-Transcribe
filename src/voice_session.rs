@@ -8,7 +8,7 @@ use jni::JNIEnv;
 
 use crate::engine;
 
-// --- Optional auto-stop endpointing (same level heuristics as recog_service) --
+// Optional auto-stop endpointing (same level heuristics as recog_service)
 /// Absolute smoothed level (0..1) that must be exceeded to count as speech.
 const MIN_SPEECH_LEVEL: f32 = 0.05;
 /// How far above the running noise floor a level must be to count as speech.

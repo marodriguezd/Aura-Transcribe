@@ -5,7 +5,7 @@
 //! are implemented in the decoupled pure Rust `aura-core` workspace crate.
 
 use once_cell::sync::Lazy;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
@@ -35,8 +35,8 @@ struct CachedDict {
 
 /// Publish the filesDir path so the corrector can locate the dictionary.
 /// Called once from `engine::do_load` after it resolves filesDir.
-pub fn set_files_dir(dir: &PathBuf) {
-    *FILES_DIR.lock().unwrap_or_else(|p| p.into_inner()) = Some(dir.clone());
+pub fn set_files_dir(dir: &Path) {
+    *FILES_DIR.lock().unwrap_or_else(|p| p.into_inner()) = Some(dir.to_path_buf());
 }
 
 /// Corrects `text` against the user's custom dictionary, if one is present

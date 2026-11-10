@@ -1017,15 +1017,15 @@ public class RustInputMethodService extends InputMethodService {
     }
 
     private boolean isPauseAudioEnabled() {
-        return new File(getFilesDir(), "pause_audio").exists();
+        return MarkerFileHelper.exists(this, MarkerFileHelper.MARKER_PAUSE_AUDIO);
     }
 
     private boolean isAutoStopEnabled() {
-        return new File(getFilesDir(), "auto_stop").exists();
+        return MarkerFileHelper.exists(this, MarkerFileHelper.MARKER_AUTO_STOP);
     }
 
     /** "Record in background" is default ON; the marker file is the opt-out. */
     private boolean isStopOnHideEnabled() {
-        return new File(getFilesDir(), "stop_on_hide").exists();
+        return MarkerFileHelper.exists(this, MarkerFileHelper.MARKER_STOP_ON_HIDE);
     }
 }

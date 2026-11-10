@@ -343,12 +343,12 @@ public class RecognizeActivity extends AppCompatActivity {
     }
 
     private boolean isPauseAudioEnabled() {
-        return new java.io.File(getFilesDir(), "pause_audio").exists();
+        return MarkerFileHelper.exists(this, MarkerFileHelper.MARKER_PAUSE_AUDIO);
     }
 
     /** Opt-in via the "Auto-stop after silence" setting (default off). */
     private boolean isAutoStopEnabled() {
-        return new java.io.File(getFilesDir(), "auto_stop").exists();
+        return MarkerFileHelper.exists(this, MarkerFileHelper.MARKER_AUTO_STOP);
     }
 
     // Native methods: JNI bridge into the Rust voice session (see AGENTS.md S4.3)

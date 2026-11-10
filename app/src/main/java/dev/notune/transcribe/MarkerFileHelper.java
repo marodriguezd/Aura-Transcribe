@@ -28,6 +28,14 @@ public final class MarkerFileHelper {
      * of mistaking it for a real entry.
      */
     public static final String TEMP_MARKER = ".tmp";
+
+    /** Marker indicating that audio playback should be paused during recording. */
+    public static final String MARKER_PAUSE_AUDIO = "pause_audio";
+    /** Marker indicating auto-stop on silence is enabled. */
+    public static final String MARKER_AUTO_STOP = "auto_stop";
+    /** Marker indicating recording should stop when keyboard/input method is hidden. */
+    public static final String MARKER_STOP_ON_HIDE = "stop_on_hide";
+
     private static final Object IF_ABSENT_LOCK = new Object();
 
     private MarkerFileHelper() {
@@ -129,9 +137,7 @@ public final class MarkerFileHelper {
         }
     }
 
-    // -----------------------------------------------------------------------
     // Direct File-based methods for JVM unit testing without Context
-    // -----------------------------------------------------------------------
 
     public static String readStringFromFile(File dir, String fileName, String defaultValue) {
         if (dir == null || fileName == null) return defaultValue;

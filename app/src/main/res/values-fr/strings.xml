@@ -134,7 +134,7 @@
     <string name="pp_models_loaded">Modèles chargés — touchez le champ pour en choisir un</string>
     <string name="pp_models_error">Impossible de récupérer les modèles</string>
     <string name="pp_prompt">Invite système</string>
-    <string name="pp_prompt_profile">Prompt</string>
+    <string name="pp_prompt_profile">Profil d\'invite</string>
     <string name="pp_prompt_default_name">Par défaut</string>
     <string name="pp_prompt_new">Nouveau</string>
     <string name="pp_prompt_delete">Supprimer</string>
@@ -198,7 +198,7 @@
     <string name="ime_listening">Écoute…</string>
     <string name="ime_processing">Traitement…</string>
     <string name="ime_refining">Affinage…</string>
-    <string name="ime_ai_fix_toggle">AI Fix</string>
+    <string name="ime_ai_fix_toggle">Correction IA</string>
     <string name="ime_no_mic_permission">Pas d\'autorisation micro – accordez-la dans l\'app</string>
     <string name="ime_open_app_for_permission">Ouvrez l\'app pour accorder l\'autorisation</string>
     <string name="ime_error_loading_keyboard">Erreur lors du chargement du clavier : %1$s</string>
@@ -221,8 +221,8 @@
     <string name="file_error_no_audio">Erreur : aucun fichier audio</string>
     <string name="file_error_no_speech">Erreur : aucune parole détectée dans le fichier audio</string>
     <string name="file_error_format">Erreur : %1$s</string>
-    <string name="file_error_decode">Error: could not decode the audio file.</string>
-    <string name="file_error_timeout">Timed out waiting for a transcription chunk</string>
+    <string name="file_error_decode">Erreur : impossible de décoder le fichier audio.</string>
+    <string name="file_error_timeout">Délai d\'attente dépassé pour un segment de transcription</string>
     <string name="subs_grant_overlay_permission">Veuillez accorder l\'autorisation « Afficher par-dessus d\'autres apps »</string>
     <string name="subs_enable_overlay_app_settings">Activez « Afficher par-dessus d\'autres apps » dans les réglages de l\'app</string>
     <string name="subs_enable_overlay_settings">Veuillez activer l\'autorisation de superposition dans les réglages</string>
@@ -252,7 +252,7 @@
     <string name="floating_status_ready">Prêt</string>
     <string name="floating_action_cancel">Annuler</string>
     <string name="floating_action_insert">Insérer</string>
-    <string name="floating_ai_fix_toggle">AI Fix</string>
+    <string name="floating_ai_fix_toggle">Correction IA</string>
     <string name="floating_overlay_permission_title">Autorisation de superposition requise</string>
     <string name="floating_overlay_permission_msg">Veuillez accorder l\'autorisation Afficher par-dessus d\'autres applications pour utiliser la bulle flottante de dictée.</string>
     <string name="floating_service_name">Superposition de dictée flottante</string>
@@ -301,5 +301,5 @@
     <!-- App UI language (auto = follow system) -->
     <string name="setting_language">Langue de l\'app</string>
     <string name="language_auto">Automatique (système)</string>
-    <string name="ime_subtype_voice">Voice</string>
+    <string name="ime_subtype_voice">Voix</string>
 </resources>

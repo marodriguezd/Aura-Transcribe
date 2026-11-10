@@ -127,7 +127,10 @@ def post_multipart(url: str, fields: dict, files: dict = None, timeout: int = 45
                 resp_data = resp.read().decode("utf-8", errors="replace")
                 return json.loads(resp_data)
         except urllib.error.HTTPError as e:
-            err_body = e.read().decode("utf-8", errors="replace")
+            try:
+                err_body = e.read().decode("utf-8", errors="replace")
+            finally:
+                e.close()
             print(f"[send_telegram] Attempt {attempt} failed with HTTP {e.code}: {err_body}", file=sys.stderr)
             if should_retry_http(e.code, attempt, max_retries):
                 sleep_sec = backoff_seconds(attempt)

@@ -138,9 +138,7 @@ final class SecureCredentialStore {
         this.keyProvider = keyProvider;
     }
 
-    // ------------------------------------------------------------------
     // Format layer (pure; exercised directly by tests)
-    // ------------------------------------------------------------------
 
     /**
      * Encrypts {@code plaintext} into the {@code v1:} storage format with a
@@ -224,9 +222,7 @@ final class SecureCredentialStore {
         return new String(Base64.getDecoder().decode(raw), StandardCharsets.UTF_8);
     }
 
-    // ------------------------------------------------------------------
     // Operations: encrypted read/write/delete against the Keystore key
-    // ------------------------------------------------------------------
 
     /** True when the secure store file exists (cheap; touches no Keystore). */
     boolean exists() {
@@ -348,10 +344,8 @@ final class SecureCredentialStore {
         return file.delete();
     }
 
-    // ------------------------------------------------------------------
     // Legacy marker migration (the Format-A path; prefs-based legacy sources
     // are handled by SettingsManager, which needs a Context for SharedPreferences)
-    // ------------------------------------------------------------------
 
     /** Reads the legacy Base64 marker if present and non-empty, else null. */
     String readLegacyMarker() {

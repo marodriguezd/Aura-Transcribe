@@ -234,9 +234,7 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
         return appContext;
     }
 
-    // ----------------------------------------------------------------------
     // Toggle (marker file)
-    // ----------------------------------------------------------------------
 
     /**
      * Cheap, main-thread-safe view of the AI-fix switch: the marker is on and the
@@ -309,9 +307,7 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
         MarkerFileHelper.setExists(appContext, PP_ENABLED_FILE, enabled);
     }
 
-    // ----------------------------------------------------------------------
     // Ordered credential reads (credential lane)
-    // ----------------------------------------------------------------------
 
     /**
      * Ordered, off-main credential read.
@@ -389,9 +385,7 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
                 message -> Log.e(TAG, message));
     }
 
-    // ----------------------------------------------------------------------
     // Provider + effective base URL (marker file)
-    // ----------------------------------------------------------------------
 
     public String getApiUrl() {
         String value = readMarker(PP_API_URL_FILE);
@@ -417,10 +411,8 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
         return getApiUrl();
     }
 
-    // ----------------------------------------------------------------------
     // API key (encrypted at rest; see SecureCredentialStore for the format,
     // threat model and legacy-marker migration semantics)
-    // ----------------------------------------------------------------------
 
     /** Receives the durable outcome of {@link #setApiKey} on the caller's executor. */
     public interface ApiKeyCallback {
@@ -488,9 +480,7 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
         return credentialMigration(appContext, legacyPrefs(appContext)).forget();
     }
 
-    // ----------------------------------------------------------------------
     // Model name + prompt (marker files)
-    // ----------------------------------------------------------------------
 
     public String getModelName() {
         String value = readMarker(PP_MODEL_FILE);
@@ -501,9 +491,7 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
         writeMarker(PP_MODEL_FILE, model);
     }
 
-    // ----------------------------------------------------------------------
     // Prompt profiles: one shipped default plus the user's own prompts
-    // ----------------------------------------------------------------------
 
     /**
      * What the LLM receives as its system instruction: the body of the prompt
@@ -636,9 +624,7 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
         writeMarker(MIC_MODE_FILE, mode != null ? mode : AudioDeviceManager.MIC_MODE_BUILTIN_ONLY);
     }
 
-    // ----------------------------------------------------------------------
     // Marker file helpers: typed read/write over filesDir markers for Rust
-    // ----------------------------------------------------------------------
 
     private String readMarker(String fileName) {
         return MarkerFileHelper.readString(appContext, fileName, null);
@@ -648,7 +634,6 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
         MarkerFileHelper.writeString(appContext, fileName, value);
     }
 
-    // ----------------------------------------------------------------------
     // One-time migration from SharedPreferences to marker files.
     //
     // Runs on first launch after an update.
@@ -669,7 +654,6 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
     // resurrect any marker. `apply()` would not be enough because it is async:
     // a trailing process could read the legacy file before our async write
     // flushed, see the stale value, and recreate the marker.
-    // ----------------------------------------------------------------------
 
     public static void migrateIfNeeded(Context context) {
         // The whole start-up migration is submitted to the credential lane and
