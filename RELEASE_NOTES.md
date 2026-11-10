@@ -1,9 +1,11 @@
-# Aura Transcribe v1.0.1
+# Aura Transcribe v1.0.2
 
-Aura Transcribe 1.0.1 changes how AI post-processing is configured. The style-preset selector is gone: the correction is driven by a prompt the user picks, and that prompt is the complete instruction the model receives.
+Aura Transcribe 1.0.2 brings comprehensive code quality improvements, architectural cleanup, and maintenance optimizations across all layers of the application.
 
-The release introduces a new default prompt written for dictation cleanup. It preserves meaning, negations, tone, language and order; it fixes recognition errors only when phonetic similarity and context support the correction; it keeps proper names, software versions, figures and dates untouched; it turns dictated punctuation into symbols and spoken quantities into digits when there is no ambiguity. The transcript is treated as text, never as instructions, and only the commands that clearly edit the dictation are applied. Nothing is added before or after the corrected text.
+In the native engine, session callback management is consolidated using dedicated scope-clearing primitives, removing uncalled helper routines and unused prompt allocations in the post-processor while maintaining strict parity across all native interfaces. The phonetic correction layer eliminates redundant path conversions for improved internal handling.
 
-The prompt list holds the built-in default plus any prompt the user creates and can delete. A new prompt starts as a copy of the text on screen, deletion asks for confirmation, and the default cannot be removed but can be restored to the shipped wording. Unsaved edits survive switching between prompts until the settings screen is saved. Every prompt is a single file in the app's private storage, written atomically.
+In the Android framework layer, redundant constant definitions and uncalled view helpers have been eliminated. Marker file operations are now standardized through unified helper logic, and credential management flows have been streamlined to reduce unnecessary intent retries and simplify security state transitions.
 
-The recognition engine, the dictation surfaces and the release verification pipeline are unchanged.
+Tooling and script reliability are enhanced with proper socket resource closing in network reporting utilities and cleaned benchmark execution paths. Missing localized strings across seven non-English locales have been updated with complete, authentic translations ensuring natural phrasing for international users.
+
+All existing functional contracts, dictation surfaces, background services, and offline transcription pipelines remain fully preserved, with the complete verification and release pipeline passing without regressions.
