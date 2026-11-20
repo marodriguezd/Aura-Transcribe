@@ -20,6 +20,7 @@ use crossbeam_channel;
 use jni::objects::{JClass, JObject};
 use jni::JNIEnv;
 use once_cell::sync::Lazy;
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -70,10 +71,156 @@ const MAX_PARTIAL_COST_SECS: f32 = 2.0;
 const PREROLL_SAMPLES: usize = 6_400;
 /// Silence kept after the last speech when finalizing on silence (0.2 s).
 const FINAL_TAIL_SAMPLES: usize = 3_200;
-/// Per-block RMS at or above this counts as sound worth transcribing.
-const SPEECH_RMS: f32 = 0.004;
+/// Digital-silence floor: below this level a block can never be foreground
+/// speech, no matter how quiet the measured noise floor is.
+const MIN_ABSOLUTE_SPEECH_RMS: f32 = 0.004;
+/// How far above the running noise floor a block must sit to count as speech.
+const NOISE_FLOOR_MARGIN_RMS: f32 = 0.006;
+/// Upper clamp for the noise floor. Loud continuous material must never raise
+/// the floor so high that ordinary speech is ignored.
+const MAX_NOISE_FLOOR_RMS: f32 = 0.035;
+/// Window of recent blocks used for the noise-floor estimate (~2 s at the
+/// ~64 ms blocks `pushAudio` receives).
+const VAD_WINDOW_BLOCKS: usize = 32;
+/// EMA applied to the window minimum: 0.7 old / 0.3 new. Fast enough to follow
+/// background music within ~1 s, slow enough that one block cannot move it.
+const VAD_FLOOR_EMA_OLD: f32 = 0.7;
+const VAD_FLOOR_EMA_NEW: f32 = 0.3;
 /// Segments shorter than this are dropped as noise (0.25 s).
 const MIN_SEGMENT_SAMPLES: usize = 4_000;
+/// Silence after a sentence terminator that ends the segment early (280 ms).
+const EARLY_SENTENCE_SILENCE_SAMPLES: usize = 4_480;
+/// A clause boundary only ends a segment once it is this long (3.5 s).
+const CLAUSE_SPLIT_MIN_SEGMENT_SAMPLES: usize = 56_000;
+/// Micro-pause required after clause punctuation to split cleanly (220 ms).
+const CLAUSE_SPLIT_SILENCE_SAMPLES: usize = 3_520;
+
+/// Adaptive voice-activity detector for system audio.
+///
+/// A fixed RMS threshold cannot work for device audio: with steady background
+/// music above that threshold `silence_run` never grows and every segment is
+/// only closed by the 6 s hard cap. The noise floor is therefore estimated
+/// from the *minimum* RMS of a short rolling window, smoothed by a 0.7/0.3 EMA
+/// so a single quiet sample cannot drop it. The minimum (rather than an EMA of
+/// every block) matters: a plain EMA chases sustained speech and would
+/// eventually classify the speaker as noise. Speech is anything above the
+/// floor plus [`NOISE_FLOOR_MARGIN_RMS`], never below the digital-silence
+/// floor [`MIN_ABSOLUTE_SPEECH_RMS`].
+pub struct SubtitleVad {
+    /// Smoothed estimate of the background noise RMS.
+    noise_floor_rms: f32,
+    /// Window minimum over the last [`VAD_WINDOW_BLOCKS`] blocks.
+    window: VecDeque<f32>,
+}
+
+impl Default for SubtitleVad {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SubtitleVad {
+    pub fn new() -> Self {
+        Self {
+            noise_floor_rms: 0.0,
+            window: VecDeque::with_capacity(VAD_WINDOW_BLOCKS),
+        }
+    }
+
+    /// Current noise-floor estimate (exposed for logging/tests).
+    pub fn noise_floor(&self) -> f32 {
+        self.noise_floor_rms
+    }
+
+    /// Current speech threshold: the floor plus its margin, clamped up to the
+    /// digital-silence floor.
+    pub fn threshold(&self) -> f32 {
+        (self.noise_floor_rms + NOISE_FLOOR_MARGIN_RMS).max(MIN_ABSOLUTE_SPEECH_RMS)
+    }
+
+    /// Feeds one audio block and returns whether it contains foreground speech.
+    /// Pure, deterministic and O([`VAD_WINDOW_BLOCKS`]) per block.
+    pub fn observe(&mut self, rms: f32) -> bool {
+        let rms = if rms.is_finite() { rms.max(0.0) } else { 0.0 };
+        if self.window.len() == VAD_WINDOW_BLOCKS {
+            self.window.pop_front();
+        }
+        self.window.push_back(rms);
+        let window_min = self.window.iter().copied().fold(f32::INFINITY, f32::min);
+        self.noise_floor_rms = (self.noise_floor_rms * VAD_FLOOR_EMA_OLD
+            + window_min * VAD_FLOOR_EMA_NEW)
+            .clamp(0.0, MAX_NOISE_FLOOR_RMS);
+        rms >= self.threshold()
+    }
+}
+
+/// Whether `text` ends with strong sentence-terminal punctuation across Latin
+/// and CJK scripts, guarding decimals and single-letter abbreviations.
+pub fn ends_with_sentence_punct(text: &str) -> bool {
+    let t = text.trim_end();
+    let mut chars = t.chars().rev();
+    let last = match chars.next() {
+        Some(c) => c,
+        None => return false,
+    };
+    match last {
+        '。' | '？' | '！' | '?' | '!' | '…' => true,
+        '.' => {
+            let prev = chars.next();
+            let prev2 = chars.next();
+            match (prev, prev2) {
+                // "3.14" style decimals never end a sentence.
+                (Some(c), _) if c.is_ascii_digit() => false,
+                // "U.S." style dotted abbreviations.
+                (Some(c), Some('.')) if c.is_ascii_alphabetic() => false,
+                // Single capital letter followed by a period ("A.").
+                (Some(c), None) if c.is_ascii_uppercase() => false,
+                (Some(c), Some(' ')) if c.is_ascii_uppercase() => false,
+                _ => true,
+            }
+        }
+        _ => false,
+    }
+}
+
+/// Whether `text` ends with clause-internal punctuation.
+pub fn ends_with_clause_punct(text: &str) -> bool {
+    let t = text.trim_end();
+    matches!(
+        t.chars().last(),
+        Some('，' | '、' | ',' | ';' | ':' | '：' | '—')
+    )
+}
+
+/// Pure boundary decision: should the current segment be finalized now?
+///
+/// - 0.7 s of trailing silence or the 6 s hard cap always finalize.
+/// - A sentence terminator plus a 280 ms pause finalizes early (the pause that
+///   naturally follows a finished sentence).
+/// - Clause punctuation inside a segment longer than 3.5 s plus a 220 ms pause
+///   finalizes cleanly before the forced cut.
+pub fn should_finalize_segment(
+    segment_samples: usize,
+    silence_run: usize,
+    last_partial: &str,
+) -> bool {
+    if silence_run >= FINALIZE_SILENCE_SAMPLES || segment_samples >= MAX_SEGMENT_SAMPLES {
+        return true;
+    }
+    if segment_samples >= MIN_SEGMENT_SAMPLES
+        && silence_run >= EARLY_SENTENCE_SILENCE_SAMPLES
+        && ends_with_sentence_punct(last_partial)
+    {
+        return true;
+    }
+    if segment_samples >= CLAUSE_SPLIT_MIN_SEGMENT_SAMPLES
+        && silence_run >= CLAUSE_SPLIT_SILENCE_SAMPLES
+        && ends_with_clause_punct(last_partial)
+    {
+        return true;
+    }
+    false
+}
 
 struct Job {
     samples: Vec<f32>,
@@ -108,6 +255,16 @@ struct LiveSubtitleState {
     rtf_milli: Arc<AtomicU32>,
     /// Session generation this state belongs to; stamped on every job (P0.2).
     generation: u32,
+    /// Adaptive noise-floor VAD (background-music tolerant).
+    vad: SubtitleVad,
+    /// Text of the newest partial hypothesis for the current segment, shared
+    /// with the worker so `pushAudio` can finalize on sentence punctuation
+    /// without waiting for the full 0.7 s silence window.
+    last_partial_text: Arc<Mutex<String>>,
+    /// Stream position where the current segment started. The worker only
+    /// records partial text for jobs ending at or after it, so a late partial
+    /// from the previous segment cannot trigger an early cut in this one.
+    segment_epoch: Arc<AtomicU64>,
 }
 
 static LIVE_STATE: Lazy<Mutex<Option<LiveSubtitleState>>> = Lazy::new(|| Mutex::new(None));
@@ -140,6 +297,10 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_ini
     let total_pushed = Arc::new(AtomicU64::new(0));
     let pending_finals = Arc::new(AtomicUsize::new(0));
     let rtf_milli = Arc::new(AtomicU32::new(0));
+    let last_partial_text = Arc::new(Mutex::new(String::new()));
+    let segment_epoch = Arc::new(AtomicU64::new(0));
+    let worker_partial_text = last_partial_text.clone();
+    let worker_segment_epoch = segment_epoch.clone();
 
     *LIVE_STATE.lock().unwrap_or_else(|p| p.into_inner()) = Some(LiveSubtitleState {
         segment: Vec::new(),
@@ -153,6 +314,9 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_ini
         pending_finals: pending_finals.clone(),
         rtf_milli: rtf_milli.clone(),
         generation,
+        vad: SubtitleVad::new(),
+        last_partial_text,
+        segment_epoch,
     });
 
     std::thread::spawn(move || {
@@ -306,6 +470,23 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_ini
                         continue;
                     }
                     let text = r.trim();
+                    // Publish the newest partial hypothesis so `pushAudio` can
+                    // end the segment on sentence punctuation + a short pause
+                    // instead of waiting for the full silence window. A late
+                    // partial from a finalized segment is ignored via the
+                    // segment epoch, so it cannot cut the next segment early.
+                    if job.is_final {
+                        worker_partial_text
+                            .lock()
+                            .unwrap_or_else(|p| p.into_inner())
+                            .clear();
+                    } else if job.end_sample >= worker_segment_epoch.load(Ordering::SeqCst) {
+                        let mut slot = worker_partial_text
+                            .lock()
+                            .unwrap_or_else(|p| p.into_inner());
+                        slot.clear();
+                        slot.push_str(text);
+                    }
                     if !text.is_empty() && gap_pending {
                         // Mark the dropped stretch so the transcript doesn't
                         // silently glue unrelated sentences together.
@@ -379,7 +560,7 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_pus
         let stream_pos = state.total_pushed.fetch_add(len as u64, Ordering::SeqCst) + len as u64;
 
         let rms = crate::audio::fast_rms(slice);
-        let is_sound = rms >= SPEECH_RMS;
+        let is_sound = state.vad.observe(rms);
 
         if !state.has_speech {
             if is_sound {
@@ -408,10 +589,21 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_pus
             }
         }
 
-        let silence_done = state.silence_run >= FINALIZE_SILENCE_SAMPLES;
-        if silence_done || state.segment.len() >= MAX_SEGMENT_SAMPLES {
+        let last_partial = state
+            .last_partial_text
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        let boundary =
+            should_finalize_segment(state.segment.len(), state.silence_run, &last_partial);
+        if boundary {
+            // A boundary reached through silence (0.7 s, sentence punctuation
+            // + 280 ms, or clause punctuation + 220 ms) ends the utterance; the
+            // 6 s hard cap in dense speech splits at the quietest point and
+            // carries the remainder into the next segment so no word is cut.
+            let ends_by_pause = state.silence_run >= CLAUSE_SPLIT_SILENCE_SAMPLES;
             let mut samples = std::mem::take(&mut state.segment);
-            if silence_done {
+            if ends_by_pause {
                 // Drop most of the trailing silence; keep a short tail.
                 let keep = samples.len() - state.silence_run + FINAL_TAIL_SAMPLES;
                 samples.truncate(keep.min(samples.len()));
@@ -427,6 +619,14 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_pus
             }
             state.silence_run = 0;
             state.samples_since_tick = state.segment.len();
+            // The partial that justified this boundary belongs to the segment
+            // that just ended; start the next one with a clean slate.
+            state
+                .last_partial_text
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .clear();
+            state.segment_epoch.store(stream_pos, Ordering::SeqCst);
 
             if samples.len() >= MIN_SEGMENT_SAMPLES {
                 // Finals are always queued (the worker may still drop them if
@@ -510,5 +710,174 @@ mod tests {
         assert!(merge_fits(0, 60, 100));
         assert!(merge_fits(60, 40, 100));
         assert!(!merge_fits(60, 41, 100));
+    }
+
+    /// Feeds `blocks` identical RMS blocks and returns how many were speech.
+    fn feed(vad: &mut SubtitleVad, rms: f32, blocks: usize) -> usize {
+        (0..blocks).filter(|_| vad.observe(rms)).count()
+    }
+
+    #[test]
+    fn vad_detects_speech_in_digital_silence() {
+        let mut vad = SubtitleVad::new();
+        assert!(!vad.observe(0.0));
+        assert!(vad.observe(0.05));
+        assert!(!vad.observe(0.0));
+    }
+
+    #[test]
+    fn vad_adapts_to_constant_background_music() {
+        // Music at 0.02 used to keep `silence_run` at zero forever. After the
+        // window fills, the floor must sit above the music so pauses count.
+        let mut vad = SubtitleVad::new();
+        for _ in 0..(VAD_WINDOW_BLOCKS + 10) {
+            vad.observe(0.02);
+        }
+        assert!(!vad.observe(0.02), "steady music must become background");
+        assert!(vad.observe(0.08), "speech over the music must be detected");
+        assert!(!vad.observe(0.02), "the pause back to music is silence");
+        assert!(vad.noise_floor() > 0.014);
+    }
+
+    #[test]
+    fn vad_adapts_to_low_background_hum() {
+        let mut vad = SubtitleVad::new();
+        for _ in 0..(VAD_WINDOW_BLOCKS + 10) {
+            vad.observe(0.006);
+        }
+        assert!(!vad.observe(0.006));
+        assert!(vad.observe(0.05));
+    }
+
+    #[test]
+    fn vad_isolated_peak_does_not_poison_the_floor() {
+        let mut vad = SubtitleVad::new();
+        feed(&mut vad, 0.001, VAD_WINDOW_BLOCKS + 10);
+        let before = vad.noise_floor();
+        assert!(vad.observe(0.9), "a loud transient is itself sound");
+        feed(&mut vad, 0.001, VAD_WINDOW_BLOCKS);
+        assert!(vad.noise_floor() < before + 0.005);
+        assert!(
+            vad.observe(0.03),
+            "normal speech after the peak is detected"
+        );
+    }
+
+    #[test]
+    fn vad_floor_is_clamped() {
+        let mut vad = SubtitleVad::new();
+        feed(&mut vad, 0.5, VAD_WINDOW_BLOCKS * 4);
+        assert!(vad.noise_floor() <= MAX_NOISE_FLOOR_RMS + f32::EPSILON);
+        assert!(vad.observe(1.0));
+    }
+
+    #[test]
+    fn vad_ignores_non_finite_rms() {
+        let mut vad = SubtitleVad::new();
+        assert!(!vad.observe(f32::NAN));
+        assert!(!vad.observe(f32::INFINITY));
+        assert!(vad.noise_floor().is_finite());
+        assert!(vad.observe(0.05));
+    }
+
+    #[test]
+    fn sentence_punctuation_detected_across_scripts() {
+        for text in ["Hola.", "你好。", "¿Qué?", "¡Ya!", "Well!", "End…"] {
+            assert!(ends_with_sentence_punct(text), "{text}");
+        }
+    }
+
+    #[test]
+    fn sentence_punctuation_negative_cases() {
+        for text in [
+            "3.14",
+            "U.S.",
+            "A.",
+            "version 2.0",
+            "sin puntuacion",
+            "",
+            "   ",
+        ] {
+            assert!(!ends_with_sentence_punct(text), "{text}");
+        }
+    }
+
+    #[test]
+    fn clause_punctuation_detected() {
+        for text in ["hola,", "你好，", "uno、", "a; b:", "x：", "y—"] {
+            assert!(ends_with_clause_punct(text), "{text}");
+        }
+        assert!(!ends_with_clause_punct("hola."));
+        assert!(!ends_with_clause_punct("hola"));
+    }
+
+    #[test]
+    fn full_silence_or_hard_cap_always_finalizes() {
+        assert!(should_finalize_segment(
+            8_000,
+            FINALIZE_SILENCE_SAMPLES,
+            "hola"
+        ));
+        assert!(should_finalize_segment(MAX_SEGMENT_SAMPLES, 0, ""));
+    }
+
+    #[test]
+    fn sentence_terminator_ends_early_with_short_pause() {
+        assert!(should_finalize_segment(
+            8_000,
+            EARLY_SENTENCE_SILENCE_SAMPLES,
+            "Hola."
+        ));
+        assert!(should_finalize_segment(
+            8_000,
+            EARLY_SENTENCE_SILENCE_SAMPLES,
+            "你好。"
+        ));
+    }
+
+    #[test]
+    fn sentence_terminator_without_pause_or_terminator_does_not_cut() {
+        assert!(!should_finalize_segment(8_000, 1_000, "Hola."));
+        assert!(!should_finalize_segment(
+            8_000,
+            EARLY_SENTENCE_SILENCE_SAMPLES,
+            "Hola"
+        ));
+        // Negative cases: decimals and dotted abbreviations are not sentence
+        // ends, so even with a 280 ms pause they must not cut early.
+        assert!(!should_finalize_segment(
+            8_000,
+            EARLY_SENTENCE_SILENCE_SAMPLES,
+            "3.14"
+        ));
+        assert!(!should_finalize_segment(
+            8_000,
+            EARLY_SENTENCE_SILENCE_SAMPLES,
+            "U.S."
+        ));
+    }
+
+    #[test]
+    fn clause_split_needs_length_punctuation_and_pause() {
+        assert!(should_finalize_segment(
+            CLAUSE_SPLIT_MIN_SEGMENT_SAMPLES,
+            CLAUSE_SPLIT_SILENCE_SAMPLES,
+            "hola,"
+        ));
+        assert!(!should_finalize_segment(
+            CLAUSE_SPLIT_MIN_SEGMENT_SAMPLES - 1,
+            CLAUSE_SPLIT_SILENCE_SAMPLES,
+            "hola,"
+        ));
+        assert!(!should_finalize_segment(
+            CLAUSE_SPLIT_MIN_SEGMENT_SAMPLES + 4_000,
+            CLAUSE_SPLIT_SILENCE_SAMPLES - 1,
+            "hola,"
+        ));
+        assert!(!should_finalize_segment(
+            CLAUSE_SPLIT_MIN_SEGMENT_SAMPLES + 4_000,
+            CLAUSE_SPLIT_SILENCE_SAMPLES,
+            "hola"
+        ));
     }
 }
