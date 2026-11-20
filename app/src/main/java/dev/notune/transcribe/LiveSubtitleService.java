@@ -295,6 +295,11 @@ public class LiveSubtitleService extends Service {
         mPartialBusy = false;
         mTranslationFallbackToOriginal = false;
         if (mSubtitleContextWindow != null) mSubtitleContextWindow.clearCache();
+        if (mDisplayStabilizer != null) {
+            mDisplayStabilizer.resetUtterance();
+            mDisplayStabilizer.resetWindow();
+        }
+        mTranslatedWindowStart = 0;
         mTranslationUnavailableNotified = false;
         mSubtitleSourceLanguage = SubtitleTranslationTargets.AUTO;
         mSessionResolvedSourceCode = null;
@@ -356,6 +361,8 @@ public class LiveSubtitleService extends Service {
         mSubtitleSourceLanguage = SubtitlePrefs.getSourceLanguage(this);
         mSessionResolvedSourceCode = null;
         mSubtitleContextWindow = new SubtitleContextWindow();
+        mDisplayStabilizer = new SubtitleDisplayStabilizer();
+        mTranslatedWindowStart = 0;
         mLastTranslatedPartial = "";
         mLastPartialSource = "";
         mLastPartialTranslateTimeMs = 0L;
@@ -634,6 +641,10 @@ public class LiveSubtitleService extends Service {
     private String mSessionResolvedSourceCode = null;
     private SubtitleTranslator mTranslator;
     private SubtitleContextWindow mSubtitleContextWindow;
+    private SubtitleDisplayStabilizer mDisplayStabilizer;
+    // Monotonic start offset (in chars) for the translated caption window:
+    // once text scrolls off the top it never comes back.
+    private int mTranslatedWindowStart = 0;
     // Progressive partial-translation state (M4).
     private String mLastTranslatedPartial = "";
     private String mLastPartialSource = "";
@@ -717,6 +728,7 @@ public class LiveSubtitleService extends Service {
         if (text == null || text.trim().isEmpty()) return;
         if (mTranslationFallbackToOriginal) {
             addFinalSegment(text, true);
+            if (mDisplayStabilizer != null) mDisplayStabilizer.resetUtterance();
             resolveSource(text);
             mSubtitleContextWindow.recordFinal(text, text,
                     mSessionResolvedSourceCode, System.currentTimeMillis());
@@ -725,6 +737,7 @@ public class LiveSubtitleService extends Service {
         }
         if (isPunctuationOnly(text) || mTranslationQueue.size() >= MAX_TRANSLATION_QUEUE) {
             addFinalSegment(text, true);
+            if (mDisplayStabilizer != null) mDisplayStabilizer.resetUtterance();
             resolveSource(text);
             mSubtitleContextWindow.recordFinal(text, text,
                     mSessionResolvedSourceCode, System.currentTimeMillis());
@@ -743,10 +756,10 @@ public class LiveSubtitleService extends Service {
             String translated = (cached != null) ? cached : mLastTranslatedPartial;
             mLastTranslatedPartial = "";
             mPendingPartialSource = null;
-            mSubtitleContextWindow.recordFinal(text, translated, sourceCode, now);
-            addFinalSegment(translated, true);
-            renderTranslatedCaption("");
-            return;
+            mSubtitleContextWindow.recordFinal(text, translated, sourceCode, now);        addFinalSegment(translated, true);
+        if (mDisplayStabilizer != null) mDisplayStabilizer.resetUtterance();
+        renderTranslatedCaption("");
+        return;
         }
         // Keep the last translated partial visible until the final lands (no
         // blank flicker); do not leak the untranslated source.
@@ -816,7 +829,11 @@ public class LiveSubtitleService extends Service {
                         mSubtitleContextWindow.putCached(sourceCode, targetCode,
                                 contextPrefix, text, extracted);
                     }
-                    mLastTranslatedPartial = extracted;
+                    if (mDisplayStabilizer != null) {
+                        mLastTranslatedPartial = mDisplayStabilizer.stabilize(extracted);
+                    } else {
+                        mLastTranslatedPartial = extracted;
+                    }
                     renderTranslatedCaption("");
                     String pending = mPendingPartialSource;
                     mPendingPartialSource = null;
@@ -967,13 +984,19 @@ public class LiveSubtitleService extends Service {
         mLastTranslatedPartial = "";
         mPendingPartialSource = null;
         addFinalSegment(translated, true);
+        if (mDisplayStabilizer != null) mDisplayStabilizer.resetUtterance();
         renderTranslatedCaption("");
         pumpTranslationQueue();
     }
 
     /** Renders the segment list plus the live partial through the same
      *  last-N-lines window the classic path uses. Pending segments keep their
-     *  original text until their translation lands, so captions never pause. */
+     *  original text until their translation lands, so captions never pause.
+     *
+     *  <p>Monotonic: once a character offset has scrolled off the top it never
+     *  comes back, even if a later partial becomes shorter. The active partial
+     *  is rendered at 75 % alpha via {@link SubtitleDisplayStabilizer#withPartialAlpha}.
+     */
     private void renderTranslatedCaption(String partial) {
         if (mSubtitleText == null) return;
         StringBuilder full = new StringBuilder();
@@ -982,28 +1005,56 @@ public class LiveSubtitleService extends Service {
             full.append(' ');
         }
         String tail = partial.isEmpty() ? mLastTranslatedPartial : partial;
-        if (!tail.isEmpty()) full.append(tail);
+        boolean hasTail = !tail.isEmpty();
+        int tailStart = full.length();
+        if (hasTail) full.append(tail);
         String text = full.toString();
         if (text.isEmpty()) {
             mSubtitleText.setText("");
             return;
         }
-        String visible = text;
+        // Monotonic window start (never moves backward).
+        if (mTranslatedWindowStart > text.length()) mTranslatedWindowStart = 0;
+        String visible = text.substring(Math.min(mTranslatedWindowStart, text.length()));
+        int tailVisibleStart = tailStart - mTranslatedWindowStart;
+        if (tailVisibleStart < 0) tailVisibleStart = -1; // tail scrolled off
+
         if (mMaxLines > 0) {
             int width = mSubtitleText.getWidth()
                     - mSubtitleText.getPaddingLeft() - mSubtitleText.getPaddingRight();
-            if (width > 0) {
+            if (width > 0 && !visible.isEmpty()) {
                 StaticLayout layout = StaticLayout.Builder
                         .obtain(visible, 0, visible.length(), mSubtitleText.getPaint(), width)
                         .build();
                 int lineCount = layout.getLineCount();
                 if (lineCount > mMaxLines) {
                     int cut = layout.getLineStart(lineCount - mMaxLines);
-                    visible = visible.substring(cut);
+                    if (cut > 0) {
+                        mTranslatedWindowStart += cut;
+                        if (mTranslatedWindowStart > text.length()) mTranslatedWindowStart = text.length();
+                        visible = text.substring(mTranslatedWindowStart);
+                        tailVisibleStart = tailStart - mTranslatedWindowStart;
+                        if (tailVisibleStart < 0) tailVisibleStart = -1;
+                    }
                 }
             }
         }
-        mSubtitleText.setText(visible);
+
+        if (!hasTail || tailVisibleStart < 0 || tailVisibleStart >= visible.length()) {
+            mSubtitleText.setText(visible);
+            return;
+        }
+        // Split the visible text into consolidated (100 %) and partial (75 %).
+        android.text.SpannableStringBuilder ssb = new android.text.SpannableStringBuilder(visible);
+        int tailLen = Math.min(tail.length(), visible.length() - tailVisibleStart);
+        if (tailLen > 0) {
+            int baseColor = mSubtitleText.getCurrentTextColor();
+            int partialColor = SubtitleDisplayStabilizer.withPartialAlpha(baseColor);
+            ssb.setSpan(new android.text.style.ForegroundColorSpan(partialColor),
+                    tailVisibleStart, tailVisibleStart + tailLen,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        mSubtitleText.setText(ssb);
     }
 
     /** Caps the stored segment list, never dropping a pending translation. */
