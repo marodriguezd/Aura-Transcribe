@@ -333,6 +333,26 @@ pub fn should_finalize_segment(
     false
 }
 
+/// Splits `samples` at a forced mid-speech boundary (`!ends_by_pause`) and
+/// returns the carry-over tail for the next segment.
+///
+/// - In `Batch` mode, splits at the quietest point in the last 3 s and carries
+///   the remainder into the next segment so no word is chopped.
+/// - In `Streaming` mode, every sample in `samples` was already forwarded live
+///   to the stream that is now being finalized; carrying a tail in `state.segment`
+///   would desynchronize `state.segment.len()` from the next stream without
+///   feeding those samples to it.
+pub fn split_forced_cut(pipeline: SubtitlePipeline, samples: &mut Vec<f32>) -> Vec<f32> {
+    match pipeline {
+        SubtitlePipeline::Streaming => Vec::new(),
+        SubtitlePipeline::Batch => {
+            let from = samples.len().saturating_sub(3 * SAMPLE_RATE);
+            let split = crate::audio::find_quietest_split(samples, from, samples.len());
+            samples.split_off(split)
+        }
+    }
+}
+
 struct Job {
     samples: Vec<f32>,
     is_final: bool,
@@ -584,6 +604,16 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_ini
         Ok(r) => r,
         Err(_) => return,
     };
+
+    // Cold-start preload: if the engine is not loaded yet, kick off a
+    // background load so the first utterance does not stall on the UI thread.
+    if !engine::is_engine_loaded() {
+        let preload_vm = vm.clone();
+        let preload_service_ref = service_ref.clone();
+        std::thread::spawn(move || {
+            let _ = engine::ensure_loaded_from_thread(&preload_vm, &preload_service_ref);
+        });
+    }
 
     // New session: bump the generation so any job still queued in an older
     // session's channel is recognized as stale and never transcribed or
@@ -940,10 +970,9 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_pus
             } else {
                 // Forced cut mid-speech: split at the quietest point in the last
                 // few seconds and carry the remainder into the next segment so no
-                // word is chopped in half.
-                let from = samples.len().saturating_sub(3 * SAMPLE_RATE);
-                let split = crate::audio::find_quietest_split(&samples, from, samples.len());
-                state.segment = samples.split_off(split);
+                // word is chopped in half. In Streaming mode the audio was
+                // already forwarded live, so no tail is carried.
+                state.segment = split_forced_cut(state.pipeline.pipeline(), &mut samples);
             }
             state.silence_run = 0;
             state.samples_since_tick = state.segment.len();
@@ -1329,5 +1358,22 @@ mod tests {
             CLAUSE_SPLIT_SILENCE_SAMPLES,
             "hola"
         ));
+    }
+
+    #[test]
+    fn forced_cut_carries_tail_only_in_batch_mode() {
+        let mut batch_samples: Vec<f32> = (0..10_000).map(|i| i as f32 * 0.0001).collect();
+        let batch_original_len = batch_samples.len();
+        let tail = split_forced_cut(SubtitlePipeline::Batch, &mut batch_samples);
+        // Batch: the carry-over tail is split off; the remainder stays.
+        assert!(!tail.is_empty() || batch_samples.is_empty());
+        assert_eq!(batch_samples.len() + tail.len(), batch_original_len);
+
+        let mut stream_samples: Vec<f32> = (0..10_000).map(|i| i as f32 * 0.0001).collect();
+        let stream_original_len = stream_samples.len();
+        let stream_tail = split_forced_cut(SubtitlePipeline::Streaming, &mut stream_samples);
+        // Streaming: no phantom tail is carried.
+        assert!(stream_tail.is_empty());
+        assert_eq!(stream_samples.len(), stream_original_len);
     }
 }

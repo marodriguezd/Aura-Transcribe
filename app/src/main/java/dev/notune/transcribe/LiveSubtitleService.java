@@ -290,6 +290,8 @@ public class LiveSubtitleService extends Service {
         mTranslationBusy = false;
         mLastPartial = "";
         mTranslationUnavailableNotified = false;
+        mSubtitleSourceLanguage = SubtitleTranslationTargets.AUTO;
+        mSessionResolvedSourceCode = null;
         if (mTranslator != null) {
             mTranslator.cancelAll();
             mTranslator = null;
@@ -345,6 +347,8 @@ public class LiveSubtitleService extends Service {
         // on-device translator for this session only.
         mTranslationTarget = SubtitlePrefs.getTranslationTarget(this);
         mModelLanguage = MarkerFileHelper.readString(this, "model_language", "auto");
+        mSubtitleSourceLanguage = SubtitlePrefs.getSourceLanguage(this);
+        mSessionResolvedSourceCode = null;
         mTranslationMode = !SubtitleTranslationTargets.AUTO.equals(mTranslationTarget);
         mTranslator = mTranslationMode ? new OnDeviceSubtitleTranslator() : null;
         mTranslationGeneration++;
@@ -613,6 +617,8 @@ public class LiveSubtitleService extends Service {
     private boolean mTranslationMode = false;
     private String mTranslationTarget = SubtitleTranslationTargets.AUTO;
     private String mModelLanguage = "auto";
+    private String mSubtitleSourceLanguage = SubtitleTranslationTargets.AUTO;
+    private String mSessionResolvedSourceCode = null;
     private SubtitleTranslator mTranslator;
     private final ArrayDeque<CaptionSegment> mCaptionSegments = new ArrayDeque<>();
     private final ArrayDeque<TranslationJob> mTranslationQueue = new ArrayDeque<>();
@@ -707,7 +713,11 @@ public class LiveSubtitleService extends Service {
         if (mTranslationBusy || mTranslationQueue.isEmpty() || mTranslator == null) return;
         mTranslationBusy = true;
         final TranslationJob job = mTranslationQueue.peek();
-        final String sourceCode = SourceLanguageResolver.resolve(job.text, mModelLanguage);
+        final String sourceCode = SourceLanguageResolver.resolve(
+                job.text, mSubtitleSourceLanguage, mModelLanguage, mSessionResolvedSourceCode);
+        if (sourceCode != null) {
+            mSessionResolvedSourceCode = sourceCode;
+        }
         final String targetCode = SubtitleTranslationTargets.mlKitCode(mTranslationTarget);
         mTranslator.translate(job.text, sourceCode, targetCode, new SubtitleTranslator.Callback() {
             @Override

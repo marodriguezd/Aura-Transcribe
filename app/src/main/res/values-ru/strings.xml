@@ -39,6 +39,11 @@
     <string name="subtitle_lines_4">4 строки</string>
     <string name="subtitle_lines_all">Все</string>
 
+    <string name="setting_subtitle_source_language">Audio language</string>
+    <string name="setting_subtitle_source_language_desc">Language spoken in the audio. "Auto" detects it per segment. Pinning a language helps short or ambiguous fragments.</string>
+    <string name="subtitle_source_language_auto">Auto (detect)</string>
+    <string name="subtitle_source_language_saved">Audio language saved</string>
+
     <string name="setting_subtitle_translation">Перевод субтитров</string>
     <string name="setting_subtitle_translation_desc">Переводит живые субтитры после распознавания. «Авто (исходный язык)» сохраняет язык речи. При выборе фиксированного языка при первом использовании загружается небольшой пакет (Google Play Services; сам перевод выполняется на устройстве и затем работает офлайн).</string>
     <string name="subtitle_translation_auto">Авто (исходный язык)</string>

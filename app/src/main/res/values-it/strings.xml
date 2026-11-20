@@ -39,6 +39,11 @@
     <string name="subtitle_lines_4">4 righe</string>
     <string name="subtitle_lines_all">Tutte</string>
 
+    <string name="setting_subtitle_source_language">Audio language</string>
+    <string name="setting_subtitle_source_language_desc">Language spoken in the audio. "Auto" detects it per segment. Pinning a language helps short or ambiguous fragments.</string>
+    <string name="subtitle_source_language_auto">Auto (detect)</string>
+    <string name="subtitle_source_language_saved">Audio language saved</string>
+
     <string name="setting_subtitle_translation">Traduzione sottotitoli</string>
     <string name="setting_subtitle_translation_desc">Traduce i sottotitoli in diretta dopo il riconoscimento. «Auto (lingua originale)» conserva la lingua parlata. Scegliendo una lingua fissa, al primo utilizzo viene scaricato un piccolo pacchetto (Google Play Services; la traduzione stessa è on-device e poi funziona offline).</string>
     <string name="subtitle_translation_auto">Auto (lingua originale)</string>

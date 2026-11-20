@@ -337,10 +337,18 @@ impl Engine {
         samples: &[f32],
         task: Option<transcribe_cpp::Task>,
     ) -> Result<String, String> {
+        // Keep the original request separate from the resolved task: only the
+        // subtitle path explicitly passes `Some(Task::Transcribe)`, and that is
+        // what selects `subtitle_language()` instead of `effective_language()`.
+        let is_subtitle = task == Some(transcribe_cpp::Task::Transcribe);
         let task = task.unwrap_or(self.task);
         // Re-read the hint on every run (see effective_language). The hint is
         // degraded locally per run; the marker file stays the source of truth.
-        let mut hint = self.effective_language();
+        let mut hint = if is_subtitle {
+            self.subtitle_language()
+        } else {
+            self.effective_language()
+        };
         loop {
             let opts = transcribe_cpp::RunOptions {
                 language: hint.clone(),

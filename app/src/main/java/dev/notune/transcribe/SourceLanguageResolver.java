@@ -1,5 +1,9 @@
 package dev.notune.transcribe;
 
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
+
 /**
  * Resolves the <em>source</em> language of a finalized subtitle segment so the
  * on-device translator knows what to translate from. The live-subtitle path
@@ -36,6 +40,45 @@ public final class SourceLanguageResolver {
         String fromModel = primaryCode(modelLanguageTag);
         if (fromModel != null) return fromModel;
         return detectFromText(text);
+    }
+
+    /**
+     * Extended resolution used by {@code LiveSubtitleService}: an explicit
+     * subtitle source language wins, then the model language, then text
+     * detection (script + diacritics + Latin stopword lexicon), and finally
+     * the session memory code when the fragment is too short/neural to decide.
+     */
+    public static String resolve(String text, String subtitleSourceTag,
+                                 String modelLanguageTag, String sessionMemoryCode) {
+        String fromSubtitle = primaryCode(subtitleSourceTag);
+        if (fromSubtitle != null) return fromSubtitle;
+        String fromModel = primaryCode(modelLanguageTag);
+        if (fromModel != null) return fromModel;
+        String detected = detectFromTextWithLexicon(text);
+        if (detected != null) return detected;
+        if (sessionMemoryCode != null && hasLetterOrDigit(text)) return sessionMemoryCode;
+        return null;
+    }
+
+    /**
+     * Like {@link #detectFromText(String)} but, when script/diacritic detection
+     * returns {@code null}, falls back to an O(1) Latin stopword lexicon.
+     */
+    public static String detectFromTextWithLexicon(String text) {
+        String direct = detectFromText(text);
+        if (direct != null) return direct;
+        return detectLatinByStopwords(text);
+    }
+
+    /** Whether the text contains at least one letter or digit. */
+    public static boolean hasLetterOrDigit(String text) {
+        if (text == null) return false;
+        for (int i = 0; i < text.length(); ) {
+            int cp = text.codePointAt(i);
+            i += Character.charCount(cp);
+            if (Character.isLetterOrDigit(cp)) return true;
+        }
+        return false;
     }
 
     /**
@@ -149,5 +192,76 @@ public final class SourceLanguageResolver {
     /** Distinctive Portuguese diacritics (á/â/ç/ê/ô are shared with others). */
     private static boolean isPort(int cp) {
         return cp == 'ã' || cp == 'õ';
+    }
+
+    // Stopword lexicon (O(1) Latin language detection). High-signal function
+    // words per language; see SUBTITLES_SPEC M3.2.
+    private static final Set<String> STOP_EN = new HashSet<>(Arrays.asList(
+            "the","and","that","with","have","this","from","they","would","about",
+            "there","their","what","which","when","your","will","can","just","because",
+            "into","people","think","know","going","really","very","here","some","than",
+            "welcome","back","hello","everyone","today"));
+    private static final Set<String> STOP_ES = new HashSet<>(Arrays.asList(
+            "los","las","del","una","para","con","por","pero","como","esta","este","esto",
+            "son","todo","todos","fue","muy","sin","sobre","entre","cuando","desde",
+            "porque","nosotros","tienen","hace","donde","hola","bienvenidos","hoy"));
+    private static final Set<String> STOP_FR = new HashSet<>(Arrays.asList(
+            "les","des","dans","pour","avec","sur","pas","plus","cette","sont","mais",
+            "comme","tout","tous","aussi","fait","bien","sans","entre","quand","depuis",
+            "parce","nous","vous","ils","elle","leurs","bonjour","bienvenue"));
+    private static final Set<String> STOP_DE = new HashSet<>(Arrays.asList(
+            "der","die","das","und","ist","nicht","mit","auf","sich","dem","den","ein",
+            "eine","als","auch","aber","oder","wie","wir","sind","war","wird","noch",
+            "nach","durch","wenn","nur","hallo","willkommen","heute"));
+    private static final Set<String> STOP_IT = new HashSet<>(Arrays.asList(
+            "che","non","per","sono","della","delle","degli","anche","questo","questa",
+            "essere","molto","hanno","fatto","tutto","tutti","dalla","nella","quando",
+            "siamo","dopo","prima","sempre","ciao","benvenuti","oggi"));
+    private static final Set<String> STOP_PT = new HashSet<>(Arrays.asList(
+            "uma","com","mais","mas","foi","seus","suas","pela","pelo","nos","das","dos",
+            "isso","muito","quando","sobre","depois","ainda","mesmo","ola","bem","hoje"));
+
+    private static final Set<String> ULTRA_EXCLUSIVE = new HashSet<>(Arrays.asList(
+            "the","and","that","with","this","from","they","welcome","hello","everyone",
+            "los","las","del","pero","nosotros","bienvenidos",
+            "les","dans","avec","cette","bonjour",
+            "der","und","nicht","wir",
+            "della","degli","questo","questa","sono",
+            "muito","isso","seus","pela"));
+
+    public static String detectLatinByStopwords(String text) {
+        if (text == null || text.isEmpty()) return null;
+        String[] tokens = text.toLowerCase(java.util.Locale.ROOT)
+                .split("[^a-z\\u00C0-\\u024F]+");
+        Set<String>[] sets = new Set[] { STOP_EN, STOP_ES, STOP_FR, STOP_DE, STOP_IT, STOP_PT };
+        String[] langs = { "en", "es", "fr", "de", "it", "pt" };
+        int[] scores = new int[6];
+        boolean[] ultraSeen = new boolean[6];
+        for (String tok : tokens) {
+            if (tok.isEmpty()) continue;
+            for (int i = 0; i < 6; i++) {
+                if (sets[i].contains(tok)) {
+                    scores[i]++;
+                    if (ULTRA_EXCLUSIVE.contains(tok)) ultraSeen[i] = true;
+                }
+            }
+        }
+        int best = 0;
+        for (int s : scores) if (s > best) best = s;
+        if (best < 1) return null;
+        int winners = 0;
+        int winIdx = -1;
+        for (int i = 0; i < 6; i++) {
+            if (scores[i] == best) { winners++; winIdx = i; }
+        }
+        boolean thresholdOk;
+        if (best >= 2) {
+            thresholdOk = true;
+        } else { // best == 1
+            thresholdOk = ultraSeen[winIdx];
+        }
+        if (!thresholdOk) return null;
+        if (winners != 1) return null;
+        return langs[winIdx];
     }
 }

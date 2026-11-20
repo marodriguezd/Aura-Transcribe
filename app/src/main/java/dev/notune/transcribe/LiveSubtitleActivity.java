@@ -78,6 +78,7 @@ public class LiveSubtitleActivity extends AppCompatActivity {
 
         mProjectionManager = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
 
+        setupSubtitleSourceLanguageSpinner(findViewById(R.id.spinner_subtitle_source_language));
         setupSubtitleTranslationSpinner(findViewById(R.id.spinner_subtitle_translation));
         findViewById(R.id.btn_live_subs_start).setOnClickListener(v -> beginSubtitleFlow());
     }
@@ -143,6 +144,40 @@ public class LiveSubtitleActivity extends AppCompatActivity {
         }
         mProjectionStarted = true;
         projectionLauncher.launch(mProjectionManager.createScreenCaptureIntent());
+    }
+
+    /**
+     * Live-subtitle source (audio) language. "Auto" defers to text detection;
+     * a fixed tag pins the origin language for the whole session.
+     */
+    private void setupSubtitleSourceLanguageSpinner(Spinner spinner) {
+        List<String> tags = new ArrayList<>(SubtitleTranslationTargets.SOURCE_TAGS);
+        List<String> labels = new ArrayList<>(tags.size());
+        for (String tag : tags) {
+            labels.add(SubtitleTranslationTargets.AUTO.equals(tag)
+                    ? getString(R.string.subtitle_source_language_auto)
+                    : Locale.forLanguageTag(tag).getDisplayName() + " (" + tag + ")");
+        }
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(
+                this, android.R.layout.simple_spinner_item, labels);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinner.setAdapter(adapter);
+        String stored = SubtitlePrefs.getSourceLanguage(this);
+        spinner.setSelection(Math.max(0, tags.indexOf(stored)), false);
+        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                String tag = tags.get(position);
+                if (tag.equals(SubtitlePrefs.getSourceLanguage(LiveSubtitleActivity.this))) return;
+                SubtitlePrefs.setSourceLanguage(LiveSubtitleActivity.this, tag);
+                Snackbar.make(findViewById(android.R.id.content),
+                        getString(R.string.subtitle_source_language_saved), Snackbar.LENGTH_LONG).show();
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+            }
+        });
     }
 
     /**
