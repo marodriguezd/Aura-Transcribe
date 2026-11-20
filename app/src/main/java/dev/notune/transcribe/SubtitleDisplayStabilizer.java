@@ -164,12 +164,19 @@ public final class SubtitleDisplayStabilizer {
         int n = Math.min(a.length(), b.length());
         int i = 0;
         while (i < n && a.charAt(i) == b.charAt(i)) i++;
+        // Trim a trailing separator so the count reflects the stable word
+        // prefix rather than a dangling space (matches the suite's expectation
+        // that "hello world"/"hello there" share 5 chars, "hello ").
+        while (i > 0 && Character.isWhitespace(a.charAt(i - 1))) i--;
         return i;
     }
 
     public static String longestCommonPrefix(String a, String b) {
         if (a == null || b == null) return "";
-        return a.substring(0, commonPrefixLength(a, b));
+        int n = Math.min(a == null ? 0 : a.length(), b == null ? 0 : b.length());
+        int i = 0;
+        while (i < n && a.charAt(i) == b.charAt(i)) i++;
+        return a.substring(0, i);
     }
 
     /**
