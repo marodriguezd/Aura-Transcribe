@@ -1,13 +1,22 @@
 //! Native backend for `LiveSubtitleService` (real-time captions for device audio).
 //!
-//! Audio arrives via `pushAudio` in small blocks (~64 ms). We build up a
-//! *segment* of speech, send the whole segment to a worker thread for
-//! transcription roughly once per tick, and display the result as a *partial*
-//! (replaceable) caption. When trailing silence is detected — or the segment
-//! hits a hard cap — the segment is *finalized*: transcribed once more and
-//! committed, then the buffer starts fresh.
+//! Audio arrives via `pushAudio` in small blocks (~64 ms). Two pipelines are
+//! possible, chosen once per session:
 //!
-//! Three things keep latency low and bounded:
+//! - **Streaming** (models with native cache-aware streaming, e.g. Nemotron):
+//!   the audio of the current utterance is forwarded as it arrives to a
+//!   streaming worker, which feeds it into an active `transcribe_cpp::Stream`
+//!   every 80 ms and emits a partial as soon as the displayed text changes.
+//!   A segment boundary asks that worker to `finalize()`, and a fresh stream
+//!   starts with the next sentence. Word-by-word captions at O(1) cost per
+//!   frame instead of re-transcribing the whole segment.
+//! - **Batch** (everything else, and the permanent fallback if streaming ever
+//!   fails): build up a *segment* of speech, send the whole segment to a
+//!   worker thread roughly once per tick, and display the result as a
+//!   *partial*. When trailing silence is detected — or the segment hits a hard
+//!   cap — the segment is *finalized*: transcribed once more and committed.
+//!
+//! The batch pipeline keeps latency low and bounded:
 //! - Partial jobs are only submitted while the worker is idle (latest-wins),
 //!   so a slow device can never build up a queue and drift behind real time.
 //! - Final jobs are always queued (FIFO), so committed text is never lost.
@@ -94,6 +103,108 @@ const EARLY_SENTENCE_SILENCE_SAMPLES: usize = 4_480;
 const CLAUSE_SPLIT_MIN_SEGMENT_SAMPLES: usize = 56_000;
 /// Micro-pause required after clause punctuation to split cleanly (220 ms).
 const CLAUSE_SPLIT_SILENCE_SAMPLES: usize = 3_520;
+
+/// Audio pipeline a live-subtitle session uses. Chosen once per session (see
+/// [`SubtitlePipelineState`]) and one-way: streaming never comes back after a
+/// failure, otherwise the same audio would be transcribed and delivered twice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubtitlePipeline {
+    /// Feed the audio into an active cache-aware `Stream`: partials appear
+    /// word by word at the model's 80 ms frame rate.
+    Streaming,
+    /// Re-transcribe the current segment every tick (models without native
+    /// streaming).
+    Batch,
+}
+
+/// One ordered item on the streaming worker's input channel. Audio and
+/// boundary commands share a single FIFO on purpose: with two channels a
+/// reset meant for a noise-only segment could be dequeued after the next
+/// utterance's first blocks and cancel them. In one queue, everything the
+/// stream sees is exactly what was pushed, in order.
+enum StreamInput {
+    /// A block of the current utterance.
+    Audio(Vec<f32>),
+    /// The utterance ended: flush and finalize.
+    Stop,
+    /// Discard the utterance (a noise-only segment).
+    Reset,
+}
+
+/// What the pusher does when a segment boundary is reached.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoundaryAction {
+    /// Streaming: the utterance audio already lives in the stream; ask the
+    /// worker to finalize it.
+    FinalizeStream,
+    /// Streaming but the segment is too short to be speech: reset the stream
+    /// so the noise cannot leak into the next sentence.
+    CancelStream,
+    /// Batch: enqueue a final job.
+    QueueFinal,
+    /// Batch and too short to be speech: drop it.
+    DropNoise,
+}
+
+/// One-way pipeline selector for a subtitle session.
+///
+/// Streaming is selected only when an engine is loaded *and* its model has
+/// native cache-aware streaming. Once streaming fails (a missing engine, a
+/// begin/feed/finalize error, the model reloaded without streaming), the
+/// session degrades to [`SubtitlePipeline::Batch`] and never flips back.
+/// The audio already forwarded to the failed stream is still in the pusher's
+/// segment buffer, so the next boundary transcribes it through the batch path
+/// — nothing is lost and nothing is delivered twice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SubtitlePipelineState {
+    pipeline: SubtitlePipeline,
+}
+
+impl SubtitlePipelineState {
+    pub fn new(engine_loaded: bool, model_supports_streaming: bool) -> Self {
+        let pipeline = if engine_loaded && model_supports_streaming {
+            SubtitlePipeline::Streaming
+        } else {
+            SubtitlePipeline::Batch
+        };
+        Self { pipeline }
+    }
+
+    pub fn pipeline(&self) -> SubtitlePipeline {
+        self.pipeline
+    }
+
+    pub fn is_streaming(&self) -> bool {
+        self.pipeline == SubtitlePipeline::Streaming
+    }
+
+    /// Degrades to the batch pipeline; returns `true` only when it actually
+    /// changed, so the fallback is logged exactly once.
+    pub fn on_stream_failure(&mut self) -> bool {
+        let changed = self.pipeline != SubtitlePipeline::Batch;
+        self.pipeline = SubtitlePipeline::Batch;
+        changed
+    }
+}
+
+/// Boundary action for a session, from its pipeline and the length of the
+/// segment that just ended.
+pub fn boundary_action(pipeline: SubtitlePipeline, segment_samples: usize) -> BoundaryAction {
+    let long_enough = segment_samples >= MIN_SEGMENT_SAMPLES;
+    match (pipeline, long_enough) {
+        (SubtitlePipeline::Streaming, true) => BoundaryAction::FinalizeStream,
+        (SubtitlePipeline::Streaming, false) => BoundaryAction::CancelStream,
+        (SubtitlePipeline::Batch, true) => BoundaryAction::QueueFinal,
+        (SubtitlePipeline::Batch, false) => BoundaryAction::DropNoise,
+    }
+}
+
+/// Whether a callback stamped with `job_generation` still belongs to the
+/// current session. A mismatch means the overlay was torn down or replaced
+/// (P0.2), so its text must never be delivered.
+pub fn generation_is_current(job_generation: u32, current_generation: u32) -> bool {
+    job_generation == current_generation
+}
 
 /// Adaptive voice-activity detector for system audio.
 ///
@@ -265,9 +376,196 @@ struct LiveSubtitleState {
     /// records partial text for jobs ending at or after it, so a late partial
     /// from the previous segment cannot trigger an early cut in this one.
     segment_epoch: Arc<AtomicU64>,
+    /// Streaming/batch pipeline of this session (one-way).
+    pipeline: SubtitlePipelineState,
+    /// Ordered audio + boundary items of the current utterance, for the
+    /// streaming worker (see [`StreamInput`]).
+    stream_tx: crossbeam_channel::Sender<StreamInput>,
 }
 
 static LIVE_STATE: Lazy<Mutex<Option<LiveSubtitleState>>> = Lazy::new(|| Mutex::new(None));
+
+/// Delivers one caption through `onSubtitleText(String, boolean)`. Both workers
+/// (batch and streaming) go through this helper so the JNI signature lives in
+/// one place (AGENTS.md §4.4).
+fn deliver(env: &mut JNIEnv, service: &JObject, text: &str, is_final: bool) {
+    let _ = env.with_local_frame(16, |local_env| {
+        crate::jni_util::notify_subtitle(local_env, service, text, is_final);
+        Ok::<(), jni::errors::Error>(())
+    });
+}
+
+/// Forwards one block of the current utterance to the streaming worker. No-op
+/// in the batch pipeline (and after a stream failure, which flips the
+/// session to batch).
+fn forward_stream_audio(state: &LiveSubtitleState, samples: &[f32]) {
+    if state.pipeline.is_streaming() && !samples.is_empty() {
+        let _ = state.stream_tx.send(StreamInput::Audio(samples.to_vec()));
+    }
+}
+
+/// Permanently degrades the current session to the batch pipeline (see
+/// [`SubtitlePipelineState`]). The audio already forwarded to the failed
+/// stream is still in the pusher's segment buffer, so the next boundary
+/// transcribes it with the batch worker: no speech is lost. (A final already
+/// delivered before the failure may repeat the tail carried over from a forced
+/// split; truncating the segment instead would lose audio no final covered yet.)
+fn degrade_to_batch(generation: u32) {
+    let mut guard = LIVE_STATE.lock().unwrap_or_else(|p| p.into_inner());
+    if let Some(state) = guard.as_mut() {
+        if state.generation == generation && state.pipeline.on_stream_failure() {
+            log::warn!("subtitle streaming disabled for this session; using the batch pipeline");
+        }
+    }
+}
+
+/// Streaming worker: one `transcribe_cpp::Stream` per utterance.
+///
+/// Waits for the first block of the next utterance before opening a stream, so
+/// an idle session neither holds the engine mutex (the IME or the popup may
+/// need it) nor keeps a stream open over silence. Partial hypotheses are
+/// delivered as they change and published to `partial_text` so the pusher can
+/// close the segment on sentence punctuation; `Stop` finalizes the utterance
+/// and delivers the corrected final text; a failure degrades the session to
+/// the batch pipeline and the loop re-arms for the next utterance.
+fn run_stream_worker(
+    vm: Arc<jni::JavaVM>,
+    service_ref: jni::objects::GlobalRef,
+    generation: u32,
+    input_rx: crossbeam_channel::Receiver<StreamInput>,
+    partial_text: Arc<Mutex<String>>,
+) {
+    let mut env = match vm.attach_current_thread() {
+        Ok(e) => e,
+        Err(e) => {
+            log::error!("Subtitle stream worker failed to attach: {}", e);
+            return;
+        }
+    };
+    let service_obj = service_ref.as_obj();
+    loop {
+        // The first item of an utterance is always audio: a command with no
+        // audio in front of it belongs to a segment that never reached the
+        // stream (e.g. a blip cancelled before any block was queued).
+        let first = match input_rx.recv() {
+            Ok(StreamInput::Audio(chunk)) => chunk,
+            Ok(_) => continue,
+            // The channel is dropped with the session state: teardown.
+            Err(_) => break,
+        };
+        if !generation_is_current(generation, GENERATION.load(Ordering::SeqCst)) {
+            break;
+        }
+        let engine_arc = match engine::get_engine() {
+            Some(arc) => arc,
+            None => {
+                degrade_to_batch(generation);
+                continue;
+            }
+        };
+        if !engine::supports_streaming_shared(&engine_arc) {
+            degrade_to_batch(generation);
+            continue;
+        }
+
+        // Local command channel for `run_stream`: `drain` translates the
+        // ordered boundary items into it, so a boundary is seen only after
+        // every block that preceded it was fed into this stream.
+        let (ctrl_tx, ctrl_rx) = crossbeam_channel::unbounded::<engine::StreamCmd>();
+        let mut pending_first = Some(first);
+        let mut fed_samples: usize = 0;
+        // Set once the utterance's boundary has been translated. Post-boundary
+        // blocks belong to the NEXT utterance and must stay queued: the
+        // engine's stop path drains once more, which would otherwise pull them
+        // into the stream that is being finalized (and lose them).
+        let mut finished = false;
+        let result = {
+            let mut drain = |buf: &mut Vec<f32>| {
+                if finished {
+                    return;
+                }
+                if let Some(chunk) = pending_first.take() {
+                    fed_samples += chunk.len();
+                    buf.extend_from_slice(&chunk);
+                }
+                loop {
+                    match input_rx.try_recv() {
+                        Ok(StreamInput::Audio(chunk)) => {
+                            fed_samples += chunk.len();
+                            buf.extend_from_slice(&chunk);
+                        }
+                        Ok(StreamInput::Stop) => {
+                            finished = true;
+                            let _ = ctrl_tx.send(engine::StreamCmd::Stop);
+                            break;
+                        }
+                        Ok(StreamInput::Reset) => {
+                            finished = true;
+                            let _ = ctrl_tx.send(engine::StreamCmd::Cancel);
+                            break;
+                        }
+                        Err(crossbeam_channel::TryRecvError::Empty) => break,
+                        // The session state (and its sender) is gone: abandon
+                        // the stream instead of holding the engine forever.
+                        Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                            finished = true;
+                            let _ = ctrl_tx.send(engine::StreamCmd::Cancel);
+                            break;
+                        }
+                    }
+                }
+            };
+            let mut on_partial = |text: &str| {
+                if !generation_is_current(generation, GENERATION.load(Ordering::SeqCst)) {
+                    return;
+                }
+                {
+                    let mut slot = partial_text.lock().unwrap_or_else(|p| p.into_inner());
+                    slot.clear();
+                    slot.push_str(text);
+                }
+                deliver(&mut env, service_obj, text, false);
+            };
+            engine::transcribe_subtitle_stream_shared(
+                &engine_arc,
+                &ctrl_rx,
+                &mut drain,
+                &mut on_partial,
+            )
+        };
+
+        // The published hypothesis belonged to the utterance that just ended.
+        partial_text
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clear();
+        if !generation_is_current(generation, GENERATION.load(Ordering::SeqCst)) {
+            break;
+        }
+        match result {
+            Ok(text) => {
+                log::info!(
+                    "Subtitle stream: {:.1}s audio finalized",
+                    fed_samples as f64 / SAMPLE_RATE as f64
+                );
+                let text = text.trim();
+                if !text.is_empty() {
+                    deliver(&mut env, service_obj, text, true);
+                }
+            }
+            // The pusher reset the stream (noise-only segment) or the session
+            // was torn down: nothing to deliver.
+            Err(e) if e == "Canceled" => {}
+            Err(e) => {
+                log::warn!(
+                    "subtitle stream failed ({}); continuing with the batch pipeline",
+                    e
+                );
+                degrade_to_batch(generation);
+            }
+        }
+    }
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_initNative(
@@ -293,6 +591,7 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_ini
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
 
     let (tx, rx) = crossbeam_channel::unbounded::<Job>();
+    let (stream_tx, stream_rx) = crossbeam_channel::unbounded::<StreamInput>();
     let worker_busy = Arc::new(AtomicBool::new(false));
     let total_pushed = Arc::new(AtomicU64::new(0));
     let pending_finals = Arc::new(AtomicUsize::new(0));
@@ -301,6 +600,15 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_ini
     let segment_epoch = Arc::new(AtomicU64::new(0));
     let worker_partial_text = last_partial_text.clone();
     let worker_segment_epoch = segment_epoch.clone();
+
+    // Pick the pipeline once per session. Native streaming requires an engine
+    // that is already loaded with a streaming model; otherwise (a model
+    // without streaming, or a session started before the model finished
+    // loading) the batch path runs unchanged. Both flags are read without
+    // touching the engine mutex: initNative runs on the Java main thread.
+    let pipeline =
+        SubtitlePipelineState::new(engine::is_engine_loaded(), engine::is_streaming_capable());
+    log::info!("subtitle pipeline: {:?}", pipeline.pipeline());
 
     *LIVE_STATE.lock().unwrap_or_else(|p| p.into_inner()) = Some(LiveSubtitleState {
         segment: Vec::new(),
@@ -315,10 +623,29 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_ini
         rtf_milli: rtf_milli.clone(),
         generation,
         vad: SubtitleVad::new(),
-        last_partial_text,
+        last_partial_text: last_partial_text.clone(),
         segment_epoch,
+        pipeline,
+        stream_tx,
     });
 
+    if pipeline.is_streaming() {
+        let stream_vm = vm.clone();
+        let stream_service_ref = service_ref.clone();
+        let stream_partial_text = last_partial_text.clone();
+        std::thread::spawn(move || {
+            run_stream_worker(
+                stream_vm,
+                stream_service_ref,
+                generation,
+                stream_rx,
+                stream_partial_text,
+            );
+        });
+    }
+
+    // The batch worker is spawned for every session: it runs the pipeline for
+    // models without native streaming and is the fallback when a stream fails.
     std::thread::spawn(move || {
         let mut env = match vm.attach_current_thread() {
             Ok(e) => e,
@@ -331,13 +658,6 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_ini
         // Whether the previously processed final was dropped for lag — used
         // to emit a single "…" gap marker per run of dropped finals.
         let mut gap_pending = false;
-
-        let deliver = |env: &mut jni::JNIEnv, text: &str, is_final: bool| {
-            let _ = env.with_local_frame(16, |local_env| {
-                crate::jni_util::notify_subtitle(local_env, service_obj, text, is_final);
-                Ok::<(), jni::errors::Error>(())
-            });
-        };
 
         // A final that did not fit the current merged group is stashed here
         // and processed as the next group, so no queued final is dropped.
@@ -490,11 +810,11 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_ini
                     if !text.is_empty() && gap_pending {
                         // Mark the dropped stretch so the transcript doesn't
                         // silently glue unrelated sentences together.
-                        deliver(&mut env, "…", true);
+                        deliver(&mut env, service_obj, "…", true);
                         gap_pending = false;
                     }
                     if !text.is_empty() || job.is_final {
-                        deliver(&mut env, text, job.is_final);
+                        deliver(&mut env, service_obj, text, job.is_final);
                     }
                 }
             }
@@ -571,6 +891,10 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_pus
                 state.has_speech = true;
                 state.silence_run = 0;
                 state.samples_since_tick = state.segment.len();
+                // The pre-roll belongs to the utterance: forward it with the
+                // first block so the first word isn't clipped in the stream.
+                let seed = state.segment.clone();
+                forward_stream_audio(state, &seed);
             } else {
                 state.preroll.extend_from_slice(slice);
                 let excess = state.preroll.len().saturating_sub(PREROLL_SAMPLES);
@@ -587,6 +911,10 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_pus
             } else {
                 state.silence_run += len;
             }
+            // Forward the block to the streaming worker while the utterance
+            // is in progress. A block that ends the utterance (below) is
+            // forwarded before `Stop` is queued, so it is never dropped.
+            forward_stream_audio(state, slice);
         }
 
         let last_partial = state
@@ -628,19 +956,33 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_pus
                 .clear();
             state.segment_epoch.store(stream_pos, Ordering::SeqCst);
 
-            if samples.len() >= MIN_SEGMENT_SAMPLES {
-                // Finals are always queued (the worker may still drop them if
-                // they go stale — see MAX_FINAL_LAG_SAMPLES).
-                state.worker_busy.store(true, Ordering::SeqCst);
-                state.pending_finals.fetch_add(1, Ordering::SeqCst);
-                let _ = state.worker_tx.send(Job {
-                    samples,
-                    is_final: true,
-                    end_sample: stream_pos,
-                    generation: state.generation,
-                });
+            match boundary_action(state.pipeline.pipeline(), samples.len()) {
+                BoundaryAction::FinalizeStream => {
+                    // The utterance audio is already in the stream; ask the
+                    // worker to finalize it and deliver the committed text.
+                    let _ = state.stream_tx.send(StreamInput::Stop);
+                }
+                BoundaryAction::CancelStream => {
+                    // Too short to be speech: reset the stream so this noise
+                    // cannot contaminate the next sentence.
+                    let _ = state.stream_tx.send(StreamInput::Reset);
+                }
+                BoundaryAction::QueueFinal => {
+                    // Finals are always queued (the worker may still drop them
+                    // if they go stale — see MAX_FINAL_LAG_SAMPLES).
+                    state.worker_busy.store(true, Ordering::SeqCst);
+                    state.pending_finals.fetch_add(1, Ordering::SeqCst);
+                    let _ = state.worker_tx.send(Job {
+                        samples,
+                        is_final: true,
+                        end_sample: stream_pos,
+                        generation: state.generation,
+                    });
+                }
+                BoundaryAction::DropNoise => {}
             }
-        } else if state.samples_since_tick >= TICK_SAMPLES
+        } else if !state.pipeline.is_streaming()
+            && state.samples_since_tick >= TICK_SAMPLES
             && !state.worker_busy.load(Ordering::SeqCst)
             && state.pending_finals.load(Ordering::SeqCst) == 0
             && partial_affordable(state)
@@ -778,6 +1120,114 @@ mod tests {
         assert!(!vad.observe(f32::INFINITY));
         assert!(vad.noise_floor().is_finite());
         assert!(vad.observe(0.05));
+    }
+
+    #[test]
+    fn pipeline_needs_both_engine_and_streaming_model() {
+        assert_eq!(
+            SubtitlePipelineState::new(true, true).pipeline(),
+            SubtitlePipeline::Streaming
+        );
+        assert_eq!(
+            SubtitlePipelineState::new(true, false).pipeline(),
+            SubtitlePipeline::Batch
+        );
+        assert_eq!(
+            SubtitlePipelineState::new(false, true).pipeline(),
+            SubtitlePipeline::Batch
+        );
+        assert_eq!(
+            SubtitlePipelineState::new(false, false).pipeline(),
+            SubtitlePipeline::Batch
+        );
+    }
+
+    #[test]
+    fn stream_failure_degrades_one_way() {
+        let mut state = SubtitlePipelineState::new(true, true);
+        assert!(state.is_streaming());
+        assert!(
+            state.on_stream_failure(),
+            "the first failure flips the mode"
+        );
+        assert!(!state.is_streaming());
+        assert!(
+            !state.on_stream_failure(),
+            "a later failure must not report another change (single log line)"
+        );
+        let mut batch = SubtitlePipelineState::new(false, true);
+        assert!(!batch.on_stream_failure());
+        assert_eq!(batch.pipeline(), SubtitlePipeline::Batch);
+    }
+
+    #[test]
+    fn streaming_boundary_actions() {
+        assert_eq!(
+            boundary_action(SubtitlePipeline::Streaming, MIN_SEGMENT_SAMPLES),
+            BoundaryAction::FinalizeStream
+        );
+        assert_eq!(
+            boundary_action(SubtitlePipeline::Streaming, MAX_SEGMENT_SAMPLES),
+            BoundaryAction::FinalizeStream
+        );
+        assert_eq!(
+            boundary_action(SubtitlePipeline::Streaming, MIN_SEGMENT_SAMPLES - 1),
+            BoundaryAction::CancelStream
+        );
+        assert_eq!(
+            boundary_action(SubtitlePipeline::Streaming, 0),
+            BoundaryAction::CancelStream
+        );
+    }
+
+    #[test]
+    fn batch_boundary_actions() {
+        assert_eq!(
+            boundary_action(SubtitlePipeline::Batch, MIN_SEGMENT_SAMPLES),
+            BoundaryAction::QueueFinal
+        );
+        assert_eq!(
+            boundary_action(SubtitlePipeline::Batch, MAX_SEGMENT_SAMPLES),
+            BoundaryAction::QueueFinal
+        );
+        assert_eq!(
+            boundary_action(SubtitlePipeline::Batch, MIN_SEGMENT_SAMPLES - 1),
+            BoundaryAction::DropNoise
+        );
+        assert_eq!(
+            boundary_action(SubtitlePipeline::Batch, 0),
+            BoundaryAction::DropNoise
+        );
+    }
+
+    /// Negative test: the batch pipeline must never route audio into a stream,
+    /// whatever the segment length.
+    #[test]
+    fn batch_pipeline_never_uses_stream_actions() {
+        for len in [
+            0,
+            1,
+            MIN_SEGMENT_SAMPLES - 1,
+            MIN_SEGMENT_SAMPLES,
+            MAX_SEGMENT_SAMPLES,
+            MAX_SEGMENT_SAMPLES * 2,
+        ] {
+            assert!(
+                matches!(
+                    boundary_action(SubtitlePipeline::Batch, len),
+                    BoundaryAction::QueueFinal | BoundaryAction::DropNoise
+                ),
+                "batch must stay on the batch path for {len} samples"
+            );
+        }
+    }
+
+    #[test]
+    fn generation_mismatch_rejects_stale_callbacks() {
+        assert!(generation_is_current(7, 7));
+        assert!(!generation_is_current(6, 7));
+        assert!(!generation_is_current(7, 8));
+        assert!(!generation_is_current(0, u32::MAX));
     }
 
     #[test]

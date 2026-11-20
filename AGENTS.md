@@ -466,6 +466,25 @@ Do not rename Rust/Java files without updating the JNI entry (§4.3).**AI post-p
 
 `src/subtitle.rs` is probably the subtlest code. Rules:
 
+- **Two pipelines, chosen once per session and one-way.** When the loaded
+  model supports native cache-aware streaming (`engine::is_streaming_capable()`,
+  the non-blocking mirror of the engine field — the session is initialized on
+  the Java main thread, which must never wait on the engine mutex) the session
+  streams: `pushAudio` forwards the speech blocks through one ordered FIFO
+  (`StreamInput::{Audio, Stop, Reset}`) to a streaming worker that runs
+  `engine::transcribe_subtitle_stream_shared` (always `Task::Transcribe`, plus
+  the optional `subtitle_source_language` marker read at every stream start),
+  feeds ~80 ms of audio per tick and delivers `onSubtitleText(partial, false)`
+  whenever `stream.text().display().trim()` changes. The boundary from §4.8
+  becomes `Stop` (finalize + corrector + `onSubtitleText(final, true)`) or
+  `Reset` for a noise-only segment. Everything else, and any stream failure,
+  uses the batch pipeline below unchanged: the degradation is permanent for
+  the session (`SubtitlePipelineState::on_stream_failure`) so the same audio
+  is never delivered twice, and the pusher's segment buffer still holds the
+  audio, so the next boundary transcribes it. The stream is opened on the
+  first block of an utterance, never while idle, so an idle session does not
+  hold the engine mutex the IME/popup may need.
+
 - **Partials:** only enqueued when (a) worker idle, (b) no pending finals, (c) `segment_secs * rtf <= MAX_PARTIAL_COST_SECS` (latest-wins). If the device transcribes slower than the audio, partials are cut — by design.
 - **Finals:** always enqueued (FIFO), *but* folded with `try_recv` up to `MAX_MERGED_SAMPLES` (25 s) to cushion Whisper's fixed window.
 - **Lag policies (important, do not raise these thresholds lightly):**
