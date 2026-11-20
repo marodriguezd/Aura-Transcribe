@@ -289,6 +289,12 @@ public class LiveSubtitleService extends Service {
         mCaptionSegments.clear();
         mTranslationBusy = false;
         mLastPartial = "";
+        mLastTranslatedPartial = "";
+        mLastPartialSource = "";
+        mPendingPartialSource = null;
+        mPartialBusy = false;
+        mTranslationFallbackToOriginal = false;
+        if (mSubtitleContextWindow != null) mSubtitleContextWindow.clearCache();
         mTranslationUnavailableNotified = false;
         mSubtitleSourceLanguage = SubtitleTranslationTargets.AUTO;
         mSessionResolvedSourceCode = null;
@@ -349,6 +355,13 @@ public class LiveSubtitleService extends Service {
         mModelLanguage = MarkerFileHelper.readString(this, "model_language", "auto");
         mSubtitleSourceLanguage = SubtitlePrefs.getSourceLanguage(this);
         mSessionResolvedSourceCode = null;
+        mSubtitleContextWindow = new SubtitleContextWindow();
+        mLastTranslatedPartial = "";
+        mLastPartialSource = "";
+        mLastPartialTranslateTimeMs = 0L;
+        mPendingPartialSource = null;
+        mPartialBusy = false;
+        mTranslationFallbackToOriginal = false;
         mTranslationMode = !SubtitleTranslationTargets.AUTO.equals(mTranslationTarget);
         mTranslator = mTranslationMode ? new OnDeviceSubtitleTranslator() : null;
         mTranslationGeneration++;
@@ -620,6 +633,15 @@ public class LiveSubtitleService extends Service {
     private String mSubtitleSourceLanguage = SubtitleTranslationTargets.AUTO;
     private String mSessionResolvedSourceCode = null;
     private SubtitleTranslator mTranslator;
+    private SubtitleContextWindow mSubtitleContextWindow;
+    // Progressive partial-translation state (M4).
+    private String mLastTranslatedPartial = "";
+    private String mLastPartialSource = "";
+    private long mLastPartialTranslateTimeMs = 0L;
+    private String mPendingPartialSource = null;
+    private boolean mPartialBusy = false;
+    private boolean mTranslationFallbackToOriginal = false;
+    private static final long PARTIAL_TRANSLATE_DEBOUNCE_MS = 380L;
     private final ArrayDeque<CaptionSegment> mCaptionSegments = new ArrayDeque<>();
     private final ArrayDeque<TranslationJob> mTranslationQueue = new ArrayDeque<>();
     private boolean mTranslationBusy = false;
@@ -677,6 +699,7 @@ public class LiveSubtitleService extends Service {
             } else {
                 if (mTranslationMode) {
                     mLastPartial = text;
+                    onPartialTranslated(text);
                     renderTranslatedCaption("");
                 } else {
                     updateDisplay(text);
@@ -687,19 +710,188 @@ public class LiveSubtitleService extends Service {
 
     // --- Translation-mode caption pipeline (fork addition) -----------------
 
-    /** A finalized segment arrives: show it in the original language at once
-     *  and enqueue the on-device translation (unless it is punctuation or the
-     *  queue is already saturated, in which case the original is kept). */
+    /** A finalized segment arrives in translation mode. Source text is never
+     *  shown when ML Kit is available; the translated text (or, on failure,
+     *  the original) is committed once the translation lands. */
     private void onFinalTranslated(String text) {
-        CaptionSegment segment = new CaptionSegment(text);
-        mCaptionSegments.addLast(segment);
-        if (isPunctuationOnly(text) || mTranslationQueue.size() >= MAX_TRANSLATION_QUEUE) {
-            segment.finalText = true; // gap markers / overflow: keep original
-        } else {
-            enqueueTranslation(text);
+        if (text == null || text.trim().isEmpty()) return;
+        if (mTranslationFallbackToOriginal) {
+            addFinalSegment(text, true);
+            resolveSource(text);
+            mSubtitleContextWindow.recordFinal(text, text,
+                    mSessionResolvedSourceCode, System.currentTimeMillis());
+            renderTranslatedCaption("");
+            return;
         }
-        trimCaptionSegments();
+        if (isPunctuationOnly(text) || mTranslationQueue.size() >= MAX_TRANSLATION_QUEUE) {
+            addFinalSegment(text, true);
+            resolveSource(text);
+            mSubtitleContextWindow.recordFinal(text, text,
+                    mSessionResolvedSourceCode, System.currentTimeMillis());
+            renderTranslatedCaption("");
+            return;
+        }
+        String contextPrefix = mSubtitleContextWindow.getLastFinalSource();
+        long now = System.currentTimeMillis();
+        resolveSource(text);
+        String sourceCode = mSessionResolvedSourceCode;
+        String targetCode = SubtitleTranslationTargets.mlKitCode(mTranslationTarget);
+        String cached = mSubtitleContextWindow.getCached(sourceCode, targetCode,
+                contextPrefix, text);
+        if (cached != null || (mLastPartialSource.equals(text)
+                && !mLastTranslatedPartial.isEmpty())) {
+            String translated = (cached != null) ? cached : mLastTranslatedPartial;
+            mLastTranslatedPartial = "";
+            mPendingPartialSource = null;
+            mSubtitleContextWindow.recordFinal(text, translated, sourceCode, now);
+            addFinalSegment(translated, true);
+            renderTranslatedCaption("");
+            return;
+        }
+        // Keep the last translated partial visible until the final lands (no
+        // blank flicker); do not leak the untranslated source.
+        mLastPartial = "";
+        mPendingPartialSource = null;
+        enqueueTranslation(text);
         renderTranslatedCaption("");
+    }
+
+    /** Partial hypothesis in translation mode: debounce + growth + latest-wins. */
+    private void onPartialTranslated(String text) {
+        if (text == null || text.trim().isEmpty()) return;
+        if (mTranslationFallbackToOriginal) {
+            mLastTranslatedPartial = text;
+            return;
+        }
+        if (!hasMeaningfulGrowth(text, mLastPartialSource)) {
+            return;
+        }
+        String contextPrefix = mSubtitleContextWindow.getLastFinalSource();
+        long now = System.currentTimeMillis();
+        resolveSource(text);
+        String sourceCode = mSessionResolvedSourceCode;
+        String targetCode = SubtitleTranslationTargets.mlKitCode(mTranslationTarget);
+        String cached = mSubtitleContextWindow.getCached(sourceCode, targetCode,
+                contextPrefix, text);
+        if (cached != null) {
+            mLastTranslatedPartial = cached;
+            mLastPartialSource = text;
+            return;
+        }
+        if (mPartialBusy) {
+            mPendingPartialSource = text; // latest-wins, never queue
+            return;
+        }
+        if (now - mLastPartialTranslateTimeMs < PARTIAL_TRANSLATE_DEBOUNCE_MS) {
+            mPendingPartialSource = text;
+            final String pending = text;
+            mMainHandler.postDelayed(() -> {
+                if (mPendingPartialSource == pending) {
+                    mPendingPartialSource = null;
+                    onPartialTranslated(pending);
+                }
+            }, PARTIAL_TRANSLATE_DEBOUNCE_MS - (now - mLastPartialTranslateTimeMs));
+            return;
+        }
+        triggerPartialTranslation(text, sourceCode, targetCode, contextPrefix, now);
+    }
+
+    private void triggerPartialTranslation(String text, String sourceCode,
+                                           String targetCode, String contextPrefix, long now) {
+        mPartialBusy = true;
+        mLastPartialSource = text;
+        mLastPartialTranslateTimeMs = now;
+        mPendingPartialSource = null;
+        final int gen = mTranslationGeneration;
+        mTranslator.translate(text, sourceCode, targetCode, new SubtitleTranslator.Callback() {
+            @Override
+            public void onSuccess(String translated) {
+                mMainHandler.post(() -> {
+                    if (gen != mTranslationGeneration) return;
+                    mPartialBusy = false;
+                    String extracted = (mSubtitleContextWindow != null)
+                            ? mSubtitleContextWindow.extractTranslated(translated)
+                            : (translated == null ? "" : translated.trim());
+                    if (mSubtitleContextWindow != null) {
+                        mSubtitleContextWindow.putCached(sourceCode, targetCode,
+                                contextPrefix, text, extracted);
+                    }
+                    mLastTranslatedPartial = extracted;
+                    renderTranslatedCaption("");
+                    String pending = mPendingPartialSource;
+                    mPendingPartialSource = null;
+                    if (pending != null) onPartialTranslated(pending);
+                });
+            }
+
+            @Override
+            public void onFailure(Throwable error) {
+                mMainHandler.post(() -> {
+                    if (gen != mTranslationGeneration) return;
+                    mPartialBusy = false;
+                    mLastTranslatedPartial = text; // safe fallback
+                    renderTranslatedCaption("");
+                    String pending = mPendingPartialSource;
+                    mPendingPartialSource = null;
+                    if (pending != null) onPartialTranslated(pending);
+                });
+            }
+
+            @Override
+            public void onUnavailable() {
+                mMainHandler.post(() -> {
+                    if (mTranslationUnavailableNotified) return;
+                    mTranslationUnavailableNotified = true;
+                    mTranslationFallbackToOriginal = true;
+                    Toast.makeText(LiveSubtitleService.this,
+                            R.string.subs_translation_unavailable, Toast.LENGTH_LONG).show();
+                });
+            }
+        });
+    }
+
+    private void resolveSource(String text) {
+        String sc = SourceLanguageResolver.resolve(text, mSubtitleSourceLanguage,
+                mModelLanguage, mSessionResolvedSourceCode);
+        if (sc != null) mSessionResolvedSourceCode = sc;
+    }
+
+    private void addFinalSegment(String shown, boolean finalText) {
+        CaptionSegment segment = new CaptionSegment(shown);
+        segment.finalText = finalText;
+        mCaptionSegments.addLast(segment);
+        trimCaptionSegments();
+    }
+
+    private static boolean hasMeaningfulGrowth(String current, String previous) {
+        if (previous == null || previous.trim().isEmpty()) return true;
+        if (current == null || current.trim().isEmpty()) return false;
+        if (endsWithPunctuation(current) && !endsWithPunctuation(previous)) return true;
+        int cjkGrowth = countCjk(current) - countCjk(previous);
+        if (cjkGrowth >= 2) return true;
+        int prevWords = previous.trim().split("\\s+").length;
+        int curWords = current.trim().split("\\s+").length;
+        if (curWords > prevWords) return true;
+        return false;
+    }
+
+    private static int countCjk(String s) {
+        int n = 0;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c >= 0x4E00 && c <= 0x9FFF) n++;
+            else if (c >= 0x3040 && c <= 0x30FF) n++;
+            else if (c >= 0xAC00 && c <= 0xD7AF) n++;
+        }
+        return n;
+    }
+
+    private static boolean endsWithPunctuation(String s) {
+        if (s == null || s.isEmpty()) return false;
+        char c = s.trim().charAt(s.trim().length() - 1);
+        return c == ',' || c == '.' || c == '!' || c == '?' || c == ';'
+                || c == '，' || c == '。' || c == '！' || c == '？'
+                || c == '、' || c == '；' || c == '：';
     }
 
     private void enqueueTranslation(String text) {
@@ -719,10 +911,23 @@ public class LiveSubtitleService extends Service {
             mSessionResolvedSourceCode = sourceCode;
         }
         final String targetCode = SubtitleTranslationTargets.mlKitCode(mTranslationTarget);
-        mTranslator.translate(job.text, sourceCode, targetCode, new SubtitleTranslator.Callback() {
+        final String contextPrefix = (mSubtitleContextWindow != null)
+                ? mSubtitleContextWindow.getLastFinalSource() : "";
+        final long now = System.currentTimeMillis();
+        final String payload = (mSubtitleContextWindow != null)
+                ? mSubtitleContextWindow.buildPayload(job.text, sourceCode, now)
+                : job.text;
+        mTranslator.translate(payload, sourceCode, targetCode, new SubtitleTranslator.Callback() {
             @Override
             public void onSuccess(String translated) {
-                mMainHandler.post(() -> applyTranslation(job, translated));
+                String extracted = (mSubtitleContextWindow != null)
+                        ? mSubtitleContextWindow.extractTranslated(translated)
+                        : (translated == null ? "" : translated.trim());
+                if (mSubtitleContextWindow != null) {
+                    mSubtitleContextWindow.putCached(sourceCode, targetCode,
+                            contextPrefix, job.text, extracted);
+                }
+                mMainHandler.post(() -> applyTranslation(job, extracted));
             }
 
             @Override
@@ -750,17 +955,18 @@ public class LiveSubtitleService extends Service {
     private void applyTranslation(TranslationJob job, String translated) {
         mTranslationBusy = false;
         mTranslationQueue.remove(job);
-        if (job.generation != mTranslationGeneration) return; // stale session
-        // Strict FIFO: the first segment still pending is the one this job
-        // belongs to (punct-only finals are finalized immediately, so they
-        // never create jobs and never shift this correspondence).
-        for (CaptionSegment s : mCaptionSegments) {
-            if (!s.finalText) {
-                s.shown = translated;
-                s.finalText = true;
-                break;
-            }
+        if (job.generation != mTranslationGeneration) {
+            pumpTranslationQueue();
+            return; // stale session
         }
+        resolveSource(job.text);
+        if (mSubtitleContextWindow != null) {
+            mSubtitleContextWindow.recordFinal(job.text, translated,
+                    mSessionResolvedSourceCode, System.currentTimeMillis());
+        }
+        mLastTranslatedPartial = "";
+        mPendingPartialSource = null;
+        addFinalSegment(translated, true);
         renderTranslatedCaption("");
         pumpTranslationQueue();
     }
@@ -775,7 +981,7 @@ public class LiveSubtitleService extends Service {
             full.append(s.shown);
             full.append(' ');
         }
-        String tail = partial.isEmpty() ? mLastPartial : partial;
+        String tail = partial.isEmpty() ? mLastTranslatedPartial : partial;
         if (!tail.isEmpty()) full.append(tail);
         String text = full.toString();
         if (text.isEmpty()) {

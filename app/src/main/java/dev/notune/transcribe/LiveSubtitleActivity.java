@@ -81,6 +81,7 @@ public class LiveSubtitleActivity extends AppCompatActivity {
         setupSubtitleSourceLanguageSpinner(findViewById(R.id.spinner_subtitle_source_language));
         setupSubtitleTranslationSpinner(findViewById(R.id.spinner_subtitle_translation));
         findViewById(R.id.btn_live_subs_start).setOnClickListener(v -> beginSubtitleFlow());
+        prewarmTranslator();
     }
 
     /** Entry of the permission flow: overlay permission first, then projection. */
@@ -135,6 +136,27 @@ public class LiveSubtitleActivity extends AppCompatActivity {
             } else {
                 Toast.makeText(this, getString(R.string.subs_overlay_required), Toast.LENGTH_SHORT).show();
             }
+        }
+    }
+
+    /**
+     * Pre-warms the ML Kit language packs for the currently selected
+     * (source, target) pair so the first subtitle translation is fast.
+     * When the source is "auto", both common source packs (en, zh) are
+     * warmed for the chosen target.
+     */
+    private void prewarmTranslator() {
+        String target = SubtitlePrefs.getTranslationTarget(this);
+        String targetCode = SubtitleTranslationTargets.mlKitCode(target);
+        if (targetCode == null) return; // auto: no translation, nothing to warm
+        String source = SubtitlePrefs.getSourceLanguage(this);
+        String sourceCode = SubtitleTranslationTargets.primaryTag(source);
+        OnDeviceSubtitleTranslator translator = new OnDeviceSubtitleTranslator();
+        if (sourceCode == null) {
+            translator.prewarm("en", targetCode, null);
+            translator.prewarm("zh", targetCode, null);
+        } else {
+            translator.prewarm(sourceCode, targetCode, null);
         }
     }
 
@@ -210,6 +232,7 @@ public class LiveSubtitleActivity extends AppCompatActivity {
                 SubtitlePrefs.setTranslationTarget(LiveSubtitleActivity.this, tag);
                 Snackbar.make(findViewById(android.R.id.content),
                         getString(R.string.subtitle_translation_saved), Snackbar.LENGTH_LONG).show();
+                prewarmTranslator();
             }
 
             @Override

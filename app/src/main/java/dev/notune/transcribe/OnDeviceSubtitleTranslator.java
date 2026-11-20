@@ -178,6 +178,62 @@ public final class OnDeviceSubtitleTranslator implements SubtitleTranslator {
                 });
     }
 
+    /**
+     * Pre-warms the language pack(s) for a (source, target) pair so the first
+     * real translation does not pay the download latency. Invokes
+     * {@code downloadModelIfNeeded()} ahead of time; reports success/failure
+     * through {@code cb} (which may be null). A null/unknown language code or
+     * an unavailable device short-circuits to {@code cb.onUnavailable()}.
+     */
+    public void prewarm(String sourceLanguage, String targetLanguage,
+                        PrewarmCallback cb) {
+        if (sourceLanguage == null || targetLanguage == null
+                || sourceLanguage.equals(targetLanguage)) {
+            if (cb != null) cb.onReady();
+            return;
+        }
+        if (!isAvailable()) {
+            if (cb != null) cb.onUnavailable();
+            return;
+        }
+        final String key = sourceLanguage + ":" + targetLanguage;
+        final Translator translator = getOrCreateTranslator(key, "", new Callback() {
+            @Override public void onSuccess(String translatedText) { }
+            @Override public void onFailure(Throwable error) { }
+            @Override public void onUnavailable() { if (cb != null) cb.onUnavailable(); }
+        });
+        if (translator == null) {
+            if (cb != null) cb.onUnavailable();
+            return;
+        }
+        synchronized (this) {
+            if (downloaded.contains(key)) {
+                if (cb != null) cb.onReady();
+                return;
+            }
+        }
+        translator.downloadModelIfNeeded()
+                .addOnSuccessListener(v -> {
+                    synchronized (this) {
+                        downloaded.add(key);
+                        failed.remove(key);
+                    }
+                    if (cb != null) cb.onReady();
+                })
+                .addOnFailureListener(e -> {
+                    synchronized (this) {
+                        failed.add(key);
+                    }
+                    if (cb != null) cb.onUnavailable();
+                });
+    }
+
+    /** Callback for {@link #prewarm(String, String, PrewarmCallback)}. */
+    public interface PrewarmCallback {
+        void onReady();
+        default void onUnavailable() { }
+    }
+
     @Override
     public void cancelAll() {
         // ML Kit Tasks are not cancellable; stale results are dropped by the
