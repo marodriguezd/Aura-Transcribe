@@ -121,6 +121,10 @@ public final class PromptProfiles {
             }
         }
         String name = out.toString().trim().replaceAll("\\s+", " ");
+        while (name.contains(MarkerFileHelper.TEMP_MARKER)) {
+            name = name.replace(MarkerFileHelper.TEMP_MARKER, "");
+        }
+        name = name.trim().replaceAll("\\s+", " ");
         if (name.length() > MAX_NAME_LENGTH) {
             name = name.substring(0, MAX_NAME_LENGTH).trim();
         }

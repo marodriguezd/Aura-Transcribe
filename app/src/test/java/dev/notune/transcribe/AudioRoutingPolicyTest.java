@@ -286,4 +286,37 @@ public class AudioRoutingPolicyTest {
         assertFalse(AudioRoutingPolicy.hasBluetoothInput(
                 Arrays.asList(new Candidate(AudioRoutingPolicy.TYPE_BUILTIN_MIC, true, 9))));
     }
+
+    // ---------------------------------------------------------------------
+    // Communication-device selection (API 31+ getAvailableCommunicationDevices)
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void communicationSelectionAcceptsSinkReportedBluetoothHeadsets() {
+        // On API 31+, getAvailableCommunicationDevices() returns sink AudioDeviceInfo objects
+        // (isSource() == false) for SCO / BLE headsets / USB headsets.
+        Candidate scoSink = sco(false);
+        Candidate selected = AudioRoutingPolicy.selectCommunicationCandidate(
+                Arrays.asList(bleSpeaker(), scoSink), true, true);
+        assertNotNull(selected);
+        assertEquals(AudioRoutingPolicy.TYPE_BLUETOOTH_SCO, selected.type);
+        assertTrue(AudioRoutingPolicy.hasBluetoothCommunicationDevice(Arrays.asList(scoSink)));
+
+        Candidate bleSink = bleHeadset(false);
+        Candidate bleSelected = AudioRoutingPolicy.selectCommunicationCandidate(
+                Arrays.asList(bleSpeaker(), bleSink), true, false);
+        assertNotNull(bleSelected);
+        assertEquals(AudioRoutingPolicy.TYPE_BLE_HEADSET, bleSelected.type);
+        assertTrue(AudioRoutingPolicy.hasBluetoothCommunicationDevice(Arrays.asList(bleSink)));
+    }
+
+    @Test
+    public void communicationSelectionStillRejectsOutputOnlyBleSpeaker() {
+        assertNull(AudioRoutingPolicy.selectCommunicationCandidate(
+                Arrays.asList(bleSpeaker(), bleSpeakerReportedAsSource()), true, true));
+        assertFalse(AudioRoutingPolicy.hasBluetoothCommunicationDevice(
+                Arrays.asList(bleSpeaker(), bleSpeakerReportedAsSource())));
+        assertFalse(AudioRoutingPolicy.hasBluetoothCommunicationDevice(null));
+        assertFalse(AudioRoutingPolicy.hasBluetoothCommunicationDevice(Collections.emptyList()));
+    }
 }

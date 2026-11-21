@@ -14,20 +14,43 @@ const EXTRACTION_COMPLETE_MARKER: &str = ".extraction_complete";
 /// upgrades don't leave ~670 MB of dead files behind.
 const LEGACY_MODEL_DIR: &str = "parakeet-tdt-0.6b-v3-int8";
 
+/// Clears any pending Java exception when a JNI call fails so callers on the
+/// model-load thread never leak pending exceptions across JNI boundaries.
+fn jni_err<T>(env: &mut JNIEnv, ctx: &str, res: jni::errors::Result<T>) -> anyhow::Result<T> {
+    match res {
+        Ok(val) => Ok(val),
+        Err(e) => {
+            crate::jni_util::clear_exception(env, ctx);
+            Err(anyhow::anyhow!("{}: {}", ctx, e))
+        }
+    }
+}
+
 /// Resolves the app's `filesDir` via the given Context.
 pub fn files_dir(env: &mut JNIEnv, context: &JObject) -> anyhow::Result<PathBuf> {
-    let files_dir_obj = env
-        .call_method(context, "getFilesDir", "()Ljava/io/File;", &[])?
-        .l()?;
-    let path_str_obj = env
-        .call_method(
+    let files_dir_obj = jni_err(
+        env,
+        "files_dir getFilesDir",
+        env.call_method(context, "getFilesDir", "()Ljava/io/File;", &[])
+            .and_then(|v| v.l()),
+    )?;
+    let path_str_obj = jni_err(
+        env,
+        "files_dir getAbsolutePath",
+        env.call_method(
             &files_dir_obj,
             "getAbsolutePath",
             "()Ljava/lang/String;",
             &[],
-        )?
-        .l()?;
-    let path_string: String = env.get_string(&path_str_obj.into())?.into();
+        )
+        .and_then(|v| v.l()),
+    )?;
+    let path_string: String = jni_err(
+        env,
+        "files_dir get_string",
+        env.get_string(&path_str_obj.into()),
+    )?
+    .into();
     Ok(PathBuf::from(path_string))
 }
 
@@ -67,14 +90,17 @@ pub fn extract_builtin_model(env: &mut JNIEnv, context: &JObject) -> anyhow::Res
 
     std::fs::create_dir_all(&model_dir)?;
 
-    let asset_manager_obj = env
-        .call_method(
+    let asset_manager_obj = jni_err(
+        env,
+        "extract_builtin_model getAssets",
+        env.call_method(
             context,
             "getAssets",
             "()Landroid/content/res/AssetManager;",
             &[],
-        )?
-        .l()?;
+        )
+        .and_then(|v| v.l()),
+    )?;
 
     copy_assets_recursively(env, &asset_manager_obj, BUILTIN_MODEL_DIR, &base_path)?;
 
@@ -112,31 +138,57 @@ fn extraction_matches_assets(
 ) -> anyhow::Result<bool> {
     use jni::objects::JObjectArray;
 
-    let asset_manager_obj = env
-        .call_method(
+    let asset_manager_obj = jni_err(
+        env,
+        "extraction_matches_assets getAssets",
+        env.call_method(
             context,
             "getAssets",
             "()Landroid/content/res/AssetManager;",
             &[],
-        )?
-        .l()?;
+        )
+        .and_then(|v| v.l()),
+    )?;
 
-    let path_jstring = env.new_string(BUILTIN_MODEL_DIR)?;
-    let list_array_obj = env
-        .call_method(
+    let path_jstring = jni_err(
+        env,
+        "extraction_matches_assets new_string dir",
+        env.new_string(BUILTIN_MODEL_DIR),
+    )?;
+    let list_array_obj = jni_err(
+        env,
+        "extraction_matches_assets list",
+        env.call_method(
             &asset_manager_obj,
             "list",
             "(Ljava/lang/String;)[Ljava/lang/String;",
             &[(&path_jstring).into()],
-        )?
-        .l()?;
+        )
+        .and_then(|v| v.l()),
+    )?;
 
     let list_array: JObjectArray = list_array_obj.into();
-    let len = env.get_array_length(&list_array)?;
+    let len = jni_err(
+        env,
+        "extraction_matches_assets get_array_length",
+        env.get_array_length(&list_array),
+    )?;
+    if len <= 0 {
+        return Ok(false);
+    }
 
     for i in 0..len {
-        let file_name_obj = env.get_object_array_element(&list_array, i)?;
-        let file_name: String = env.get_string(&file_name_obj.into())?.into();
+        let file_name_obj = jni_err(
+            env,
+            "extraction_matches_assets get_object_array_element",
+            env.get_object_array_element(&list_array, i),
+        )?;
+        let file_name: String = jni_err(
+            env,
+            "extraction_matches_assets get_string",
+            env.get_string(&file_name_obj.into()),
+        )?
+        .into();
         let disk_entry = model_dir.join(&file_name);
         if !disk_entry.exists() {
             log::info!(
@@ -147,35 +199,56 @@ fn extraction_matches_assets(
         }
         // Existence alone is not enough (R3): an interrupted copy can leave a
         // file with the right name but truncated content. Compare sizes when
-        // the asset is a regular file (open() + available()); the size check
-        // failing is treated as a mismatch too.
+        // the asset is a regular file (open() + available()); any error reading
+        // metadata/size is treated as a mismatch.
         if disk_entry.is_file() {
             let asset_path = format!("{}/{}", BUILTIN_MODEL_DIR, file_name);
-            let path_jstring = env.new_string(&asset_path)?;
-            if let Ok(stream_val) = env.call_method(
-                &asset_manager_obj,
-                "open",
-                "(Ljava/lang/String;)Ljava/io/InputStream;",
-                &[(&path_jstring).into()],
+            let path_jstring = jni_err(
+                env,
+                "extraction_matches_assets new_string asset",
+                env.new_string(&asset_path),
+            )?;
+            let stream = match jni_err(
+                env,
+                "extraction_matches_assets open",
+                env.call_method(
+                    &asset_manager_obj,
+                    "open",
+                    "(Ljava/lang/String;)Ljava/io/InputStream;",
+                    &[(&path_jstring).into()],
+                )
+                .and_then(|v| v.l()),
             ) {
-                if let Ok(stream) = stream_val.l() {
-                    let size_matches = env
-                        .call_method(&stream, "available", "()I", &[])
-                        .and_then(|v| v.i())
-                        .map(|avail| {
-                            avail < 0
-                                || disk_entry
-                                    .metadata()
-                                    .map(|m| m.len() == avail as u64)
-                                    .unwrap_or(true)
-                        })
-                        .unwrap_or(true);
-                    let _ = env.call_method(&stream, "close", "()V", &[]);
-                    if !size_matches {
-                        log::info!("Bundled asset {} size mismatch — re-extracting", file_name);
-                        return Ok(false);
-                    }
+                Ok(s) => s,
+                Err(_) => return Ok(false),
+            };
+            let avail_res = jni_err(
+                env,
+                "extraction_matches_assets available",
+                env.call_method(&stream, "available", "()I", &[])
+                    .and_then(|v| v.i()),
+            );
+            if env.call_method(&stream, "close", "()V", &[]).is_err() {
+                crate::jni_util::clear_exception(env, "extraction_matches_assets close");
+            }
+            let avail = match avail_res {
+                Ok(a) if a >= 0 => a as u64,
+                Ok(_) => {
+                    log::info!(
+                        "Bundled asset {} reported negative size — re-extracting",
+                        file_name
+                    );
+                    return Ok(false);
                 }
+                Err(_) => return Ok(false),
+            };
+            let disk_len = match disk_entry.metadata() {
+                Ok(m) => m.len(),
+                Err(_) => return Ok(false),
+            };
+            if disk_len != avail {
+                log::info!("Bundled asset {} size mismatch — re-extracting", file_name);
+                return Ok(false);
             }
         }
     }
@@ -204,18 +277,29 @@ fn copy_assets_recursively(
 ) -> anyhow::Result<()> {
     use jni::objects::JObjectArray;
 
-    let path_jstring = env.new_string(path)?;
-    let list_array_obj = env
-        .call_method(
+    let path_jstring = jni_err(
+        env,
+        "copy_assets_recursively new_string",
+        env.new_string(path),
+    )?;
+    let list_array_obj = jni_err(
+        env,
+        "copy_assets_recursively list",
+        env.call_method(
             asset_manager,
             "list",
             "(Ljava/lang/String;)[Ljava/lang/String;",
             &[(&path_jstring).into()],
-        )?
-        .l()?;
+        )
+        .and_then(|v| v.l()),
+    )?;
 
     let list_array: JObjectArray = list_array_obj.into();
-    let len = env.get_array_length(&list_array)?;
+    let len = jni_err(
+        env,
+        "copy_assets_recursively get_array_length",
+        env.get_array_length(&list_array),
+    )?;
 
     if len == 0 {
         return copy_asset_file(env, asset_manager, path, target_root);
@@ -225,8 +309,17 @@ fn copy_assets_recursively(
     std::fs::create_dir_all(&target_dir)?;
 
     for i in 0..len {
-        let file_name_obj = env.get_object_array_element(&list_array, i)?;
-        let file_name: String = env.get_string(&file_name_obj.into())?.into();
+        let file_name_obj = jni_err(
+            env,
+            "copy_assets_recursively get_object_array_element",
+            env.get_object_array_element(&list_array, i),
+        )?;
+        let file_name: String = jni_err(
+            env,
+            "copy_assets_recursively get_string",
+            env.get_string(&file_name_obj.into()),
+        )?
+        .into();
 
         let child_path = if path.is_empty() {
             file_name
@@ -245,7 +338,11 @@ fn copy_asset_file(
     asset_path: &str,
     target_root: &Path,
 ) -> anyhow::Result<()> {
-    let path_jstring = env.new_string(asset_path)?;
+    let path_jstring = jni_err(
+        env,
+        "copy_asset_file new_string",
+        env.new_string(asset_path),
+    )?;
     let result = env.call_method(
         asset_manager,
         "open",
@@ -255,35 +352,65 @@ fn copy_asset_file(
 
     match result {
         Ok(stream_val) => {
-            let stream_obj = stream_val.l()?;
+            let stream_obj = jni_err(env, "copy_asset_file open result", stream_val.l())?;
             let target_file_path = target_root.join(asset_path);
 
-            const CHUNK_SIZE: usize = 64 * 1024;
-            let mut file = std::fs::File::create(&target_file_path)?;
-            let mut buffer = vec![0u8; CHUNK_SIZE];
-            let buffer_j = env.new_byte_array(CHUNK_SIZE as jni::sys::jsize)?;
+            let copy_res: anyhow::Result<()> = (|| {
+                const CHUNK_SIZE: usize = 64 * 1024;
+                let mut file = std::fs::File::create(&target_file_path)?;
+                let mut buffer = vec![0u8; CHUNK_SIZE];
+                let buffer_j = jni_err(
+                    env,
+                    "copy_asset_file new_byte_array",
+                    env.new_byte_array(CHUNK_SIZE as jni::sys::jsize),
+                )?;
 
-            loop {
-                let bytes_read = env
-                    .call_method(&stream_obj, "read", "([B)I", &[(&buffer_j).into()])?
-                    .i()?;
+                loop {
+                    let bytes_read = jni_err(
+                        env,
+                        "copy_asset_file read",
+                        env.call_method(&stream_obj, "read", "([B)I", &[(&buffer_j).into()])
+                            .and_then(|v| v.i()),
+                    )?;
 
-                if bytes_read == -1 {
-                    break;
+                    if bytes_read == -1 {
+                        break;
+                    }
+                    if bytes_read == 0 {
+                        continue;
+                    }
+                    if bytes_read < 0 || (bytes_read as usize) > CHUNK_SIZE {
+                        anyhow::bail!(
+                            "unexpected InputStream.read return value {} for {}",
+                            bytes_read,
+                            asset_path
+                        );
+                    }
+
+                    let bytes_read_usize = bytes_read as usize;
+                    let buffer_slice = unsafe {
+                        std::slice::from_raw_parts_mut(
+                            buffer.as_mut_ptr() as *mut i8,
+                            bytes_read_usize,
+                        )
+                    };
+
+                    jni_err(
+                        env,
+                        "copy_asset_file get_byte_array_region",
+                        env.get_byte_array_region(&buffer_j, 0, buffer_slice),
+                    )?;
+
+                    use std::io::Write;
+                    file.write_all(&buffer[0..bytes_read_usize])?;
                 }
+                Ok(())
+            })();
 
-                let bytes_read_usize = bytes_read as usize;
-                let buffer_slice = unsafe {
-                    std::slice::from_raw_parts_mut(buffer.as_mut_ptr() as *mut i8, bytes_read_usize)
-                };
-
-                env.get_byte_array_region(&buffer_j, 0, buffer_slice)?;
-
-                use std::io::Write;
-                file.write_all(&buffer[0..bytes_read_usize])?;
+            if env.call_method(&stream_obj, "close", "()V", &[]).is_err() {
+                crate::jni_util::clear_exception(env, "copy_asset_file close");
             }
-
-            env.call_method(&stream_obj, "close", "()V", &[])?;
+            copy_res?;
             log::info!("Extracted: {:?}", target_file_path);
             Ok(())
         }
@@ -291,6 +418,9 @@ fn copy_asset_file(
         // no-op (R4): silently returning Ok would leave the model directory
         // incomplete with no extraction marker, and the user would only ever
         // see a confusing re-extraction loop.
-        Err(e) => Err(anyhow::anyhow!("asset not found: {} ({})", asset_path, e)),
+        Err(e) => {
+            crate::jni_util::clear_exception(env, "copy_asset_file open");
+            Err(anyhow::anyhow!("asset not found: {} ({})", asset_path, e))
+        }
     }
 }

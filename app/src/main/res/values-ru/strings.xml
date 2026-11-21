@@ -71,7 +71,7 @@
     <string name="pack_pro_title">🏆 Профессиональный интегрированный пакет (Рекомендуется)</string>
     <string name="pack_pro_desc">Nemotron 3.5 ASR 0.6B (встроенный) + AI Fix Cloud для максимальной точности, технических терминов и умного форматирования.</string>
     <string name="pack_multilingual_title">🚀 Расширенный пакет Whisper</string>
-    <string name="pack_multilingual_desc">Whisper Large-v3-Turbo для шумного аудио, сильных акцентов и многоязычного перевода.</string>
+    <string name="pack_multilingual_desc">Whisper Large-v3-Turbo для шумного аудио, сильных акцентов и транскрибации на 99 языках.</string>
     <string name="models_desc">Встроенная модель работает сразу. Вы также можете импортировать любую скачанную модель GGUF для transcribe.cpp. Приложение остаётся полностью офлайн; загрузки выполняются в браузере. Голосовая клавиатура применяет смену модели после перезапуска.</string>
     <string name="models_loading">Загрузка модели…</string>
     <string name="models_import">Импортировать файл модели (.gguf)</string>
@@ -162,15 +162,7 @@
     <string name="pp_test_connection">Проверить постобработку</string>
     <string name="pp_test_success">Постобработка работает</string>
     <string name="pp_test_error">Ошибка проверки постобработки: %1$s</string>
-    <string name="pp_local_model_title">На устройстве: S1-mini (0.6B GGUF — Английский)</string>
-    <string name="pp_local_model_installed">Модель установлена (%1$s) — 100%% офлайн (Английский)</string>
-    <string name="pp_local_model_not_installed">Опциональный нормализатор на англ. (~380 МБ загрузки)</string>
-    <string name="pp_local_unavailable">ИИ-обработка на устройстве недоступна в этой сборке: для неё нужен движок генерации текста, которого в приложении пока нет. Выберите облачный провайдер или отключите ИИ-исправление.</string>
-    <string name="pp_download_s1">Скачать S1-mini GGUF</string>
-    <string name="pp_downloading_s1">Загрузка S1-mini GGUF…</string>
-    <string name="pp_download_s1_done">S1-mini GGUF успешно загружен</string>
-    <string name="pp_download_s1_error">Ошибка загрузки: %1$s</string>
-    <string name="pp_not_configured_prompt">Постобработка ИИ не настроена. Добавьте ключ API или установите локальную модель S1 в настройках.</string>
+    <string name="pp_not_configured_prompt">Постобработка ИИ не настроена. Добавьте ключ API в настройках.</string>
 
     <!-- Словарь пользовательских слов (добавление форка): фонетическая коррекция -->
     <string name="cw_card_title">Свои слова</string>
@@ -225,7 +217,6 @@
     <string name="file_error_no_audio_received">Ошибка: аудиофайл не получен</string>
     <string name="file_error_no_audio">Ошибка: нет аудиофайла</string>
     <string name="file_error_no_speech">Ошибка: в аудиофайле не обнаружена речь</string>
-    <string name="file_error_format">Ошибка: %1$s</string>
     <string name="file_error_decode">Ошибка: не удалось декодировать аудиофайл.</string>
     <string name="file_error_timeout">Время ожидания сегмента транскрипции истекло</string>
     <string name="subs_grant_overlay_permission">Разрешите доступ «Поверх других приложений»</string>

@@ -189,7 +189,7 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_VoiceRecognitionService
 /// silence-based endpoint monitor.
 #[no_mangle]
 pub unsafe extern "system" fn Java_dev_notune_transcribe_VoiceRecognitionService_startListening(
-    env: JNIEnv,
+    mut env: JNIEnv,
     _class: JClass,
     service: JObject,
     session_id: jni::sys::jint,
@@ -245,29 +245,14 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_VoiceRecognitionService
     });
     let stream_holder: Arc<Mutex<Option<SendStream>>> = Arc::new(Mutex::new(None));
 
-    // Tell the keyboard we're ready to receive speech.
-    {
-        let mut env2 = match jvm.attach_current_thread() {
-            Ok(e) => e,
-            Err(_) => return,
-        };
-        jni_util::call_and_clear(
-            &mut env2,
-            shared.target.as_obj(),
-            "onReadyForSpeech",
-            "(I)V",
-            &[shared.session_id.into()],
-        );
-    }
-
-    // Open the microphone (16 kHz mono, matching the model + voice_session).
+    // Open the microphone (16 kHz mono, matching the model + voice_session) before
+    // notifying the client that recognition is ready.
     let host = cpal::default_host();
     let device = match host.default_input_device() {
         Some(d) => d,
         None => {
-            let mut env2 = jvm.attach_current_thread().unwrap();
             call_error(
-                &mut env2,
+                &mut env,
                 shared.target.as_obj(),
                 ERROR_AUDIO,
                 shared.session_id,
@@ -291,14 +276,22 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_VoiceRecognitionService
 
     match stream {
         Ok(s) => {
-            s.play().ok();
+            if let Err(e) = s.play() {
+                log::error!("Failed to start microphone: {}", e);
+                call_error(
+                    &mut env,
+                    shared.target.as_obj(),
+                    ERROR_AUDIO,
+                    shared.session_id,
+                );
+                return;
+            }
             *stream_holder.lock().unwrap_or_else(|p| p.into_inner()) = Some(SendStream(s));
         }
         Err(e) => {
             log::error!("Failed to open microphone: {}", e);
-            let mut env2 = jvm.attach_current_thread().unwrap();
             call_error(
-                &mut env2,
+                &mut env,
                 shared.target.as_obj(),
                 ERROR_AUDIO,
                 shared.session_id,
@@ -306,6 +299,15 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_VoiceRecognitionService
             return;
         }
     }
+
+    // Tell the keyboard we're ready to receive speech now that capture is active.
+    jni_util::call_and_clear(
+        &mut env,
+        shared.target.as_obj(),
+        "onReadyForSpeech",
+        "(I)V",
+        &[shared.session_id.into()],
+    );
 
     // Endpoint monitor.
     let mon_shared = shared.clone();
@@ -403,10 +405,10 @@ fn audio_callback(shared: &Arc<Endpoint>, data: &[f32]) {
 
     if is_speech {
         let elapsed_ms = shared.started_at.elapsed().as_millis() as u64;
-        if shared.speech_started.load(Ordering::SeqCst) {
+        if shared.speech_started.load(Ordering::Acquire) {
             // Once speech has been confirmed, every speech frame refreshes the
             // trailing-silence clock (lock-free).
-            shared.last_voice_ms.store(elapsed_ms, Ordering::Relaxed);
+            shared.last_voice_ms.store(elapsed_ms, Ordering::Release);
         } else {
             // Do not arm trailing-silence endpointing for a single microphone
             // pop or initial noise spike. Require a continuous 100 ms speech
@@ -415,18 +417,18 @@ fn audio_callback(shared: &Arc<Endpoint>, data: &[f32]) {
                 .speech_run_samples
                 .fetch_add(data.len(), Ordering::SeqCst)
                 + data.len();
-            if run >= MIN_SPEECH_SAMPLES
-                && shared.speech_started.swap(true, Ordering::SeqCst) == false
-            {
-                shared.last_voice_ms.store(elapsed_ms, Ordering::Relaxed);
-                if let Ok(mut env) = shared.jvm.attach_current_thread_permanently() {
-                    jni_util::call_and_clear(
-                        &mut env,
-                        shared.target.as_obj(),
-                        "onBeginningOfSpeech",
-                        "(I)V",
-                        &[shared.session_id.into()],
-                    );
+            if run >= MIN_SPEECH_SAMPLES {
+                shared.last_voice_ms.store(elapsed_ms, Ordering::Release);
+                if !shared.speech_started.swap(true, Ordering::AcqRel) {
+                    if let Ok(mut env) = shared.jvm.attach_current_thread_permanently() {
+                        jni_util::call_and_clear(
+                            &mut env,
+                            shared.target.as_obj(),
+                            "onBeginningOfSpeech",
+                            "(I)V",
+                            &[shared.session_id.into()],
+                        );
+                    }
                 }
             }
         }
@@ -478,8 +480,8 @@ fn endpoint_monitor(shared: Arc<Endpoint>, stream: Arc<Mutex<Option<SendStream>>
 
         let elapsed = shared.started_at.elapsed();
         let elapsed_ms = elapsed.as_millis() as u64;
-        let speech = shared.speech_started.load(Ordering::SeqCst);
-        let last_voice_ms = shared.last_voice_ms.load(Ordering::Relaxed);
+        let speech = shared.speech_started.load(Ordering::Acquire);
+        let last_voice_ms = shared.last_voice_ms.load(Ordering::Acquire);
         let silence_ms = elapsed_ms.saturating_sub(last_voice_ms);
 
         let done = (speech && silence_ms >= SILENCE_MS)
@@ -513,17 +515,14 @@ fn streaming_pump(
     };
 
     // Serialize the start decision with finalize/cancel so exactly one path
-    // delivers the transcription (see finalize).
+    // delivers the transcription (see finalize). Check the lock-free capability
+    // mirror under stream_lock to avoid blocking behind another active stream.
     {
         let _guard = shared.stream_lock.lock().unwrap_or_else(|p| p.into_inner());
         if shared.finalized.load(Ordering::SeqCst) || shared.cancelled.load(Ordering::SeqCst) {
             return;
         }
-        let is_streaming = engine_arc
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .supports_streaming();
-        if !is_streaming {
+        if !engine::is_streaming_capable() {
             return; // finalize falls back to the whole-buffer path
         }
         shared.streaming_active.store(true, Ordering::SeqCst);
@@ -531,7 +530,11 @@ fn streaming_pump(
 
     let mut env = match shared.jvm.attach_current_thread() {
         Ok(e) => e,
-        Err(_) => return,
+        Err(_) => {
+            let _guard = shared.stream_lock.lock().unwrap_or_else(|p| p.into_inner());
+            shared.streaming_active.store(false, Ordering::SeqCst);
+            return;
+        }
     };
     let target = shared.target.as_obj();
 
@@ -543,11 +546,13 @@ fn streaming_pump(
     let result = {
         let shared_ref = &shared;
         let mut drain = |chunk: &mut Vec<f32>| {
-            let mut b = shared_ref
-                .audio_buffer
-                .lock()
-                .unwrap_or_else(|p| p.into_inner());
-            chunk.extend(b.drain(..));
+            {
+                let mut b = shared_ref
+                    .audio_buffer
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner());
+                chunk.extend(b.drain(..));
+            }
             local.extend_from_slice(chunk);
         };
         let mut partial = |text: &str| {
@@ -558,35 +563,81 @@ fn streaming_pump(
         };
         engine::transcribe_stream_shared(&engine_arc, &rx, &mut drain, &mut partial)
     };
-    shared.streaming_active.store(false, Ordering::SeqCst);
 
     match result {
-        Ok(text) if !text.trim().is_empty() => {
-            call_results(&mut env, target, &text, shared.session_id)
+        Ok(text) => {
+            {
+                let _guard = shared.stream_lock.lock().unwrap_or_else(|p| p.into_inner());
+                shared.streaming_active.store(false, Ordering::SeqCst);
+            }
+            if !shared.cancelled.load(Ordering::SeqCst) {
+                if !text.trim().is_empty() {
+                    call_results(&mut env, target, &text, shared.session_id);
+                } else {
+                    call_error(&mut env, target, ERROR_NO_MATCH, shared.session_id);
+                }
+            }
+            clear_session(&shared);
         }
-        Ok(_) => call_error(&mut env, target, ERROR_NO_MATCH, shared.session_id),
-        Err(msg) if msg == "Canceled" => {}
+        Err(msg) if msg == "Canceled" => {
+            let _guard = shared.stream_lock.lock().unwrap_or_else(|p| p.into_inner());
+            shared.streaming_active.store(false, Ordering::SeqCst);
+            clear_session(&shared);
+        }
         Err(msg) => {
-            // The stream could not run (e.g. begin failed): fall back to the
-            // whole-buffer transcription so no text is lost.
+            // If the session has not yet been finalized or cancelled, put
+            // drained audio back into audio_buffer under stream_lock so
+            // finalize() falls back cleanly without duplicate callbacks.
+            let handoff_to_finalize = {
+                let _guard = shared.stream_lock.lock().unwrap_or_else(|p| p.into_inner());
+                shared.streaming_active.store(false, Ordering::SeqCst);
+                if !shared.finalized.load(Ordering::SeqCst)
+                    && !shared.cancelled.load(Ordering::SeqCst)
+                {
+                    let mut buf = shared
+                        .audio_buffer
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner());
+                    if buf.is_empty() {
+                        *buf = std::mem::take(&mut local);
+                    } else if !local.is_empty() {
+                        local.append(&mut *buf);
+                        *buf = std::mem::take(&mut local);
+                    }
+                    true
+                } else {
+                    false
+                }
+            };
+            if handoff_to_finalize || shared.cancelled.load(Ordering::SeqCst) {
+                return;
+            }
             if local.is_empty() {
                 log::error!("Streaming failed: {}", msg);
                 call_error(&mut env, target, ERROR_SERVER, shared.session_id);
             } else {
                 match engine::transcribe_shared(&engine_arc, local) {
                     Ok(text) if !text.trim().is_empty() => {
-                        call_results(&mut env, target, &text, shared.session_id)
+                        if !shared.cancelled.load(Ordering::SeqCst) {
+                            call_results(&mut env, target, &text, shared.session_id);
+                        }
                     }
-                    Ok(_) => call_error(&mut env, target, ERROR_NO_MATCH, shared.session_id),
+                    Ok(_) => {
+                        if !shared.cancelled.load(Ordering::SeqCst) {
+                            call_error(&mut env, target, ERROR_NO_MATCH, shared.session_id);
+                        }
+                    }
                     Err(e) => {
                         log::error!("Transcription failed: {}", e);
-                        call_error(&mut env, target, ERROR_SERVER, shared.session_id);
+                        if !shared.cancelled.load(Ordering::SeqCst) {
+                            call_error(&mut env, target, ERROR_SERVER, shared.session_id);
+                        }
                     }
                 }
             }
+            clear_session(&shared);
         }
     }
-    clear_session(&shared);
 }
 
 /// Stop capture, run the model on the buffered audio and deliver results/error.
@@ -607,7 +658,18 @@ fn finalize(shared: Arc<Endpoint>, stream: Arc<Mutex<Option<SendStream>>>) {
 
     let mut env = match shared.jvm.attach_current_thread() {
         Ok(e) => e,
-        Err(_) => return,
+        Err(_) => {
+            if let Some(tx) = shared
+                .stream_cmd_tx
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .clone()
+            {
+                let _ = tx.send(crate::engine::StreamCmd::Cancel);
+            }
+            clear_session(&shared);
+            return;
+        }
     };
     let target = shared.target.as_obj();
 

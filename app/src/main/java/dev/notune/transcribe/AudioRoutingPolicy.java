@@ -108,6 +108,38 @@ public final class AudioRoutingPolicy {
     }
 
     /**
+     * Selects the best communication-device candidate from {@code devices}
+     * (returned by {@code AudioManager.getAvailableCommunicationDevices()} on API 31+).
+     *
+     * <p>Unlike {@code GET_DEVICES_INPUTS}, communication devices are often reported
+     * with {@code isSource() == false}, so this filters by eligible device type while
+     * still rejecting output-only types such as {@code TYPE_BLE_SPEAKER}.
+     */
+    public static Candidate selectCommunicationCandidate(
+            List<Candidate> devices, boolean bluetoothAllowed, boolean wiredUsbAllowed) {
+        if (devices == null || devices.isEmpty()) return null;
+        if (bluetoothAllowed) {
+            for (Candidate c : devices) {
+                if (c != null && isBluetoothInputType(c.type)) return c;
+            }
+        }
+        if (wiredUsbAllowed) {
+            for (Candidate c : devices) {
+                if (c != null && isWiredOrUsbInputType(c.type)) return c;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns true if {@code devices} from {@code getAvailableCommunicationDevices()}
+     * includes a Bluetooth headset/SCO communication device.
+     */
+    public static boolean hasBluetoothCommunicationDevice(List<Candidate> devices) {
+        return selectCommunicationCandidate(devices, true, false) != null;
+    }
+
+    /**
      * Whether a failed explicit "Bluetooth only" acquisition may fall back to the
      * built-in microphone. It may not: the user explicitly excluded the built-in mic.
      * AUTO and built-in modes always keep the built-in fallback (documented behavior).

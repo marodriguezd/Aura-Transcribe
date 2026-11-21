@@ -58,54 +58,66 @@ pub fn clear_exception(env: &mut JNIEnv, context: &str) {
 
 /// Invokes `onStatusUpdate(String)` on the target Java object.
 pub fn notify_status(env: &mut JNIEnv, obj: &JObject, msg: &str) {
-    if let Ok(jmsg) = env.new_string(msg) {
-        call_and_clear(
-            env,
-            obj,
-            "onStatusUpdate",
-            "(Ljava/lang/String;)V",
-            &[(&jmsg).into()],
-        );
+    match env.new_string(msg) {
+        Ok(jmsg) => {
+            call_and_clear(
+                env,
+                obj,
+                "onStatusUpdate",
+                "(Ljava/lang/String;)V",
+                &[(&jmsg).into()],
+            );
+        }
+        Err(_) => clear_exception(env, "notify_status new_string"),
     }
 }
 
 /// Invokes the recording-scoped status callback. The Java side rejects the
 /// callback when its generation no longer matches the active recording.
 pub fn notify_status_with_session(env: &mut JNIEnv, obj: &JObject, msg: &str, session_id: i32) {
-    if let Ok(jmsg) = env.new_string(msg) {
-        call_and_clear(
-            env,
-            obj,
-            "onStatusUpdate",
-            "(Ljava/lang/String;I)V",
-            &[(&jmsg).into(), session_id.into()],
-        );
+    match env.new_string(msg) {
+        Ok(jmsg) => {
+            call_and_clear(
+                env,
+                obj,
+                "onStatusUpdate",
+                "(Ljava/lang/String;I)V",
+                &[(&jmsg).into(), session_id.into()],
+            );
+        }
+        Err(_) => clear_exception(env, "notify_status_with_session new_string"),
     }
 }
 
 /// Invokes the recording-scoped final-text callback.
 pub fn notify_text_with_session(env: &mut JNIEnv, obj: &JObject, text: &str, session_id: i32) {
-    if let Ok(jtxt) = env.new_string(text) {
-        call_and_clear(
-            env,
-            obj,
-            "onTextTranscribed",
-            "(Ljava/lang/String;I)V",
-            &[(&jtxt).into(), session_id.into()],
-        );
+    match env.new_string(text) {
+        Ok(jtxt) => {
+            call_and_clear(
+                env,
+                obj,
+                "onTextTranscribed",
+                "(Ljava/lang/String;I)V",
+                &[(&jtxt).into(), session_id.into()],
+            );
+        }
+        Err(_) => clear_exception(env, "notify_text_with_session new_string"),
     }
 }
 
 /// Invokes the recording-scoped partial-text callback.
 pub fn notify_partial_with_session(env: &mut JNIEnv, obj: &JObject, text: &str, session_id: i32) {
-    if let Ok(jtxt) = env.new_string(text) {
-        call_and_clear(
-            env,
-            obj,
-            "onPartialText",
-            "(Ljava/lang/String;I)V",
-            &[(&jtxt).into(), session_id.into()],
-        );
+    match env.new_string(text) {
+        Ok(jtxt) => {
+            call_and_clear(
+                env,
+                obj,
+                "onPartialText",
+                "(Ljava/lang/String;I)V",
+                &[(&jtxt).into(), session_id.into()],
+            );
+        }
+        Err(_) => clear_exception(env, "notify_partial_with_session new_string"),
     }
 }
 
@@ -122,14 +134,17 @@ pub fn notify_level_with_session(env: &mut JNIEnv, obj: &JObject, level: f32, se
 
 /// Invokes `onSubtitleText(String, boolean)` on the target Java object.
 pub fn notify_subtitle(env: &mut JNIEnv, obj: &JObject, text: &str, is_final: bool) {
-    if let Ok(jtxt) = env.new_string(text) {
-        call_and_clear(
-            env,
-            obj,
-            "onSubtitleText",
-            "(Ljava/lang/String;Z)V",
-            &[(&jtxt).into(), is_final.into()],
-        );
+    match env.new_string(text) {
+        Ok(jtxt) => {
+            call_and_clear(
+                env,
+                obj,
+                "onSubtitleText",
+                "(Ljava/lang/String;Z)V",
+                &[(&jtxt).into(), is_final.into()],
+            );
+        }
+        Err(_) => clear_exception(env, "notify_subtitle new_string"),
     }
 }
 

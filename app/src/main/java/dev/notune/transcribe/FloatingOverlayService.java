@@ -11,6 +11,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
+import android.content.res.ColorStateList;
 import android.graphics.Insets;
 import android.graphics.PixelFormat;
 import android.graphics.Point;
@@ -38,9 +39,11 @@ import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import com.google.android.material.color.MaterialColors;
 import com.google.android.material.materialswitch.MaterialSwitch;
 
 import androidx.core.app.NotificationCompat;
+import androidx.core.widget.ImageViewCompat;
 
 import java.io.File;
 
@@ -378,15 +381,10 @@ public class FloatingOverlayService extends Service {
         }
 
         setupGestureAndListeners();
+        applyOverlayIconTints();
         mWindowManager.addView(mOverlayView, mParams);
         mLastScreenWidth = getRealScreenWidth();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            mOverlayView.setOnApplyWindowInsetsListener((v, insets) -> {
-                int imeHeight = insets.getInsets(WindowInsets.Type.ime()).bottom;
-                handleImeVisibility(imeHeight);
-                return insets;
-            });
-        }
+        attachWindowInsetsListener();
         FloatingDictationAccessibilityService.setFocusListener(isEditableFocused -> {
             if (mMainHandler != null) {
                 mMainHandler.post(() -> {
@@ -528,6 +526,7 @@ public class FloatingOverlayService extends Service {
                     sm.setPostProcessEnabled(false);
                     if (!mIsRecording && mStatusText != null
                             && getString(R.string.ime_refining).equals(mStatusText.getText().toString())) {
+                        mCurrentSessionId++;
                         PostProcessor.cancelAllFor(FloatingOverlayService.this);
                         if (mLastRawTranscript != null && !mLastRawTranscript.trim().isEmpty()) {
                             deliverFinalText(mLastRawTranscript);
@@ -927,9 +926,7 @@ public class FloatingOverlayService extends Service {
         mCancelButton.setVisibility(View.VISIBLE);
         startPulseAnimation();
         startRecording(new File(getFilesDir(), "auto_stop").exists(), ++mCurrentSessionId);
-        boolean isBt = AudioDeviceManager.shouldShowHeadsetIcon(this);
-        if (mBubbleIcon != null) mBubbleIcon.setImageResource(isBt ? R.drawable.ic_headset : R.drawable.ic_mic);
-        if (mMicIcon != null) mMicIcon.setImageResource(isBt ? R.drawable.ic_headset : R.drawable.ic_mic);
+        applyOverlayIconTints();
     }
 
     private void stopRecordingSession() {
@@ -940,6 +937,7 @@ public class FloatingOverlayService extends Service {
         mStatusText.setText(getString(R.string.floating_status_transcribing));
         if (mProgress != null) mProgress.setVisibility(View.VISIBLE);
         if (mHintText != null) mHintText.setText(R.string.ime_tap_to_record);
+        applyOverlayIconTints();
         stopPulseAnimation();
         AudioDeviceManager.releaseMicrophone(this);
         stopRecording();
@@ -955,6 +953,7 @@ public class FloatingOverlayService extends Service {
         AudioDeviceManager.releaseMicrophone(this);
         PostProcessor.cancelAllFor(this);
         stopPulseAnimation();
+        applyOverlayIconTints();
         if (mProgress != null) mProgress.setVisibility(View.GONE);
         if (mHintText != null) mHintText.setText(R.string.ime_tap_to_record);
         mStatusText.setText(getString(R.string.floating_status_ready));
@@ -1080,6 +1079,47 @@ public class FloatingOverlayService extends Service {
         }
     }
 
+    private void attachWindowInsetsListener() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && mOverlayView != null) {
+            mOverlayView.setOnApplyWindowInsetsListener((v, insets) -> {
+                int imeHeight = insets.getInsets(WindowInsets.Type.ime()).bottom;
+                handleImeVisibility(imeHeight);
+                return insets;
+            });
+        }
+    }
+
+    private void applyOverlayIconTints() {
+        boolean isBt = AudioDeviceManager.shouldShowHeadsetIcon(this);
+        int iconRes = isBt ? R.drawable.ic_headset : R.drawable.ic_mic;
+        if (mBubbleIcon != null) {
+            mBubbleIcon.setImageResource(iconRes);
+            ImageViewCompat.setImageTintList(mBubbleIcon, ColorStateList.valueOf(
+                    MaterialColors.getColor(mBubbleIcon,
+                            com.google.android.material.R.attr.colorOnPrimary)));
+        }
+        if (mCloseButton != null) {
+            ImageViewCompat.setImageTintList(mCloseButton, ColorStateList.valueOf(
+                    MaterialColors.getColor(mCloseButton,
+                            com.google.android.material.R.attr.colorOnSurfaceVariant)));
+        }
+        if (mRecordCircle != null) {
+            int circleAttr = mIsRecording
+                    ? androidx.appcompat.R.attr.colorError
+                    : com.google.android.material.R.attr.colorPrimaryContainer;
+            mRecordCircle.setBackgroundTintList(ColorStateList.valueOf(
+                    MaterialColors.getColor(mRecordCircle, circleAttr)));
+        }
+        if (mMicIcon != null) {
+            mMicIcon.setImageResource(iconRes);
+            int iconAttr = mIsRecording
+                    ? com.google.android.material.R.attr.colorOnError
+                    : com.google.android.material.R.attr.colorOnPrimaryContainer;
+            ImageViewCompat.setImageTintList(mMicIcon, ColorStateList.valueOf(
+                    MaterialColors.getColor(mMicIcon, iconAttr)));
+        }
+    }
+
     private void reapplyTheme() {
         if (mIsDestroyed || mOverlayView == null || mWindowManager == null) return;
 
@@ -1087,6 +1127,8 @@ public class FloatingOverlayService extends Service {
         CharSequence statusText = (mStatusText != null) ? mStatusText.getText() : null;
         int progressVis = (mProgress != null) ? mProgress.getVisibility() : View.GONE;
         boolean ppChecked = (mPpToggle != null) ? mPpToggle.isChecked() : false;
+        int cancelVis = (mCancelButton != null) ? mCancelButton.getVisibility() : View.GONE;
+        CharSequence hintText = (mHintText != null) ? mHintText.getText() : null;
         CharSequence partialText = (mPartialText != null) ? mPartialText.getText() : null;
         int partialScrollVis = (mPartialScroll != null) ? mPartialScroll.getVisibility() : View.GONE;
         boolean isRecordCircleVis = (mRecordCircle != null && mRecordCircle.getVisibility() == View.VISIBLE);
@@ -1129,6 +1171,8 @@ public class FloatingOverlayService extends Service {
         mRecordContainer = mOverlayView.findViewById(R.id.floating_record_container);
         mMicLevelView = mOverlayView.findViewById(R.id.floating_mic_level);
         mRecordCircle = mOverlayView.findViewById(R.id.floating_record_circle);
+        mBubbleIcon = mOverlayView.findViewById(R.id.floating_bubble_icon);
+        mMicIcon = mOverlayView.findViewById(R.id.floating_mic_icon);
         mInsertButton = mOverlayView.findViewById(R.id.floating_insert_button);
         mHintText = mOverlayView.findViewById(R.id.floating_hint);
 
@@ -1143,6 +1187,12 @@ public class FloatingOverlayService extends Service {
         }
         if (mPpToggle != null) {
             mPpToggle.setChecked(ppChecked);
+        }
+        if (mCancelButton != null) {
+            mCancelButton.setVisibility(cancelVis);
+        }
+        if (mHintText != null && hintText != null) {
+            mHintText.setText(hintText);
         }
         if (mPartialText != null && partialText != null) {
             mPartialText.setText(partialText);
@@ -1165,9 +1215,11 @@ public class FloatingOverlayService extends Service {
         }
 
         setupGestureAndListeners();
+        applyOverlayIconTints();
 
         try {
             mWindowManager.addView(mOverlayView, mParams);
+            attachWindowInsetsListener();
         } catch (Throwable t) {
             Log.e(TAG, "Failed to add view during reapplyTheme", t);
         }
@@ -1196,8 +1248,12 @@ public class FloatingOverlayService extends Service {
         if (mOverlayView != null) {
             saveBubblePosition();
         }
-        try { cancelRecording(); } catch (Throwable ignored) { }
-        AudioDeviceManager.releaseMicrophone(this);
+        if (mIsRecording || mResultPending) {
+            mIsRecording = false;
+            mResultPending = false;
+            try { cancelRecording(); } catch (Throwable ignored) { }
+            AudioDeviceManager.releaseMicrophone(this);
+        }
         try { cleanupNative(); } catch (Throwable ignored) { }
         PostProcessor.cancelAllFor(this);
         if (mIsDismissTargetAttached && mWindowManager != null && mDismissTargetView != null) {
@@ -1700,6 +1756,8 @@ public class FloatingOverlayService extends Service {
                     AudioDeviceManager.releaseMicrophone(FloatingOverlayService.this);
                 }
                 stopPulseAnimation();
+                applyOverlayIconTints();
+                if (mCancelButton != null) mCancelButton.setVisibility(View.GONE);
                 if (mProgress != null) mProgress.setVisibility(View.GONE);
                 if (mHintText != null) mHintText.setText(R.string.ime_tap_to_record);
                 if (mStatusText != null) mStatusText.setText(mLastStatus);
@@ -1766,6 +1824,7 @@ public class FloatingOverlayService extends Service {
             if (text == null || text.trim().isEmpty()) {
                 mResultPending = false;
                 mLastRawTranscript = null;
+                if (mCancelButton != null) mCancelButton.setVisibility(View.GONE);
                 if (mProgress != null) mProgress.setVisibility(View.GONE);
                 if (mHintText != null) mHintText.setText(R.string.ime_tap_to_record);
                 if (mStatusText != null) mStatusText.setText(getString(R.string.floating_status_ready));

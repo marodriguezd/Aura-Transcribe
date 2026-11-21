@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 MIN_WORDS = 125
 MAX_WORDS = 250
 
-VERSION_TOKEN_RE = re.compile(r"v?\d+\.\d+(?:\.\d+)?")
+VERSION_TOKEN_RE = re.compile(r"\bv\d+\.\d+(?:\.\d+)?\b|\b\d+\.\d+\.\d+\b")
 HEADER_RE = re.compile(r"^#{1,6}\s+.*\bv\d*\.\d", re.MULTILINE)
 
 

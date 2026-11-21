@@ -15,7 +15,6 @@ import mimetypes
 import os
 import sys
 import time
-import urllib.parse
 import urllib.request
 import urllib.error
 import uuid
@@ -72,10 +71,22 @@ def truncate_caption_message(safe_msg, max_msg_len):
 
 
 def truncate_alert_message(full_msg):
-    """Message truncation exactly as used in send_failure_alert."""
-    if len(full_msg) > MAX_MSG_LENGTH:
-        full_msg = full_msg[:MAX_MSG_LENGTH - 20] + "...</pre>"
-    return full_msg
+    """Message truncation preserving valid HTML entities and <pre> balance."""
+    if len(full_msg) <= MAX_MSG_LENGTH:
+        return full_msg
+    cutoff = MAX_MSG_LENGTH - 20
+    chunk = full_msg[:cutoff]
+    last_lt = chunk.rfind("<")
+    last_gt = chunk.rfind(">")
+    if last_lt > last_gt:
+        chunk = chunk[:last_lt]
+    last_amp = chunk.rfind("&")
+    last_semi = chunk.rfind(";")
+    if last_amp > last_semi and len(chunk) - last_amp <= 10:
+        chunk = chunk[:last_amp]
+    if chunk.count("<pre>") > chunk.count("</pre>"):
+        return chunk + "...</pre>"
+    return chunk + "..."
 
 
 # Aliases kept for callers/tests that prefer a generic name.

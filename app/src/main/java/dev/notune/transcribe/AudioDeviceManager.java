@@ -106,7 +106,7 @@ public final class AudioDeviceManager {
 
                 boolean routed;
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    AudioDeviceInfo target = findTargetDevice(context, micPreference);
+                    AudioDeviceInfo target = findCommunicationDevice(am, micPreference);
                     routed = target != null && setCommunicationDeviceVerified(am, target);
                 } else {
                     routed = startLegacyBluetoothSco(am);
@@ -243,9 +243,9 @@ public final class AudioDeviceManager {
     }
 
     /**
-     * Resolves the target AudioDeviceInfo according to user preference and hardware
-     * connectivity. Only input-capable (source) devices are considered; output-only
-     * devices such as {@code TYPE_BLE_SPEAKER} are never returned.
+     * Resolves the target input {@link AudioDeviceInfo} for {@code AudioRecord.setPreferredDevice()}
+     * according to user preference and hardware connectivity. Queries {@code GET_DEVICES_INPUTS}
+     * on all API levels so only genuine capture sources are returned.
      */
     public static AudioDeviceInfo findTargetDevice(Context context, String micPreference) {
         if (context == null || MIC_MODE_BUILTIN_ONLY.equals(micPreference)) {
@@ -255,23 +255,32 @@ public final class AudioDeviceManager {
             AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
             if (am == null) return null;
 
-            List<AudioRoutingPolicy.Candidate> candidates;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                candidates = toCandidates(am.getAvailableCommunicationDevices());
-            } else {
-                candidates = toCandidates(am.getDevices(AudioManager.GET_DEVICES_INPUTS));
-            }
+            List<AudioRoutingPolicy.Candidate> candidates =
+                    toCandidates(am.getDevices(AudioManager.GET_DEVICES_INPUTS));
             boolean auto = MIC_MODE_AUTO.equals(micPreference);
             AudioRoutingPolicy.Candidate selected = AudioRoutingPolicy.selectInputCandidate(
                     candidates, /* bluetoothAllowed= */ true, /* wiredUsbAllowed= */ auto);
             if (selected == null) return null;
-            return Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-                    ? findCommunicationDeviceById(am, selected.id)
-                    : findInputDeviceById(am, selected.id);
+            return findInputDeviceById(am, selected.id);
         } catch (Exception t) {
             Log.w(TAG, "Error finding target audio device", t);
         }
         return null;
+    }
+
+    /**
+     * Resolves a communication device from {@code AudioManager.getAvailableCommunicationDevices()}
+     * for {@code setCommunicationDevice()} on API 31+.
+     */
+    @RequiresApi(Build.VERSION_CODES.S)
+    private static AudioDeviceInfo findCommunicationDevice(AudioManager am, String micPreference) {
+        boolean auto = MIC_MODE_AUTO.equals(micPreference);
+        AudioRoutingPolicy.Candidate selected = AudioRoutingPolicy.selectCommunicationCandidate(
+                toCandidates(am.getAvailableCommunicationDevices()),
+                /* bluetoothAllowed= */ true,
+                /* wiredUsbAllowed= */ auto);
+        if (selected == null) return null;
+        return findCommunicationDeviceById(am, selected.id);
     }
 
     /** Maps platform devices to pure policy candidates. */
@@ -486,7 +495,7 @@ public final class AudioDeviceManager {
     @RequiresApi(Build.VERSION_CODES.S)
     private static boolean routeAutoApi31(AudioManager am) {
         try {
-            AudioRoutingPolicy.Candidate selected = AudioRoutingPolicy.selectInputCandidate(
+            AudioRoutingPolicy.Candidate selected = AudioRoutingPolicy.selectCommunicationCandidate(
                     toCandidates(am.getAvailableCommunicationDevices()),
                     /* bluetoothAllowed= */ true, /* wiredUsbAllowed= */ true);
             if (selected != null) {
@@ -543,7 +552,7 @@ public final class AudioDeviceManager {
     @RequiresApi(Build.VERSION_CODES.S)
     private static boolean routeToBluetoothMicApi31(AudioManager am) {
         try {
-            AudioRoutingPolicy.Candidate selected = AudioRoutingPolicy.selectInputCandidate(
+            AudioRoutingPolicy.Candidate selected = AudioRoutingPolicy.selectCommunicationCandidate(
                     toCandidates(am.getAvailableCommunicationDevices()),
                     /* bluetoothAllowed= */ true, /* wiredUsbAllowed= */ false);
             if (selected == null) return false;
@@ -612,7 +621,7 @@ public final class AudioDeviceManager {
             }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                if (AudioRoutingPolicy.hasBluetoothInput(
+                if (AudioRoutingPolicy.hasBluetoothCommunicationDevice(
                         toCandidates(am.getAvailableCommunicationDevices()))) {
                     return true;
                 }
@@ -628,7 +637,7 @@ public final class AudioDeviceManager {
 
     /**
      * Determines whether the recording icon should display as headset (🎧) or microphone (🎙️).
-     * Returns false if the user has selected "Solo micrófono interno" or if no Bluetooth mic is present.
+     * Returns false if the user has selected built-in microphone only or if no Bluetooth mic is present.
      */
     public static boolean shouldShowHeadsetIcon(Context context) {
         if (context == null) return false;
@@ -640,7 +649,7 @@ public final class AudioDeviceManager {
     }
 
     /**
-     * Returns a human-friendly description of the currently connected input and audio devices.
+     * Returns a human-friendly description of the currently connected input devices.
      */
     public static List<String> getConnectedInputDevices(Context context) {
         List<String> result = new ArrayList<>();
@@ -649,13 +658,11 @@ public final class AudioDeviceManager {
             AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
             if (am == null) return result;
 
-            // The explicit union is used instead of the GET_DEVICES_ALL alias:
-            // getDevices() is annotated for exactly these two flags, so this is
-            // the documented combination (and the alias is the same value).
-            AudioDeviceInfo[] devices = am.getDevices(
-                    AudioManager.GET_DEVICES_INPUTS | AudioManager.GET_DEVICES_OUTPUTS);
+            AudioDeviceInfo[] devices = am.getDevices(AudioManager.GET_DEVICES_INPUTS);
             if (devices == null) return result;
+            String builtinLabel = context.getString(R.string.mic_active_builtin);
             for (AudioDeviceInfo d : devices) {
+                if (d == null) continue;
                 String label = "Audio Device";
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     try {
@@ -667,23 +674,20 @@ public final class AudioDeviceManager {
                 }
                 int type = d.getType();
                 if (type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                    type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
                     (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
                         (type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
-                         type == AudioDeviceInfo.TYPE_HEARING_AID ||
-                         type == AudioDeviceInfo.TYPE_BLE_SPEAKER))) {
+                         type == AudioDeviceInfo.TYPE_HEARING_AID))) {
                     String entry = "🎧 " + label + " (Bluetooth)";
                     if (!result.contains(entry)) result.add(entry);
                 } else if (type == AudioDeviceInfo.TYPE_USB_HEADSET ||
                            type == AudioDeviceInfo.TYPE_USB_DEVICE) {
                     String entry = "🎙️ " + label + " (USB)";
                     if (!result.contains(entry)) result.add(entry);
-                } else if (type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
-                           type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES) {
-                    String entry = "🎧 " + label + " (Cable)";
+                } else if (type == AudioDeviceInfo.TYPE_WIRED_HEADSET) {
+                    String entry = "🎧 " + label + " (Wired)";
                     if (!result.contains(entry)) result.add(entry);
                 } else if (type == AudioDeviceInfo.TYPE_BUILTIN_MIC) {
-                    String entry = "📱 " + label + " (Interno)";
+                    String entry = "📱 " + label + " (" + builtinLabel + ")";
                     if (!result.contains(entry)) result.add(entry);
                 }
             }

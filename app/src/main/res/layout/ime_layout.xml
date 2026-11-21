@@ -45,24 +45,19 @@
             android:textAppearance="?attr/textAppearanceLabelMedium"
             android:textColor="?attr/colorOnSurfaceVariant" />
 
-        <!-- No minWidth/minHeight=0dp overrides: the framework button's own
-             minimum keeps the effective hit target at 48dp. Only the
-             horizontal padding is tightened so the row stays compact.
+        <!-- Borderless button keeps a 48dp hit target while tightening horizontal
+             padding so the row stays compact.
 
              Its position after the AI-fix switch is deliberate, so lint's
              [ButtonOrder] "cancel should be on the left" does not apply: that
              check assumes a dialog's Cancel/OK pair, and this row is an IME tool
              strip whose other controls are a status line, a progress spinner and
-             a switch. (The warning even renders both sides of its own message as
-             "Cancel", which is what it does when there is no affirmative button
-             to order against.) -->
+             a switch. -->
         <Button
             android:id="@+id/ime_cancel"
             style="?attr/borderlessButtonStyle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:minWidth="0dp"
-            android:minHeight="0dp"
             android:paddingStart="8dp"
             android:paddingEnd="8dp"
             android:paddingTop="6dp"

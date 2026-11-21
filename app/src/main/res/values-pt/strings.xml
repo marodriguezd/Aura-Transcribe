@@ -71,7 +71,7 @@
     <string name="pack_pro_title">🏆 Pacote Pro Integrado (Recomendado)</string>
     <string name="pack_pro_desc">Nemotron 3.5 ASR 0.6B (embutido) + AI Fix Cloud para máxima precisão, termos técnicos e formatação inteligente.</string>
     <string name="pack_multilingual_title">🚀 Pacote Whisper Estendido</string>
-    <string name="pack_multilingual_desc">Whisper Large-v3-Turbo para áudio com ruído, sotaques fortes e tradução multilíngue.</string>
+    <string name="pack_multilingual_desc">Whisper Large-v3-Turbo para áudio com ruído, sotaques fortes e transcrição em 99 idiomas.</string>
     <string name="models_desc">O modelo integrado funciona imediatamente. Você também pode importar qualquer modelo GGUF do transcribe.cpp que tenha baixado. O app permanece totalmente offline; os downloads acontecem no seu navegador. O teclado de voz aplica uma troca de modelo após reiniciar.</string>
     <string name="models_loading">Carregando modelo…</string>
     <string name="models_import">Importar arquivo de modelo (.gguf)</string>
@@ -162,15 +162,7 @@
     <string name="pp_test_connection">Testar pós-processamento</string>
     <string name="pp_test_success">O pós-processamento funciona</string>
     <string name="pp_test_error">Falha no teste de pós-processamento: %1$s</string>
-    <string name="pp_local_model_title">No dispositivo: S1-mini (0.6B GGUF — Inglês)</string>
-    <string name="pp_local_model_installed">Modelo instalado (%1$s) — 100%% offline (Inglês)</string>
-    <string name="pp_local_model_not_installed">Normalizador opcional em inglês (~380 MB de download)</string>
-    <string name="pp_local_unavailable">A limpeza com IA no dispositivo não está disponível nesta compilação: exigiria um motor de geração de texto que a app ainda não inclui. Escolhe um fornecedor na nuvem ou desativa a correção com IA.</string>
-    <string name="pp_download_s1">Baixar S1-mini GGUF</string>
-    <string name="pp_downloading_s1">Baixando S1-mini GGUF…</string>
-    <string name="pp_download_s1_done">S1-mini GGUF baixado com sucesso</string>
-    <string name="pp_download_s1_error">Falha no download: %1$s</string>
-    <string name="pp_not_configured_prompt">O pós-processamento com IA não está configurado. Adicione uma chave de API ou instale o modelo S1 local nas configurações.</string>
+    <string name="pp_not_configured_prompt">O pós-processamento com IA não está configurado. Adicione uma chave de API nas configurações.</string>
 
     <!-- Dicionário de palavras personalizadas (acréscimo do fork): correção fonética -->
     <string name="cw_card_title">Palavras personalizadas</string>
@@ -209,7 +201,7 @@
     <string name="ime_error_loading_keyboard">Erro ao carregar o teclado: %1$s</string>
     <string name="ime_cd_switch_keyboard">Mudar de teclado</string>
     <string name="ime_cd_space">Espaço</string>
-    <string name="ime_cd_enter">Enter</string>
+    <string name="ime_cd_enter">Nova linha</string>
     <string name="ime_cd_backspace">Retrocesso</string>
     <string name="rec_mic_permission_required">É necessária a permissão do microfone.\nConceda-a na app principal.</string>
     <string name="rec_listening_tap_stop">A ouvir… (toque para parar)</string>
@@ -225,7 +217,6 @@
     <string name="file_error_no_audio_received">Erro: nenhum ficheiro de áudio recebido</string>
     <string name="file_error_no_audio">Erro: nenhum ficheiro de áudio</string>
     <string name="file_error_no_speech">Erro: não foi detetada fala no ficheiro de áudio</string>
-    <string name="file_error_format">Erro: %1$s</string>
     <string name="file_error_decode">Erro: não foi possível descodificar o ficheiro de áudio.</string>
     <string name="file_error_timeout">Tempo limite excedido ao aguardar um segmento de transcrição</string>
     <string name="subs_grant_overlay_permission">Conceda a permissão \'Apresentar sobre outras apps\'</string>

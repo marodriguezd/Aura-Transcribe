@@ -28,9 +28,7 @@
     public void onStatusUpdate(java.lang.String, int);
     public void onTextTranscribed(java.lang.String, int);
     public void onPartialText(java.lang.String, int);
-    public void onAudioLevel(float);
     public void onAudioLevel(float, int);
-    public void onAutoStop();
     public void onAutoStop(int);
     public void onSubtitleText(java.lang.String, boolean);
     public void onRmsChanged(float, int);

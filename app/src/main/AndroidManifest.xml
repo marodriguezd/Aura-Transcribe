@@ -30,9 +30,9 @@
     <!-- READ_USER_DICTIONARY is deliberately NOT declared. The platform keeps it out of
          the public SDK (android.Manifest.permission has no such constant), so an app
          targeting a modern SDK can never be granted it; declaring it only advertised
-         access the app could not hold. Android's Personal Dictionary stays reachable from
-         the UI (see UserDictionaryHelper) and the native corrector reads the app's own
-         custom_words marker. -->
+         access the app could not hold. Users manage custom vocabulary directly in
+         CustomWordsActivity, backed by the app's own custom_words marker read by
+         the native phonetic corrector. -->
 
     <!-- Package visibility (Android 11+): lets resolveActivity()/queryIntentActivities()
          for the speech intent see other handlers, so MainActivity can tell whether this

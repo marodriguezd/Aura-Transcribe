@@ -71,7 +71,7 @@
     <string name="pack_pro_title">🏆 Pro Integriertes Paket (Empfohlen)</string>
     <string name="pack_pro_desc">Nemotron 3.5 ASR 0.6B (integriert) + AI Fix Cloud für maximale Präzision, technische Begriffe und intelligente Formatierung.</string>
     <string name="pack_multilingual_title">🚀 Whisper Erweitertes Paket</string>
-    <string name="pack_multilingual_desc">Whisper Large-v3-Turbo für lautes Audio, starke Akzente und mehrsprachige Übersetzung.</string>
+    <string name="pack_multilingual_desc">Whisper Large-v3-Turbo für lautes Audio, starke Akzente und Transkription in 99 Sprachen.</string>
     <string name="models_desc">Das integrierte Modell funktioniert sofort. Du kannst auch jedes heruntergeladene transcribe.cpp-GGUF-Modell importieren. Die App bleibt vollständig offline; Downloads laufen über deinen Browser. Die Sprach-Tastatur übernimmt einen Modellwechsel nach ihrem Neustart.</string>
     <string name="models_loading">Modell wird geladen…</string>
     <string name="models_import">Modelldatei importieren (.gguf)</string>
@@ -145,7 +145,7 @@
     <string name="pp_prompt_delete">Löschen</string>
     <string name="pp_prompt_reset">Zurücksetzen</string>
     <string name="pp_prompt_new_title">Neuer Prompt</string>
-    <string name="pp_prompt_name_hint">Name</string>
+    <string name="pp_prompt_name_hint">Profilname</string>
     <string name="pp_prompt_name_required">Gib einen Namen für den Prompt ein</string>
     <string name="pp_prompt_created">Prompt erstellt</string>
     <string name="pp_prompt_create_failed">Prompt konnte nicht erstellt werden</string>
@@ -162,15 +162,7 @@
     <string name="pp_test_connection">Nachbearbeitung testen</string>
     <string name="pp_test_success">Nachbearbeitung funktioniert</string>
     <string name="pp_test_error">Nachbearbeitungstest fehlgeschlagen: %1$s</string>
-    <string name="pp_local_model_title">Lokal: S1-mini (0.6B GGUF — Englisch)</string>
-    <string name="pp_local_model_installed">Modell installiert (%1$s) — 100%% offline bereit (Englisch)</string>
-    <string name="pp_local_model_not_installed">Optionaler englischer Textbereiniger (~380 MB Download erforderlich)</string>
-    <string name="pp_local_unavailable">Die KI-Nachbearbeitung auf dem Gerät ist in diesem Build nicht verfügbar: Sie würde eine Textgenerierungs-Engine erfordern, die die App noch nicht enthält. Wähle einen Cloud-Anbieter oder deaktiviere die KI-Korrektur.</string>
-    <string name="pp_download_s1">S1-mini GGUF herunterladen</string>
-    <string name="pp_downloading_s1">S1-mini GGUF wird heruntergeladen…</string>
-    <string name="pp_download_s1_done">S1-mini GGUF erfolgreich heruntergeladen</string>
-    <string name="pp_download_s1_error">Download fehlgeschlagen: %1$s</string>
-    <string name="pp_not_configured_prompt">KI-Nachbearbeitung ist nicht konfiguriert. Bitte fügen Sie einen API-Schlüssel hinzu oder installieren Sie das lokale S1-Modell in den Einstellungen.</string>
+    <string name="pp_not_configured_prompt">KI-Nachbearbeitung ist nicht konfiguriert. Bitte fügen Sie einen API-Schlüssel in den Einstellungen hinzu.</string>
 
     <!-- Benutzerwörterbuch (Fork-Zusatz): phonetische Nachbearbeitung -->
     <string name="cw_card_title">Eigene Wörter</string>
@@ -225,7 +217,6 @@
     <string name="file_error_no_audio_received">Fehler: keine Audiodatei empfangen</string>
     <string name="file_error_no_audio">Fehler: keine Audiodatei</string>
     <string name="file_error_no_speech">Fehler: in der Audiodatei wurde keine Sprache erkannt</string>
-    <string name="file_error_format">Fehler: %1$s</string>
     <string name="file_error_decode">Fehler: Die Audiodatei konnte nicht dekodiert werden.</string>
     <string name="file_error_timeout">Zeitüberschreitung beim Warten auf ein Transkriptionssegment</string>
     <string name="subs_grant_overlay_permission">Bitte erteile die Berechtigung \'Über anderen Apps anzeigen\'</string>

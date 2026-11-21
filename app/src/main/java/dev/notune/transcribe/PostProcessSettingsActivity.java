@@ -13,8 +13,6 @@ import android.widget.AutoCompleteTextView;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
-import android.widget.ProgressBar;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.EdgeToEdge;
@@ -66,12 +64,11 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
     private AutoCompleteTextView editModel;
     private EditText editPrompt;
     private Button btnRefreshModels;
-    private View cardLocalModel;
-    private TextView txtS1Status;
-    private Button btnDownloadS1;
-    private ProgressBar progressS1;
     private Button btnSave;
     private Button btnTestConnection;
+
+    /** True when the last ordered read reported an unreadable stored API key. */
+    private boolean apiKeyUnreadable;
 
     /**
      * Main-thread delivery for the credential-write outcome and for the
@@ -163,10 +160,6 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
         editModel = findViewById(R.id.edit_model);
         editPrompt = findViewById(R.id.edit_prompt);
         btnRefreshModels = findViewById(R.id.btn_refresh_models);
-        cardLocalModel = findViewById(R.id.card_local_model);
-        txtS1Status = findViewById(R.id.txt_s1_status);
-        btnDownloadS1 = findViewById(R.id.btn_download_s1);
-        progressS1 = findViewById(R.id.progress_s1);
 
         // Provider dropdown: maps display labels to stable provider ids
         String[] labels = new String[SettingsManager.PROVIDERS.length];
@@ -176,8 +169,11 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
         dropdownProvider.setAdapter(new ArrayAdapter<>(
                 this, android.R.layout.simple_list_item_1, labels));
 
-        selectedProviderId = settings.getProviderId();
-        SettingsManager.Provider current = SettingsManager.providerById(selectedProviderId);
+        String storedProviderId = settings.getProviderId();
+        SettingsManager.Provider current = SettingsManager.isProviderAvailable(storedProviderId)
+                ? SettingsManager.providerById(storedProviderId)
+                : SettingsManager.PROVIDERS[0];
+        selectedProviderId = current.id;
         dropdownProvider.setText(current.label, false);
 
         dropdownProvider.setOnItemClickListener((parent, view, position, id) -> {
@@ -197,10 +193,6 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
         btnPromptDelete.setOnClickListener(v -> deleteOrResetSelectedPrompt());
         rebuildPromptDropdown(settings.getActivePromptProfileId());
 
-        // Local S1 model status & download
-        updateLocalModelCard();
-        btnDownloadS1.setOnClickListener(v -> downloadS1Model());
-
         // The switch starts off and disabled: the real state (marker AND a usable
         // credential, read on the credential lane) is applied by
         // loadApiKeyAndState() once that ordered read answers, so this screen never
@@ -210,22 +202,11 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
         switchEnabled.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (suppressEnableChecks) return;
             if (isChecked) {
-                boolean isLocalMode = SettingsManager.PROVIDER_LOCAL_S1.equals(selectedProviderId);
                 String currentKey = editApiKey.getText().toString().trim();
-                if (!SettingsManager.isProviderAvailable(selectedProviderId)) {
-                    // The provider is listed (so the limitation is visible) but
-                    // cannot refine text in this build — there is no inference
-                    // engine behind it. Letting the switch stay on would promise
-                    // AI cleanup that returns the transcript unchanged.
-                    buttonView.setChecked(false);
-                    Toast.makeText(this, R.string.pp_local_unavailable, Toast.LENGTH_LONG).show();
-                } else if (isLocalMode && !settings.isLocalS1ModelInstalled()) {
-                    buttonView.setChecked(false);
-                    Toast.makeText(this, R.string.pp_local_model_not_installed, Toast.LENGTH_LONG).show();
-                } else if (!isLocalMode && currentKey.isEmpty()) {
+                if (currentKey.isEmpty()) {
                     layoutApiKey.setError(getString(R.string.pp_api_key_required));
                 }
-            } else {
+            } else if (!apiKeyUnreadable || !editApiKey.getText().toString().trim().isEmpty()) {
                 layoutApiKey.setError(null);
             }
         });
@@ -267,16 +248,11 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
         setActionsEnabled(false);
         settings.readApiKey(mainHandler::post, read -> {
             if (isFinishing() || isDestroyed()) return;
+            apiKeyUnreadable = (read.status() == ApiKeyRead.Status.UNREADABLE);
             if (read.status() == ApiKeyRead.Status.LOADED) {
                 editApiKey.setText(read.key());
             } else {
                 editApiKey.setText("");
-                if (read.status() == ApiKeyRead.Status.UNREADABLE) {
-                    // Something is stored but could not be read (corrupt/tampered
-                    // ciphertext, Keystore unavailable): ask for a re-entry instead
-                    // of pretending the credential is absent.
-                    layoutApiKey.setError(getString(R.string.pp_api_key_required));
-                }
             }
             settings.readPostProcessEnabled(mainHandler::post, enabled -> {
                 if (isFinishing() || isDestroyed()) return;
@@ -293,10 +269,9 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
         });
     }
 
-    /** Flags the key field when the switch is on but nothing usable is stored. */
+    /** Flags the key field when the switch is on or the stored key is unreadable. */
     private void applyApiKeyErrorState() {
-        boolean needsKey = switchEnabled.isChecked()
-                && !SettingsManager.PROVIDER_LOCAL_S1.equals(selectedProviderId)
+        boolean needsKey = (switchEnabled.isChecked() || apiKeyUnreadable)
                 && editApiKey.getText().toString().trim().isEmpty();
         layoutApiKey.setError(needsKey ? getString(R.string.pp_api_key_required) : null);
     }
@@ -478,93 +453,6 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
                 .show();
     }
 
-    private void updateLocalModelCard() {
-        if (!SettingsManager.isProviderAvailable(SettingsManager.PROVIDER_LOCAL_S1)) {
-            // Say why instead of offering a 380 MB download for a model nothing
-            // in the app can run (see SettingsManager.LOCAL_S1_INFERENCE_AVAILABLE).
-            txtS1Status.setText(getString(R.string.pp_local_unavailable));
-            btnDownloadS1.setVisibility(android.view.View.GONE);
-            return;
-        }
-        if (settings.isLocalS1ModelInstalled()) {
-            txtS1Status.setText(getString(R.string.pp_local_model_installed, "380 MB"));
-            btnDownloadS1.setVisibility(android.view.View.GONE);
-        } else {
-            txtS1Status.setText(getString(R.string.pp_local_model_not_installed));
-            btnDownloadS1.setVisibility(android.view.View.VISIBLE);
-        }
-    }
-
-    private void downloadS1Model() {
-        // Defensive: the button is hidden for an unavailable provider, but the
-        // path must not be reachable by any other means either.
-        if (!SettingsManager.isProviderAvailable(SettingsManager.PROVIDER_LOCAL_S1)) {
-            Toast.makeText(this, R.string.pp_local_unavailable, Toast.LENGTH_LONG).show();
-            return;
-        }
-        btnDownloadS1.setEnabled(false);
-        progressS1.setVisibility(android.view.View.VISIBLE);
-        progressS1.setIndeterminate(true);
-        txtS1Status.setText(R.string.pp_downloading_s1);
-
-        new Thread(() -> {
-            try {
-                java.io.File modelsDir = new java.io.File(getFilesDir(), "models");
-                if (!modelsDir.exists()) modelsDir.mkdirs();
-                java.io.File targetFile = new java.io.File(modelsDir, "s1-mini-q4_k_m.gguf");
-                java.io.File tempFile = new java.io.File(modelsDir, "s1-mini-q4_k_m.gguf.tmp");
-
-                String downloadUrl = "https://huggingface.co/superwhisper/s1-mini-GGUF/resolve/main/s1-mini-q4_k_m.gguf";
-                okhttp3.Request request = new okhttp3.Request.Builder().url(downloadUrl).build();
-                okhttp3.OkHttpClient client = new okhttp3.OkHttpClient.Builder()
-                        .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
-                        .readTimeout(300, java.util.concurrent.TimeUnit.SECONDS)
-                        .build();
-
-                try (okhttp3.Response response = client.newCall(request).execute()) {
-                    if (!response.isSuccessful()) {
-                        throw new java.io.IOException("HTTP " + response.code());
-                    }
-                    if (response.body() == null) {
-                        throw new java.io.IOException("Empty response");
-                    }
-                    try (java.io.InputStream in = response.body().byteStream();
-                         java.io.FileOutputStream out = new java.io.FileOutputStream(tempFile)) {
-                        byte[] buf = new byte[65536];
-                        int len;
-                        while ((len = in.read(buf)) != -1) {
-                            out.write(buf, 0, len);
-                        }
-                    }
-                    if (tempFile.renameTo(targetFile)) {
-                        runOnUiThread(() -> {
-                            if (isFinishing() || isDestroyed()) return;
-                            progressS1.setVisibility(android.view.View.GONE);
-                            btnDownloadS1.setEnabled(true);
-                            btnDownloadS1.setVisibility(android.view.View.GONE);
-                            txtS1Status.setText(getString(R.string.pp_local_model_installed, "380 MB"));
-                            Toast.makeText(this, R.string.pp_download_s1_done, Toast.LENGTH_SHORT).show();
-                        });
-                    } else {
-                        throw new java.io.IOException("Failed to rename temporary file");
-                    }
-                }
-            } catch (Exception e) {
-                Log.e("PostProcessSettings", "Failed to download S1 model", e);
-                try {
-                    java.io.File tempFile = new java.io.File(new java.io.File(getFilesDir(), "models"), "s1-mini-q4_k_m.gguf.tmp");
-                    if (tempFile.exists()) tempFile.delete();
-                } catch (Throwable ignored) {}
-                runOnUiThread(() -> {
-                    if (isFinishing() || isDestroyed()) return;
-                    progressS1.setVisibility(android.view.View.GONE);
-                    btnDownloadS1.setEnabled(true);
-                    txtS1Status.setText(getString(R.string.pp_download_s1_error, e.getMessage()));
-                });
-            }
-        }).start();
-    }
-
     /**
      * Shows/hides the base-URL field (Custom only) and, on user-initiated
      * provider switches, pre-fills the model field with the provider's
@@ -572,37 +460,12 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
      * provider's default (avoids clobbering a hand-edited model).
      */
     private void updateProviderUi(SettingsManager.Provider p, boolean userInitiated) {
-        boolean isLocal = SettingsManager.PROVIDER_LOCAL_S1.equals(p.id);
-        boolean isCustom = p.baseUrl == null && !isLocal;
+        boolean isCustom = p.baseUrl == null;
 
-        cardLocalModel.setVisibility(isLocal ? android.view.View.VISIBLE : android.view.View.GONE);
         layoutApiUrl.setVisibility(isCustom ? android.view.View.VISIBLE : android.view.View.GONE);
-        layoutApiKey.setVisibility(isLocal ? android.view.View.GONE : android.view.View.VISIBLE);
-        layoutModel.setVisibility(isLocal ? android.view.View.GONE : android.view.View.VISIBLE);
-        btnRefreshModels.setVisibility(isLocal ? android.view.View.GONE : android.view.View.VISIBLE);
-
-        if (isLocal) {
-            updateLocalModelCard();
-            layoutApiKey.setError(null);
-        }
-
-        // A provider that cannot work must not be switchable on, and a switch
-        // already on must not stay on when the user selects one. The switch is
-        // re-enabled as soon as a functional provider is selected.
-        boolean providerAvailable = SettingsManager.isProviderAvailable(p.id);
-        suppressEnableChecks = true;
-        try {
-            switchEnabled.setEnabled(providerAvailable);
-            if (!providerAvailable && switchEnabled.isChecked()) {
-                switchEnabled.setChecked(false);
-            }
-        } finally {
-            suppressEnableChecks = false;
-        }
-        if (!providerAvailable) {
-            Toast.makeText(this, R.string.pp_local_unavailable, Toast.LENGTH_LONG).show();
-        }
-        layoutApiUrl.setVisibility(isCustom ? android.view.View.VISIBLE : android.view.View.GONE);
+        layoutApiKey.setVisibility(android.view.View.VISIBLE);
+        layoutModel.setVisibility(android.view.View.VISIBLE);
+        btnRefreshModels.setVisibility(android.view.View.VISIBLE);
 
         // Keep the model field consistent with the selected provider.
         //  - userInitiated (provider switch): always adopt the new provider's
@@ -746,32 +609,13 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
         // lives in SettingsManager rather than in this screen's view state.
         boolean nowEnabled = SettingsManager.resolveEnabledOnSave(
                 selectedProviderId, switchEnabled.isChecked());
-        boolean isLocal = SettingsManager.PROVIDER_LOCAL_S1.equals(selectedProviderId);
         String apiKey = editApiKey.getText().toString().trim();
 
-        if (!SettingsManager.isProviderAvailable(selectedProviderId)) {
-            // The value above was already forced to false; what is left is to make
-            // the switch agree with what will actually be stored.
-            suppressEnableChecks = true;
-            try {
-                switchEnabled.setChecked(false);
-            } finally {
-                suppressEnableChecks = false;
-            }
-            Toast.makeText(this, R.string.pp_local_unavailable, Toast.LENGTH_LONG).show();
-        }
-
-        if (nowEnabled) {
-            if (isLocal && !settings.isLocalS1ModelInstalled()) {
-                nowEnabled = false;
-                switchEnabled.setChecked(false);
-                Toast.makeText(this, R.string.pp_local_model_not_installed, Toast.LENGTH_LONG).show();
-            } else if (!isLocal && apiKey.isEmpty()) {
-                nowEnabled = false;
-                switchEnabled.setChecked(false);
-                layoutApiKey.setError(getString(R.string.pp_api_key_required));
-                Toast.makeText(this, R.string.pp_api_key_required, Toast.LENGTH_SHORT).show();
-            }
+        if (nowEnabled && apiKey.isEmpty()) {
+            nowEnabled = false;
+            switchEnabled.setChecked(false);
+            layoutApiKey.setError(getString(R.string.pp_api_key_required));
+            Toast.makeText(this, R.string.pp_api_key_required, Toast.LENGTH_SHORT).show();
         }
         // The outcome callback runs later, so the validated decision is captured
         // now; only the credential result can still change it.
@@ -812,8 +656,11 @@ public class PostProcessSettingsActivity extends AppCompatActivity {
             // left untouched.
             boolean effectiveEnabled = requestedEnabled && saved;
             settings.setPostProcessEnabled(effectiveEnabled);
+            if (saved) {
+                apiKeyUnreadable = false;
+            }
 
-            layoutApiKey.setError(apiKey.isEmpty() && effectiveEnabled && !isLocal
+            layoutApiKey.setError(apiKey.isEmpty() && effectiveEnabled
                     ? getString(R.string.pp_api_key_required) : null);
             if (!saved) {
                 switchEnabled.setChecked(false);

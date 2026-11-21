@@ -41,7 +41,7 @@ public class AudioRecordBridge {
         void onError(String message);
     }
 
-    private AudioRecord audioRecord;
+    private volatile AudioRecord audioRecord;
     private Thread captureThread;
     private final AtomicBoolean isRecording = new AtomicBoolean(false);
     private ByteBuffer directBuffer;
@@ -73,6 +73,10 @@ public class AudioRecordBridge {
             audioRecord = AudioDeviceManager.createAudioRecord(context, micPreference);
             if (audioRecord == null || audioRecord.getState() != AudioRecord.STATE_INITIALIZED) {
                 Log.e(TAG, "Failed to initialize AudioRecord");
+                if (audioRecord != null) {
+                    try { audioRecord.release(); } catch (Throwable ignored) {}
+                    audioRecord = null;
+                }
                 if (callback != null) callback.onError("Failed to initialize AudioRecord");
                 AudioDeviceManager.releaseMicrophone(context);
                 return false;
@@ -153,13 +157,19 @@ public class AudioRecordBridge {
                 }
             } catch (Throwable ignored) {}
         }
+        boolean threadStopped = true;
         if (captureThread != null) {
             try {
                 captureThread.join(500);
-            } catch (InterruptedException ignored) {}
-            captureThread = null;
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+            threadStopped = !captureThread.isAlive();
+            if (threadStopped) {
+                captureThread = null;
+            }
         }
-        if (audioRecord != null) {
+        if (threadStopped && audioRecord != null) {
             try {
                 audioRecord.release();
             } catch (Throwable ignored) {}

@@ -1,4 +1,0 @@
-- Lateral edge docking: floating bubble snaps into a sleek 1/3-visible pill against the screen bezel.
-- One-tap dictation: tapping the docked pill directly opens the panel and starts recording.
-- Smart keyboard avoidance: floating pill and dictation panel automatically slide up above virtual keyboards.
-- Compact overlay mode: hides large bottom controls when an active keyboard is detected to eliminate obstruction.

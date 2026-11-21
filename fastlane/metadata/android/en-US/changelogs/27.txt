@@ -1,4 +1,0 @@
-• Added cancellation controls for voice, keyboard, and file transcription.
-• Debug model downloads now show progress while the model is being fetched.
-• Post-processing errors and diagnostics are clearer and easier to troubleshoot.
-• General reliability and usability improvements since 0.1.24.

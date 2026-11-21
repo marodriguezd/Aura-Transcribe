@@ -178,8 +178,12 @@ public class RecognizeActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         currentSessionId++;
-        try { cancelRecording(); } catch (Throwable ignored) { }
-        AudioDeviceManager.releaseMicrophone(this);
+        if (isRecording || resultPending) {
+            isRecording = false;
+            resultPending = false;
+            try { cancelRecording(); } catch (Throwable ignored) { }
+            AudioDeviceManager.releaseMicrophone(this);
+        }
         super.onDestroy();
         if (pauseAudioActive) {
             audioPauser.abandon(this);
@@ -223,6 +227,10 @@ public class RecognizeActivity extends AppCompatActivity {
             if (isRecording) {
                 isRecording = false;
                 AudioDeviceManager.releaseMicrophone(this);
+            }
+            if (pauseAudioActive) {
+                audioPauser.abandon(this);
+                pauseAudioActive = false;
             }
         }
         final String shown;

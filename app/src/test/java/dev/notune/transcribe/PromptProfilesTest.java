@@ -130,6 +130,9 @@ public class PromptProfilesTest {
         assertNull(PromptProfiles.sanitizeName("."));
         assertNull(PromptProfiles.sanitizeName(".."));
         assertNull(PromptProfiles.sanitizeName(null));
+        assertNull(PromptProfiles.sanitizeName(".tmp"));
+        assertEquals("Work", PromptProfiles.sanitizeName("Work.tmp"));
+        assertEquals("Work", PromptProfiles.sanitizeName("Work.tmp.tmp"));
     }
 
     @Test

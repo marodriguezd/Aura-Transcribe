@@ -51,7 +51,6 @@ __pycache__/
 /PLAN.md
 /prompt.txt
 /new_pp_prompt.md
-benchmark_results.json
 # Agent context & AI scratch directories (hidden, local-only)
 .ai_context/
 .agents/
@@ -61,9 +60,3 @@ benchmark_results.json
 .pytest_cache/
 *.lock
 !Cargo.lock
-!crates/**/Cargo.lock
-
-# Benchmark fixtures and run outputs
-benchmark/models/
-benchmark/corpus/audio/
-benchmark/results/

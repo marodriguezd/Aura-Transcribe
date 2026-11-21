@@ -88,5 +88,4 @@ only where a tag is required for tooling that cannot take a full name.
 
 This document records verifiable licensing facts about the artifact that is
 actually shipped. It is not a legal certification and does not replace a review
-by counsel; see [`LICENSE_AUDIT.md`](LICENSE_AUDIT.md) for the scope and limits
-of the audit.
+by counsel.

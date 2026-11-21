@@ -1,4 +1,0 @@
-- Slashed live streaming latency by 220 ms (80 ms tick cadence) with instant visual text updates.
-- Full ARM64 NEON SIMD vector acceleration and 100% lock-free real-time audio pipeline.
-- Accelerated phonetic corrector with precomputed bigrams and zero-alloc bounded Levenshtein.
-- Hardware acceleration selector for CPU (ARM NEON), NPU (NNAPI), and GPU (Vulkan) backends.

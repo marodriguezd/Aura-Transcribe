@@ -2,6 +2,18 @@
 
 Change log of **Aura Transcribe** (Next-Gen evolution of [notune/android_transcribe_app](https://github.com/notune/android_transcribe_app)).
 
+## [Unreleased]
+
+### Changed & Cleaned
+- **Repository & Distribution Hygiene:** Removed unused F-Droid (`FDROID.md`) and Google Play/Fastlane (`fastlane/`) descriptors, the unexecuted `:benchmark` Macrobenchmark module and synthetic benchmark scripts, redundant translated `README_*.md` files, duplicate nested lockfiles, `.cargo/config.toml.example`, `LICENSE_AUDIT.md`, and obsolete `UserDictionaryHelper` / `READ_USER_DICTIONARY` code.
+- **Dead Surface Removal:** Removed the non-functional on-device `S1-mini` (`local_s1`) post-processing path across Java, Rust (`post_processor.rs`, `normalizer.rs`), and resources (leaving 29 verified JNI declarations), alongside unused Material 3 resource definitions.
+- **Build & CI Hardening:** Pruned benchmark/window/profileinstaller dependencies and `benchmark` buildType, deduplicated `downloadModels` / `copyModelLicense`, fixed `.cargo/config.toml` ARMv8.2 target features (`+neon,+fp16,+dotprod`), removed CI `sed` mutations on `gradle.properties`, enforced `PUBLISH_GUARD` on release artifact uploads, and moved version/tag verification earlier in `android_release.yml`.
+- **Docs & Legal Sync:** Updated and compacted `AGENTS.md`, synced `MODEL_LICENSE.md` and `THIRD_PARTY_NOTICES.md` byte-identically with packaged assets, and updated `README.md` and Python verification gates (`check_license_docs.py`, `check_release_notes.py`, `check_release_workflow.py`, `send_telegram.py`, `check_translations.py`).
+
+### Fixed
+- **Rust Native Engine & Audio/JNI:** Hardened `subtitle.rs` VAD/stream teardown and utterance generation checks, `voice_session.rs` / `recog_service.rs` atomic ordering and mid-stream error recovery, `assets.rs` / `jni_util.rs` JNI exception clearing and stream closing, `engine.rs` streaming context fallback and load failure propagation, `transcribe_file.rs` bounds/locking, `corrector.rs` cache invalidation, `aura-core` phonetic Spanish diacritics/diaeresis and char-count pruning.
+- **Java Surfaces & Security:** Fixed Bluetooth communication vs input device routing (`AudioRoutingPolicy` / `AudioDeviceManager`), live subtitle utterance generation & async translation cancellation (`LiveSubtitleService`, `OnDeviceSubtitleTranslator`, `SourceLanguageResolver`), file transcription chunk error propagation & scheme validation (`TranscribeFileActivity`), IME/Floating Overlay session cancellation, theme rebinding & 48 dp touch targets (`RustInputMethodService`, `FloatingOverlayService`), accessibility synchronization & selection placement (`FloatingDictationAccessibilityService`), credential tombstone failure surfacing (`CredentialMigration`), prompt profile `.tmp` sanitization (`PromptProfiles`), and `AudioRecordBridge` release ordering.
+
 ## [1.0.3] - 2026-11-21 (versionCode 54)
 
 ### Added
@@ -41,16 +53,10 @@ The prompt list holds the built-in default plus any prompt the user creates and 
 
 The recognition engine, the dictation surfaces and the release verification pipeline are unchanged.
 
-## [Unreleased]
-
-### Fixed
-- Licensing audit second pass (`LICENSE_AUDIT.md` F-9/F-10/F-11): the notice set now also covers **miniz 3.1.1** (MIT; vendored inside `transcribe-cpp-sys` and compiled into the shipped native library) and the **Public Suffix List** data packaged by OkHttp (MPL-2.0), with verbatim byte-pinned texts (`licenses/miniz-MIT.txt`, `licenses/okhttp-NOTICE.txt`) shipped under `assets/licenses/` and required by `verify_artifact_notices.py` (33 negative tests total in `check_license_docs`). `THIRD_PARTY_NOTICES.md` documents both, plus the ggml per-contributor notices and the Rust-std vendored components. The `ModelsActivity` catalog link for the bundled model is now pinned to the verified revision instead of `resolve/main`. The `v1.0.0` release was then replaced a second time from the verified commit `bb15ec4` (publishing run `39425583352`): the published APK/AAB now carry all 13 required documents per artifact (26/26 checks, pinned signer, model once per artifact). Copies of the earlier binaries already downloaded cannot be recalled — see `LICENSE_AUDIT.md` §“Second replacement”.
-
 ## [1.0.0] - 2026-10-18 · corrected rebuild 2026-10-20 (versionCode 51)
 
 > The originally published v1.0.0 binaries (versionCode 50) shipped the bundled
-> model weights **without any license text or notice** (`LICENSE_AUDIT.md`
-> F-1/F-2). Under explicit owner authorization, the v1.0.0 release and tag are
+> model weights **without any license text or notice**. Under explicit owner authorization, the v1.0.0 release and tag are
 > replaced by this functionally identical corrected rebuild (versionCode 51,
 > `versionName` 1.0.0), which carries the complete, gate-verified notice set.
 > Copies of the original binaries already downloaded cannot be recalled.
@@ -92,7 +98,7 @@ The interface is available in eight languages. On-device AI post-processing is n
 - Output-only LE Audio speakers (`TYPE_BLE_SPEAKER`) are no longer treated as microphone candidates.
 - Bundled Nemotron streaming model quantized to Q5_K_M for smaller footprint and lower memory use.
 - Removed the stale `GPL-3.0-only` entry from the Cargo license allowlist (leftover of the withdrawn GPL migration): copyleft expressions now always require explicit review and can never pass pre-approved.
-- `LICENSE_AUDIT.md` rewritten as the definitive audit: MIT for the application (no migration to GPL-3.0-only/Apache-2.0), OpenMDW-1.1 for the Nemotron model, evidence base with hashes, obligations matrix, severity-ranked findings, counsel questions and go/no-go checklist.
+- Licensing audit second pass: the notice set covers **miniz 3.1.1** (MIT; vendored inside `transcribe-cpp-sys` and compiled into the shipped native library) and the **Public Suffix List** data packaged by OkHttp (MPL-2.0), with verbatim byte-pinned texts (`licenses/miniz-MIT.txt`, `licenses/okhttp-NOTICE.txt`) shipped under `assets/licenses/` and required by `verify_artifact_notices.py`, plus `ModelsActivity` catalog link pinning and the corrected `v1.0.0` release rebuild (`bb15ec4`, publishing run `39425583352`).
 
 # v0.3.4 — hardening
 

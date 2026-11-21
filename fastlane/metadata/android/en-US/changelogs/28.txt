@@ -1,3 +1,0 @@
-- Fixed AI post-processing after upgrading from older versions.
-- Legacy API keys are migrated when possible; missing keys now show a clear setup message.
-- Preserved raw transcript fallback when refinement cannot run.

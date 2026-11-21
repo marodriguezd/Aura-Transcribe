@@ -1,7 +1,6 @@
-# This file is auto-generated for the cargo-ndk Gradle build.
-# cargo-ndk handles the linker and CC/CXX automatically.
-# Only custom rustflags and env vars that cargo-ndk doesn't set go here.
+# Cargo cross-compilation flags for Android arm64-v8a (used by cargo-ndk).
+# cargo-ndk configures the linker and C/C++ compilers automatically.
 
 [target.aarch64-linux-android]
-# 16KB page alignment (required for Android 15+ / Google Play)
-rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384", "-C", "link-arg=-lc++_shared"]
+# 16 KB ELF page-size alignment (Android 15+ / 17) + ARMv8.2-A fp16/dotprod codegen
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384", "-C", "link-arg=-lc++_shared", "-C", "target-feature=+neon,+fp16,+dotprod"]

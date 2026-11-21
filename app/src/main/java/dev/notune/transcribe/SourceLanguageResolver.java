@@ -106,11 +106,12 @@ public final class SourceLanguageResolver {
     public static String detectFromText(String text) {
         if (text == null || text.isEmpty()) return null;
 
+        String lower = text.toLowerCase(java.util.Locale.ROOT);
         boolean hasKana = false, hasHangul = false, hasCjk = false, hasCyrillic = false;
         boolean sawLatinLetter = false;
         int de = 0, fr = 0, it = 0, pt = 0;
-        for (int i = 0; i < text.length(); ) {
-            int cp = text.codePointAt(i);
+        for (int i = 0; i < lower.length(); ) {
+            int cp = lower.codePointAt(i);
             i += Character.charCount(cp);
 
             if (isKana(cp)) { hasKana = true; continue; }
@@ -122,9 +123,9 @@ public final class SourceLanguageResolver {
                 sawLatinLetter = true;
             }
             // Strong markers: unambiguous on their own.
-            if (cp == 'ñ' || cp == 'Ñ' || cp == '¿' || cp == '¡') return "es";
+            if (cp == 'ñ' || cp == '¿' || cp == '¡') return "es";
             if (cp == 'ß') return "de";
-            if (cp == 'œ' || cp == 'Œ') return "fr";
+            if (cp == 'œ') return "fr";
 
             // Distinctive diacritics only (é/à/ü/á are shared by several
             // languages and would cause wrong guesses).

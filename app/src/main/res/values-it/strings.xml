@@ -71,7 +71,7 @@
     <string name="pack_pro_title">🏆 Pacchetto Pro Integrato (Consigliato)</string>
     <string name="pack_pro_desc">Nemotron 3.5 ASR 0.6B (incluso) + AI Fix Cloud per massima precisione, termini tecnici e formattazione intelligente.</string>
     <string name="pack_multilingual_title">🚀 Pacchetto Whisper Esteso</string>
-    <string name="pack_multilingual_desc">Whisper Large-v3-Turbo per audio rumoroso, accenti marcati e traduzione multilingue.</string>
+    <string name="pack_multilingual_desc">Whisper Large-v3-Turbo per audio rumoroso, accenti marcati e trascrizione in 99 lingue.</string>
     <string name="models_desc">Il modello integrato funziona subito. Puoi anche importare qualsiasi modello GGUF di transcribe.cpp che hai scaricato. L\'app resta completamente offline; i download avvengono nel browser. La tastiera vocale applica un cambio di modello dopo il riavvio.</string>
     <string name="models_loading">Caricamento del modello…</string>
     <string name="models_import">Importa file del modello (.gguf)</string>
@@ -129,7 +129,7 @@
     <string name="pp_card_subtitle">Perfeziona le trascrizioni con un LLM compatibile con OpenAI.</string>
     <string name="pp_card_button">Impostazioni di post-elaborazione</string>
     <string name="pp_enable">Attiva la post-elaborazione con IA</string>
-    <string name="pp_provider">Provider</string>
+    <string name="pp_provider">Fornitore</string>
     <string name="pp_api_url">URL di base (compatibile con OpenAI)</string>
     <string name="pp_api_key">Chiave API</string>
     <string name="pp_api_key_required">Inserisci una chiave API per usare il post-processing.</string>
@@ -162,15 +162,7 @@
     <string name="pp_test_connection">Testa il post-processing</string>
     <string name="pp_test_success">Il post-processing funziona</string>
     <string name="pp_test_error">Test del post-processing fallito: %1$s</string>
-    <string name="pp_local_model_title">In locale: S1-mini (0.6B GGUF — Inglese)</string>
-    <string name="pp_local_model_installed">Modello installato (%1$s) — 100%% offline (Inglese)</string>
-    <string name="pp_local_model_not_installed">Normalizzatore opzionale in inglese (~380 MB di download)</string>
-    <string name="pp_local_unavailable">La pulizia con IA sul dispositivo non è disponibile in questa build: servirebbe un motore di generazione di testo che l\'app non include ancora. Scegli un provider cloud o disattiva la correzione IA.</string>
-    <string name="pp_download_s1">Scarica S1-mini GGUF</string>
-    <string name="pp_downloading_s1">Download di S1-mini GGUF in corso…</string>
-    <string name="pp_download_s1_done">S1-mini GGUF scaricato con successo</string>
-    <string name="pp_download_s1_error">Download non riuscito: %1$s</string>
-    <string name="pp_not_configured_prompt">La post-elaborazione IA non è configurata. Aggiungi una chiave API o installa il modello S1 locale nelle impostazioni.</string>
+    <string name="pp_not_configured_prompt">La post-elaborazione IA non è configurata. Aggiungi una chiave API nelle impostazioni.</string>
 
     <!-- Dizionario di parole personalizzate (aggiunta del fork): correzione fonetica -->
     <string name="cw_card_title">Parole personalizzate</string>
@@ -210,7 +202,7 @@
     <string name="ime_cd_switch_keyboard">Cambia tastiera</string>
     <string name="ime_cd_space">Spazio</string>
     <string name="ime_cd_enter">Invio</string>
-    <string name="ime_cd_backspace">Backspace</string>
+    <string name="ime_cd_backspace">Cancella</string>
     <string name="rec_mic_permission_required">Permesso microfono richiesto.\nConcedilo nell\'app principale.</string>
     <string name="rec_listening_tap_stop">In ascolto… (tocca per fermare)</string>
     <string name="rec_processing">Elaborazione…</string>
@@ -225,7 +217,6 @@
     <string name="file_error_no_audio_received">Errore: nessun file audio ricevuto</string>
     <string name="file_error_no_audio">Errore: nessun file audio</string>
     <string name="file_error_no_speech">Errore: nessun parlato rilevato nel file audio</string>
-    <string name="file_error_format">Errore: %1$s</string>
     <string name="file_error_decode">Errore: impossibile decodificare il file audio.</string>
     <string name="file_error_timeout">Tempo scaduto in attesa di un segmento di trascrizione</string>
     <string name="subs_grant_overlay_permission">Concedi l\'autorizzazione \'Visualizza su altre app\'</string>

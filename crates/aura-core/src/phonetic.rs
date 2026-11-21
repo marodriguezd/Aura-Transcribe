@@ -15,7 +15,18 @@
 /// Spaces are preserved so multi-word keys align with joined transcript
 /// windows. Consecutive duplicate characters collapse (e.g. `rr`→`r`).
 pub fn phonetic_key(input: &str) -> String {
-    let s: Vec<char> = input.to_lowercase().chars().collect();
+    let s: Vec<char> = input
+        .to_lowercase()
+        .chars()
+        .map(|c| match c {
+            'á' => 'a',
+            'é' => 'e',
+            'í' => 'i',
+            'ó' => 'o',
+            'ú' => 'u',
+            other => other,
+        })
+        .collect();
     let mut out = String::with_capacity(s.len());
     let n = s.len();
     let mut i = 0;
@@ -46,9 +57,8 @@ pub fn phonetic_key(input: &str) -> String {
             ('g', 'ü', _) => {
                 out.push('g');
                 out.push('w');
-                out.push(n2);
-                i += 3;
-            } // güe/güi
+                i += 2;
+            } // gü → gw
             ('p', 'h', _) => {
                 out.push('f');
                 i += 2;
@@ -130,11 +140,11 @@ pub fn phonetic_key(input: &str) -> String {
 /// Collapses consecutive duplicate characters (e.g. `rr`→`r`, `ee`→`e`).
 pub fn collapse_duplicates(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
-    let mut prev = '\0';
+    let mut prev: Option<char> = None;
     for c in s.chars() {
-        if c != prev {
+        if prev != Some(c) {
             out.push(c);
-            prev = c;
+            prev = Some(c);
         }
     }
     out
@@ -227,5 +237,21 @@ mod tests {
             phonetic_distance("hello", "world"),
             levenshtein_distance(&phonetic_key("hello"), &phonetic_key("world"))
         );
+    }
+
+    #[test]
+    fn test_diaeresis_and_accented_vowels() {
+        // Trailing and followed-by-consonant gü must not emit NUL or skip the next consonant
+        assert_eq!(phonetic_key("gü"), "gw");
+        assert_eq!(phonetic_key("güz"), "gws");
+        assert_eq!(phonetic_key("pingüino"), "pingwino");
+        assert_eq!(phonetic_key("cigüeña"), "sigwenya");
+
+        // Spanish accented vowels fold without breaking preceding consonant rules
+        assert_eq!(phonetic_key("césar"), "sesar");
+        assert_eq!(phonetic_key("garcía"), "garsia");
+        assert_eq!(phonetic_key("córdoba"), "kordoba");
+        assert_eq!(phonetic_key("guía"), "gia");
+        assert_eq!(phonetic_key("César"), phonetic_key("sesar"));
     }
 }

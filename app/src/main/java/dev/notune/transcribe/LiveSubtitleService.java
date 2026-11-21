@@ -285,6 +285,7 @@ public class LiveSubtitleService extends Service {
         // Tear down the translator and invalidate its in-flight results so no
         // late callback can touch the next session's overlay (P0.2-style).
         mTranslationGeneration++;
+        mUtteranceGeneration++;
         mTranslationQueue.clear();
         mCaptionSegments.clear();
         mTranslationBusy = false;
@@ -372,6 +373,7 @@ public class LiveSubtitleService extends Service {
         mTranslationMode = !SubtitleTranslationTargets.AUTO.equals(mTranslationTarget);
         mTranslator = mTranslationMode ? new OnDeviceSubtitleTranslator() : null;
         mTranslationGeneration++;
+        mUtteranceGeneration++;
         mTranslationQueue.clear();
         mCaptionSegments.clear();
         mTranslationBusy = false;
@@ -399,7 +401,14 @@ public class LiveSubtitleService extends Service {
         params.gravity = Gravity.BOTTOM;
         params.y = SubtitlePrefs.getOverlayY(this);
 
-        mWindowManager.addView(mOverlayView, params);
+        try {
+            mWindowManager.addView(mOverlayView, params);
+        } catch (RuntimeException e) {
+            Log.e(TAG, "Failed to attach subtitle overlay window", e);
+            mOverlayView = null;
+            mSubtitleText = null;
+            return;
+        }
         makeOverlayDraggable(params);
     }
 
@@ -428,7 +437,11 @@ public class LiveSubtitleService extends Service {
                         params.y = Math.max(0, Math.min(maxY,
                                 downParamsY + (int) (downRawY - event.getRawY())));
                         if (mOverlayView != null) {
-                            mWindowManager.updateViewLayout(mOverlayView, params);
+                            try {
+                                mWindowManager.updateViewLayout(mOverlayView, params);
+                            } catch (RuntimeException e) {
+                                Log.w(TAG, "updateViewLayout failed while dragging subtitle overlay", e);
+                            }
                         }
                         return true;
                     }
@@ -451,7 +464,11 @@ public class LiveSubtitleService extends Service {
 
     private void removeOverlay() {
         if (mOverlayView != null && mWindowManager != null) {
-            mWindowManager.removeView(mOverlayView);
+            try {
+                mWindowManager.removeView(mOverlayView);
+            } catch (RuntimeException e) {
+                Log.w(TAG, "Failed to remove subtitle overlay window", e);
+            }
             mOverlayView = null;
         }
         // Drop the caption view reference too: any late native callback (an
@@ -476,6 +493,8 @@ public class LiveSubtitleService extends Service {
         Log.d(TAG, "Starting audio capture. MediaProjection: " + mMediaProjection);
         if (mMediaProjection == null) {
             Log.e(TAG, "MediaProjection is null, cannot capture audio");
+            stopSubtitleSession();
+            stopSelf();
             return;
         }
 
@@ -513,6 +532,7 @@ public class LiveSubtitleService extends Service {
             if (record.getState() != AudioRecord.STATE_INITIALIZED) {
                 Log.e(TAG, "AudioRecord failed to initialize");
                 stopSubtitleSession();
+                stopSelf();
                 return;
             }
 
@@ -520,6 +540,7 @@ public class LiveSubtitleService extends Service {
             if (record.getRecordingState() != AudioRecord.RECORDSTATE_RECORDING) {
                 Log.e(TAG, "AudioRecord failed to start recording. State: " + record.getRecordingState());
                 stopSubtitleSession();
+                stopSelf();
                 return;
             }
 
@@ -537,6 +558,7 @@ public class LiveSubtitleService extends Service {
         } catch (Exception e) {
             Log.e(TAG, "Error starting AudioRecord", e);
             stopSubtitleSession();
+            stopSelf();
         }
     }
 
@@ -659,6 +681,9 @@ public class LiveSubtitleService extends Service {
     /** Bumped on every session start/stop; late callbacks with a stale
      *  generation are dropped (same idea as the Rust worker's generation). */
     private int mTranslationGeneration = 0;
+    /** Bumped whenever an utterance finalizes so late partial translations
+     *  from the finished utterance cannot leak into the next utterance. */
+    private int mUtteranceGeneration = 0;
     private String mLastPartial = "";
     /** One-time user notice when the translator falls back to the original
      *  language (no Play Services / missing pack / engine error). */
@@ -685,6 +710,16 @@ public class LiveSubtitleService extends Service {
             this.text = text;
             this.generation = generation;
         }
+    }
+
+    // Called from Rust (model warm-up thread) with engine load status/errors.
+    public void onStatusUpdate(String status) {
+        mMainHandler.post(() -> {
+            if (mSubtitleText == null || status == null || status.isEmpty()) return;
+            if (status.startsWith("Error")) {
+                mSubtitleText.setText(status);
+            }
+        });
     }
 
     // Called from Rust (worker thread). isFinal=true commits the text;
@@ -726,7 +761,11 @@ public class LiveSubtitleService extends Service {
      *  the original) is committed once the translation lands. */
     private void onFinalTranslated(String text) {
         if (text == null || text.trim().isEmpty()) return;
+        mUtteranceGeneration++;
         if (mTranslationFallbackToOriginal) {
+            mLastPartialSource = "";
+            mLastTranslatedPartial = "";
+            mPendingPartialSource = null;
             addFinalSegment(text, true);
             if (mDisplayStabilizer != null) mDisplayStabilizer.resetUtterance();
             resolveSource(text);
@@ -736,6 +775,9 @@ public class LiveSubtitleService extends Service {
             return;
         }
         if (isPunctuationOnly(text) || mTranslationQueue.size() >= MAX_TRANSLATION_QUEUE) {
+            mLastPartialSource = "";
+            mLastTranslatedPartial = "";
+            mPendingPartialSource = null;
             addFinalSegment(text, true);
             if (mDisplayStabilizer != null) mDisplayStabilizer.resetUtterance();
             resolveSource(text);
@@ -759,6 +801,7 @@ public class LiveSubtitleService extends Service {
                 && (cached != null || (mLastPartialSource.equals(text)
                         && !mLastTranslatedPartial.isEmpty()))) {
             String translated = (cached != null) ? cached : mLastTranslatedPartial;
+            mLastPartialSource = "";
             mLastTranslatedPartial = "";
             mPendingPartialSource = null;
             mSubtitleContextWindow.recordFinal(text, translated, sourceCode, now);
@@ -770,6 +813,7 @@ public class LiveSubtitleService extends Service {
         // Keep the last translated partial visible until the final lands (no
         // blank flicker); do not leak the untranslated source.
         mLastPartial = "";
+        mLastPartialSource = "";
         mPendingPartialSource = null;
         enqueueTranslation(text);
         renderTranslatedCaption("");
@@ -831,6 +875,7 @@ public class LiveSubtitleService extends Service {
         mLastPartialTranslateTimeMs = now;
         mPendingPartialSource = null;
         final int gen = mTranslationGeneration;
+        final int uttGen = mUtteranceGeneration;
         // Translate the contextual payload (previous sentence + current one),
         // exactly the text the cache key above describes (M6.1).
         final String payload = (mSubtitleContextWindow != null)
@@ -842,6 +887,12 @@ public class LiveSubtitleService extends Service {
                 mMainHandler.post(() -> {
                     if (gen != mTranslationGeneration) return;
                     mPartialBusy = false;
+                    if (uttGen != mUtteranceGeneration) {
+                        String pending = mPendingPartialSource;
+                        mPendingPartialSource = null;
+                        if (pending != null) onPartialTranslated(pending);
+                        return;
+                    }
                     String extracted = (mSubtitleContextWindow != null)
                             ? mSubtitleContextWindow.extractTranslated(translated)
                             : (translated == null ? "" : translated.trim());
@@ -866,8 +917,10 @@ public class LiveSubtitleService extends Service {
                 mMainHandler.post(() -> {
                     if (gen != mTranslationGeneration) return;
                     mPartialBusy = false;
-                    mLastTranslatedPartial = text; // safe fallback
-                    renderTranslatedCaption("");
+                    if (uttGen == mUtteranceGeneration) {
+                        mLastTranslatedPartial = text; // safe fallback
+                        renderTranslatedCaption("");
+                    }
                     String pending = mPendingPartialSource;
                     mPendingPartialSource = null;
                     if (pending != null) onPartialTranslated(pending);
@@ -877,6 +930,7 @@ public class LiveSubtitleService extends Service {
             @Override
             public void onUnavailable() {
                 mMainHandler.post(() -> {
+                    if (gen != mTranslationGeneration) return;
                     if (mTranslationUnavailableNotified) return;
                     mTranslationUnavailableNotified = true;
                     mTranslationFallbackToOriginal = true;
@@ -924,8 +978,10 @@ public class LiveSubtitleService extends Service {
     }
 
     private static boolean endsWithPunctuation(String s) {
-        if (s == null || s.isEmpty()) return false;
-        char c = s.trim().charAt(s.trim().length() - 1);
+        if (s == null) return false;
+        String trimmed = s.trim();
+        if (trimmed.isEmpty()) return false;
+        char c = trimmed.charAt(trimmed.length() - 1);
         return c == ',' || c == '.' || c == '!' || c == '?' || c == ';'
                 || c == '，' || c == '。' || c == '！' || c == '？'
                 || c == '、' || c == '；' || c == '：';
@@ -967,14 +1023,20 @@ public class LiveSubtitleService extends Service {
         mTranslator.translate(payload, sourceCode, targetCode, new SubtitleTranslator.Callback() {
             @Override
             public void onSuccess(String translated) {
-                String extracted = (mSubtitleContextWindow != null)
-                        ? mSubtitleContextWindow.extractTranslated(translated)
-                        : (translated == null ? "" : translated.trim());
-                if (mSubtitleContextWindow != null) {
-                    mSubtitleContextWindow.putCached(sourceCode, targetCode,
-                            contextPrefix, job.text, extracted);
-                }
-                mMainHandler.post(() -> applyTranslation(job, extracted));
+                mMainHandler.post(() -> {
+                    if (job.generation != mTranslationGeneration) {
+                        applyTranslation(job, "");
+                        return;
+                    }
+                    String extracted = (mSubtitleContextWindow != null)
+                            ? mSubtitleContextWindow.extractTranslated(translated)
+                            : (translated == null ? "" : translated.trim());
+                    if (mSubtitleContextWindow != null) {
+                        mSubtitleContextWindow.putCached(sourceCode, targetCode,
+                                contextPrefix, job.text, extracted);
+                    }
+                    applyTranslation(job, extracted);
+                });
             }
 
             @Override
@@ -988,6 +1050,7 @@ public class LiveSubtitleService extends Service {
                 // Tell the user once per session that translation fell back to
                 // the original language (no Play Services, missing pack, …).
                 mMainHandler.post(() -> {
+                    if (job.generation != mTranslationGeneration) return;
                     // Same degradation as the partial path: never keep the
                     // source text hidden once ML Kit is gone (M6.1).
                     mTranslationFallbackToOriginal = true;
@@ -1014,6 +1077,7 @@ public class LiveSubtitleService extends Service {
             mSubtitleContextWindow.recordFinal(job.text, translated,
                     mSessionResolvedSourceCode, System.currentTimeMillis());
         }
+        mLastPartialSource = "";
         mLastTranslatedPartial = "";
         mPendingPartialSource = null;
         addFinalSegment(translated, true);
@@ -1047,7 +1111,7 @@ public class LiveSubtitleService extends Service {
             return;
         }
         // Monotonic window start (never moves backward).
-        if (mTranslatedWindowStart > text.length()) mTranslatedWindowStart = 0;
+        if (mTranslatedWindowStart > text.length()) mTranslatedWindowStart = text.length();
         // Cosmetic: never start the window on the separator space.
         while (mTranslatedWindowStart < text.length() && text.charAt(mTranslatedWindowStart) == ' ') {
             mTranslatedWindowStart++;

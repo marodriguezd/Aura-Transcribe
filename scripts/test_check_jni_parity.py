@@ -443,7 +443,7 @@ class JniParityGateTest(unittest.TestCase):
         out = proc.stdout + proc.stderr
         self.assertEqual(0, proc.returncode, out)
         self.assertNotIn("FAIL", out)
-        self.assertGreaterEqual(self.verified_count(out), 30)
+        self.assertGreaterEqual(self.verified_count(out), 29)
 
     def test_mutation_of_real_export_fails(self) -> None:
         copy = self.tmp / "repo-copy"
@@ -457,7 +457,7 @@ class JniParityGateTest(unittest.TestCase):
 
         code, out = self.run_gate(copy)
         self.assertEqual(0, code, out)
-        self.assertGreaterEqual(self.verified_count(out), 30)
+        self.assertGreaterEqual(self.verified_count(out), 29)
 
         target = copy / "src" / "recognize.rs"
         original = "Java_dev_notune_transcribe_RecognizeActivity_initNative"

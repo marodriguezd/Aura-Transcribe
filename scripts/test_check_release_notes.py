@@ -69,6 +69,27 @@ class ReleaseNotesGateTest(unittest.TestCase):
         self.assertEqual(1, code, out)
         self.assertIn("version header", out.lower())
 
+    def test_decimal_numbers_not_treated_as_versions_passes(self) -> None:
+        gradle = self.tmp / "app" / "build.gradle.kts"
+        gradle.parent.mkdir(parents=True, exist_ok=True)
+        gradle.write_text('versionName = "1.0.3"\n', encoding="utf-8")
+        body = "Models use 0.6B parameters and 2.5x cadence improvements. " + " ".join(
+            ["latency"] * 140
+        )
+        self.write("# Aura Transcribe v1.0.3 — Streaming\n\n" + body)
+        code, out = run_gate(self.tmp)
+        self.assertEqual(0, code, out)
+
+    def test_stale_version_reference_fails(self) -> None:
+        gradle = self.tmp / "app" / "build.gradle.kts"
+        gradle.parent.mkdir(parents=True, exist_ok=True)
+        gradle.write_text('versionName = "1.0.3"\n', encoding="utf-8")
+        body = "Upgrades from 1.0.2 with streaming fixes. " + " ".join(["update"] * 140)
+        self.write("# Aura Transcribe v1.0.3 — Streaming\n\n" + body)
+        code, out = run_gate(self.tmp)
+        self.assertEqual(1, code, out)
+        self.assertIn("non-current version", out)
+
 
 if __name__ == "__main__":
     unittest.main()

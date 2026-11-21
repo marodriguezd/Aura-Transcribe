@@ -146,14 +146,4 @@ public class App extends Application {
         // its default language.
         MarkerFileHelper.writeString(this, name, value);
     }
-
-    @Override
-    public void onTrimMemory(int level) {
-        super.onTrimMemory(level);
-        try {
-            PostProcessor.nativeTrimMemory(level);
-        } catch (UnsatisfiedLinkError | NoClassDefFoundError e) {
-            // The native library is absent (wrong ABI) — nothing to trim.
-        }
-    }
 }

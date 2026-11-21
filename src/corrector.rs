@@ -67,8 +67,20 @@ fn load_dict() -> Option<Arc<Dictionary>> {
         .unwrap_or_else(|p| p.into_inner())
         .clone()?;
     let path = dir.join(CUSTOM_WORDS_FILE);
-    let metadata = std::fs::metadata(&path).ok()?;
-    let mtime = metadata.modified().ok()?;
+    let metadata = match std::fs::metadata(&path) {
+        Ok(m) => m,
+        Err(_) => {
+            *CACHE.lock().unwrap_or_else(|p| p.into_inner()) = None;
+            return None;
+        }
+    };
+    let mtime = match metadata.modified() {
+        Ok(t) => t,
+        Err(_) => {
+            *CACHE.lock().unwrap_or_else(|p| p.into_inner()) = None;
+            return None;
+        }
+    };
 
     {
         let cache = CACHE.lock().unwrap_or_else(|p| p.into_inner());

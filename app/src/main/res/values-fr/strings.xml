@@ -71,7 +71,7 @@
     <string name="pack_pro_title">🏆 Pack Pro Intégré (Recommandé)</string>
     <string name="pack_pro_desc">Nemotron 3.5 ASR 0.6B (intégré) + AI Fix Cloud pour une précision maximale, des termes techniques et un formatage intelligent.</string>
     <string name="pack_multilingual_title">🚀 Pack Whisper Étendu</string>
-    <string name="pack_multilingual_desc">Whisper Large-v3-Turbo pour audio bruyant, accents prononcés et traduction multilingue.</string>
+    <string name="pack_multilingual_desc">Whisper Large-v3-Turbo pour audio bruyant, accents prononcés et transcription en 99 langues.</string>
     <string name="models_desc">Le modèle intégré fonctionne immédiatement. Vous pouvez aussi importer n\'importe quel modèle GGUF transcribe.cpp téléchargé. L\'application reste entièrement hors ligne ; les téléchargements passent par votre navigateur. Le clavier vocal prend en compte un changement de modèle après son redémarrage.</string>
     <string name="models_loading">Chargement du modèle…</string>
     <string name="models_import">Importer un fichier de modèle (.gguf)</string>
@@ -162,15 +162,7 @@
     <string name="pp_test_connection">Tester le post-traitement</string>
     <string name="pp_test_success">Le post-traitement fonctionne</string>
     <string name="pp_test_error">Échec du test de post-traitement : %1$s</string>
-    <string name="pp_local_model_title">En local : S1-mini (0.6B GGUF — Anglais)</string>
-    <string name="pp_local_model_installed">Modèle installé (%1$s) — 100%% hors ligne (Anglais)</string>
-    <string name="pp_local_model_not_installed">Normalisateur optionnel en anglais (~380 Mo de téléchargement)</string>
-    <string name="pp_local_unavailable">Le nettoyage par IA sur l\'appareil n\'est pas disponible dans cette version : il faudrait un moteur de génération de texte que l\'application n\'intègre pas encore. Choisissez un fournisseur cloud ou désactivez la correction IA.</string>
-    <string name="pp_download_s1">Télécharger S1-mini GGUF</string>
-    <string name="pp_downloading_s1">Téléchargement de S1-mini GGUF…</string>
-    <string name="pp_download_s1_done">S1-mini GGUF téléchargé avec succès</string>
-    <string name="pp_download_s1_error">Échec du téléchargement : %1$s</string>
-    <string name="pp_not_configured_prompt">Le post-traitement IA n\'est pas configuré. Veuillez ajouter une clé API ou installer le modèle S1 local dans les paramètres.</string>
+    <string name="pp_not_configured_prompt">Le post-traitement IA n\'est pas configuré. Veuillez ajouter une clé API dans les paramètres.</string>
 
     <!-- Dictionnaire de mots personnalisés (ajout du fork) : correction phonétique -->
     <string name="cw_card_title">Mots personnalisés</string>
@@ -225,7 +217,6 @@
     <string name="file_error_no_audio_received">Erreur : aucun fichier audio reçu</string>
     <string name="file_error_no_audio">Erreur : aucun fichier audio</string>
     <string name="file_error_no_speech">Erreur : aucune parole détectée dans le fichier audio</string>
-    <string name="file_error_format">Erreur : %1$s</string>
     <string name="file_error_decode">Erreur : impossible de décoder le fichier audio.</string>
     <string name="file_error_timeout">Délai d\'attente dépassé pour un segment de transcription</string>
     <string name="subs_grant_overlay_permission">Veuillez accorder l\'autorisation « Afficher par-dessus d\'autres apps »</string>

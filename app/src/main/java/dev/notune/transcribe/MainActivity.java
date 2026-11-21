@@ -61,6 +61,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQ_DOWNLOAD_NOTIFICATIONS = 303;
     private boolean pendingFloatingStart = false;
     private boolean pendingDebugModelDownload = false;
+    private volatile boolean debugDownloadChannelCreated = false;
     private static final String ACTION_CANCEL_DEBUG_DOWNLOAD =
             "dev.notune.transcribe.CANCEL_DEBUG_DOWNLOAD";
     private static final String DEBUG_DOWNLOAD_CHANNEL_ID = "DebugModelDownload";
@@ -236,11 +237,9 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btn_post_process).setOnClickListener(v ->
                 startActivity(new Intent(this, PostProcessSettingsActivity.class)));
 
-        // Opens Android's Personal Dictionary. The previous implementation also
-        // tried to import those words programmatically, which required a
-        // permission the public SDK does not expose — see UserDictionaryHelper.
+        // Opens the app's custom-words dictionary editor (backed by filesDir/custom_words).
         findViewById(R.id.btn_custom_words).setOnClickListener(v ->
-                UserDictionaryHelper.openSystemUserDictionarySettings(this));
+                startActivity(new Intent(this, CustomWordsActivity.class)));
 
         // Settings stored as marker files in filesDir: the native engine reads them
         // straight from the filesystem, with no ContentProvider involved.
@@ -895,8 +894,8 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
 
-            // Rough sanity check: the model is ~751 MB; leave extra headroom.
-            long requiredBytes = 800L * 1024 * 1024;
+            // Rough sanity check: the model is ~560 MB; leave extra headroom.
+            long requiredBytes = 700L * 1024 * 1024;
             if (DeviceStorage.availableBytes(appContext, appContext.getFilesDir()) < requiredBytes) {
                 final MainActivity ui = sActiveInstance.get();
                 if (ui != null) {
@@ -916,7 +915,7 @@ public class MainActivity extends AppCompatActivity {
             String url = "https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf/resolve/53ce288f69326b415aeef030cfcb02a08a8096dd/"
                     + DEBUG_MODEL_NAME + "?download=true";
 
-            // Mobile networks can be slow for a 751 MB file; give generous timeouts.
+            // Mobile networks can be slow for a 560 MB file; give generous timeouts.
             OkHttpClient client = new OkHttpClient.Builder()
                     .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
                     .readTimeout(180, java.util.concurrent.TimeUnit.SECONDS)
@@ -1032,6 +1031,13 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception e) {
                 if (cancelDebugModelDownload.get()) {
                     tmp.delete();
+                    final MainActivity ui = sActiveInstance.get();
+                    if (ui != null) {
+                        ui.runOnUiThread(() -> {
+                            if (ui.isFinishing() || ui.isDestroyed()) return;
+                            ui.statusText.setText(R.string.debug_model_cancelled);
+                        });
+                    }
                     return;
                 }
                 Log.e(TAG, "Debug model download failed", e);
@@ -1078,10 +1084,13 @@ public class MainActivity extends AppCompatActivity {
         NotificationManager manager = (NotificationManager)
                 context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager == null) return;
-        NotificationChannel channel = new NotificationChannel(DEBUG_DOWNLOAD_CHANNEL_ID,
-                context.getString(R.string.app_name), NotificationManager.IMPORTANCE_LOW);
-        channel.setDescription(context.getString(R.string.debug_model_downloading));
-        manager.createNotificationChannel(channel);
+        if (!debugDownloadChannelCreated) {
+            NotificationChannel channel = new NotificationChannel(DEBUG_DOWNLOAD_CHANNEL_ID,
+                    context.getString(R.string.app_name), NotificationManager.IMPORTANCE_LOW);
+            channel.setDescription(context.getString(R.string.debug_model_downloading));
+            manager.createNotificationChannel(channel);
+            debugDownloadChannelCreated = true;
+        }
 
         Intent cancelIntent = new Intent(context, MainActivity.class);
         cancelIntent.setAction(ACTION_CANCEL_DEBUG_DOWNLOAD);

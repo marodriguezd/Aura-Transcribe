@@ -7,7 +7,6 @@ pub mod ime;
 pub mod jni_util;
 pub mod main_activity;
 pub mod models;
-pub mod post_processor;
 pub mod recog_service;
 pub mod recognize;
 pub mod subtitle;

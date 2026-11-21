@@ -1,8 +1,0 @@
-• Transcript privacy: user speech is never written to production logs.
-• AI post-processing is final-only: one complete response, raw-text fallback, no partial LLM tokens pasted.
-• Cancelling one surface no longer cancels another surface's in-flight post-processing.
-• Live subtitles are generation-scoped: restarting never shows stale text.
-• Debug model downloads are SHA-256 verified before activation.
-• Model import is safer (sanitized file names, no updates to a destroyed screen).
-• JVM tests now cover real DNS failures and connect timeouts.
-• Hardened CI: rustfmt gate, checkModels on every push, release APK alignment + signature verification.

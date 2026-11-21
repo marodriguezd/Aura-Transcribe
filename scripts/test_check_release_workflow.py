@@ -48,14 +48,14 @@ jobs:
         echo "RELEASE_MODE=validation-only" >> "$GITHUB_ENV"
 
     - name: Upload APK Artifact
-      if: startsWith(github.ref, 'refs/tags/v')
+      if: startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || inputs.validation_only == false)
       uses: actions/upload-artifact@v4
       with:
         name: apk
         path: app.apk
 
     - name: Upload AAB Artifact
-      if: startsWith(github.ref, 'refs/tags/v')
+      if: startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || inputs.validation_only == false)
       uses: actions/upload-artifact@v4
       with:
         name: aab
@@ -182,18 +182,40 @@ class GateTest(unittest.TestCase):
     def test_ungated_apk_upload_rejected(self) -> None:
         self.rewrite(
             "    - name: Upload APK Artifact\n"
-            "      if: startsWith(github.ref, 'refs/tags/v')\n",
+            "      if: startsWith(github.ref, 'refs/tags/v') && "
+            "(github.event_name == 'push' || inputs.validation_only == false)\n",
             "    - name: Upload APK Artifact\n",
         )
-        self.assert_rejected("Upload APK Artifact is not limited to tag refs")
+        self.assert_rejected("Upload APK Artifact guard must match the publish guard")
+
+    def test_tag_only_apk_upload_rejected(self) -> None:
+        self.rewrite(
+            "    - name: Upload APK Artifact\n"
+            "      if: startsWith(github.ref, 'refs/tags/v') && "
+            "(github.event_name == 'push' || inputs.validation_only == false)\n",
+            "    - name: Upload APK Artifact\n"
+            "      if: startsWith(github.ref, 'refs/tags/v')\n",
+        )
+        self.assert_rejected("Upload APK Artifact guard must match the publish guard")
 
     def test_ungated_aab_upload_rejected(self) -> None:
         self.rewrite(
             "    - name: Upload AAB Artifact\n"
-            "      if: startsWith(github.ref, 'refs/tags/v')\n",
+            "      if: startsWith(github.ref, 'refs/tags/v') && "
+            "(github.event_name == 'push' || inputs.validation_only == false)\n",
             "    - name: Upload AAB Artifact\n",
         )
-        self.assert_rejected("Upload AAB Artifact is not limited to tag refs")
+        self.assert_rejected("Upload AAB Artifact guard must match the publish guard")
+
+    def test_tag_only_aab_upload_rejected(self) -> None:
+        self.rewrite(
+            "    - name: Upload AAB Artifact\n"
+            "      if: startsWith(github.ref, 'refs/tags/v') && "
+            "(github.event_name == 'push' || inputs.validation_only == false)\n",
+            "    - name: Upload AAB Artifact\n"
+            "      if: startsWith(github.ref, 'refs/tags/v')\n",
+        )
+        self.assert_rejected("Upload AAB Artifact guard must match the publish guard")
 
     def test_report_upload_not_always_rejected(self) -> None:
         self.rewrite(

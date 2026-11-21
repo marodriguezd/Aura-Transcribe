@@ -4,8 +4,6 @@
 [![Architecture](https://img.shields.io/badge/ABI-arm64--v8a-orange.svg)](#requirements--compatibility)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-English · [Español](README_es.md) · [Deutsch](README_de.md) · [Français](README_fr.md) · [Italiano](README_it.md) · [中文](README_zh.md)
-
 The application source code is licensed under MIT. Third-party components keep their own terms, and the bundled Nemotron speech model is **not** MIT: it is distributed under the OpenMDW License Agreement 1.1 (OpenMDW-1.1). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [MODEL_LICENSE.md](MODEL_LICENSE.md).
 
 Aura Transcribe is an on-device speech-to-text application and voice input service for Android. Powered by Rust, ARM NEON SIMD optimizations, and GGML inference kernels, it performs speech recognition locally on the device CPU without requiring an active network connection.
@@ -131,26 +129,25 @@ The output APK is generated at `app/build/outputs/apk/debug/app-debug.apk`.
 
 ### 5. Run Verification Gates
 ```bash
-./gradlew :app:testDebugUnitTest        # JVM unit tests (does not build the native library)
-./gradlew :app:lintDebug                # Android Lint checks
-./gradlew :app:checkModels              # SHA-256 of the bundled model source asset
-./gradlew :app:checkNativeAlignment     # 16 KB page alignment of every shipped .so
-./gradlew :app:verifyPackagingDecision  # APK/AAB decision + model gates, on synthetic archives
-./gradlew :benchmark:assembleBenchmark  # Compiles the Macrobenchmark module (no device needed)
+./gradlew :app:testDebugUnitTest           # JVM unit tests (does not build the native library)
+./gradlew :app:lintDebug                   # Android Lint checks
+./gradlew :app:checkModels                 # SHA-256 of the bundled model source asset
+./gradlew :app:checkNativeAlignment        # 16 KB page alignment of every shipped .so
+./gradlew :app:verifyPackagingDecision     # APK/AAB decision + model gates, on synthetic archives
+./gradlew :app:verifyNativeAlignmentGate   # Native-alignment gate on synthetic inputs
+./gradlew :app:verifyModelDownloadDecision # Model download wiring predicate checks
 
+python3 scripts/check_license_docs.py          # License metadata and packaged notice parity
+python3 scripts/check_release_workflow.py      # Release workflow publishing guards
+python3 scripts/check_release_notes.py         # Release notes word count and version check
+python3 scripts/check_jni_parity.py            # Java native declarations <-> Rust JNI exports
+python3 scripts/check_repo_hygiene.py          # Repository hygiene and secret scan
 python3 scripts/check_translations.py          # Translation parity across the 8 locales
 python3 scripts/test_verify_release_artifact.py # Self-test of the release-artifact verifier
-python3 scripts/bench_performance.py           # Reference-algorithm micro-benchmarks
 cargo fmt --all -- --check                     # Rust formatting
 ```
 
-`verifyPackagingDecision` and `test_verify_release_artifact.py` are the two gates
-that protect the bundled-model delivery: they run without downloading the 560 MB
-model, because they exercise the decision logic and the verifier against
-synthetic archives instead. `bench_performance.py` times pure-Python stand-ins
-for the audio/corrector hot paths and **asserts** that each fast path still
-agrees with its naive reference — it is a correctness gate, not a measurement of
-on-device performance.
+`verifyPackagingDecision`, `verifyModelDownloadDecision`, and `test_verify_release_artifact.py` protect bundled-model delivery without downloading the ~560 MB model, exercising the decision logic and archive verifier against synthetic archives instead.
 
 ### 6. Build Release Artifacts
 Build release artifacts in **separate invocations** to ensure proper asset packaging:
@@ -165,8 +162,7 @@ Build release artifacts in **separate invocations** to ensure proper asset packa
 > [!WARNING]
 > Without an authorized `release.keystore` (plus `STORE_PASS`, `KEY_ALIAS`,
 > `KEY_PASS`) `assembleRelease` succeeds but produces an **unsigned**
-> `app-release-unsigned.apk`. That is a source build, not a distributable release:
-> F-Droid-style buildservers compile from source and sign with their own key. If a
+> `app-release-unsigned.apk`, which is not a distributable release. If a
 > keystore is present but any of the three credentials is missing, the build fails
 > immediately rather than falling back to a debug or default key.
 
@@ -177,14 +173,14 @@ Build release artifacts in **separate invocations** to ensure proper asset packa
 | Workflow | Trigger | Produces | Publishes |
 |---|---|---|---|
 | [`debug_telegram.yml`](.github/workflows/debug_telegram.yml) | Push to `main`/`feat/**`, any pull request, manual | Debug APK signed with the repository's debug key | A workflow artifact on every run; the APK is sent to the Telegram bot on pushes and manual runs only — pull requests get the gates and the artifact, never a notification |
-| [`android_release.yml`](.github/workflows/android_release.yml) | Tag `v*`, manual dispatch | Signed release **APK and AAB** | A GitHub Release with both files, and only after every gate passes |
+| [`android_release.yml`](.github/workflows/android_release.yml) | Tag `v*`, manual dispatch (`validation_only: true` default) | Signed release **APK and AAB** | A GitHub Release with both files on `v*` tags (unless `validation_only` is true), and only after every gate passes |
 
 ### Why the APK and the AAB are built separately
 
 An APK and an AAB need different asset layouts for the same release variant. AGP
 ignores asset packs when packaging an APK, so the APK must carry the GGUF in the
 base module; the AAB must carry it only in the `:model_assets` install-time asset
-pack, or Play would receive roughly 560 MB twice. `app/build.gradle.kts`
+pack, or the bundle would ship roughly 560 MB twice. `app/build.gradle.kts`
 accordingly adds `model_assets/src/main/assets/` to the release source set only
 for the APK path. A Gradle invocation that asks for both artifacts at once is
 rejected at configuration time with a message naming the offending tasks.
@@ -192,35 +188,34 @@ rejected at configuration time with a message naming the offending tasks.
 ### Checks CI enforces automatically
 
 On every push to `main`/`feat/**` and on every pull request the debug workflow
-runs `cargo fmt --all -- --check`, `scripts/check_translations.py`,
-`scripts/test_send_telegram.py`, `scripts/test_verify_release_artifact.py`,
-`scripts/bench_performance.py`, `:app:testDebugUnitTest`, `:app:assembleDebug`,
-`:app:lintDebug`, `:app:checkModels`, `:app:checkNativeAlignment`,
-`:app:verifyPackagingDecision` and `:benchmark:assembleBenchmark`. Every step that
-pipes through `tee` also sets `-o pipefail`, so a filter cannot turn a red gate
-green.
+runs `cargo fmt --all -- --check`, `cargo test --workspace`, the pure-Python
+gates and self-tests (`check_license_docs.py`, `check_release_workflow.py`,
+`report_cargo_licenses.py`, `check_translations.py`, `send_telegram.py`,
+`verify_release_artifact.py`, `verify_artifact_notices.py`, `check_jni_parity.py`,
+`check_release_notes.py`, `verify_signing_identity.py`, `check_repo_hygiene.py`),
+`:app:testDebugUnitTest`, `:app:verifyNativeAlignmentGate`,
+`:app:verifyPackagingDecision`, `:app:verifyModelDownloadDecision`,
+`:app:assembleDebug`, `:app:assembleDebugAndroidTest`, `:app:lintDebug`, and
+`:app:checkNativeAlignment`. Every step that pipes through `tee` sets
+`set -e -o pipefail`, so a filter cannot turn a red gate green.
 
-The release workflow runs the same test, translation, formatting and
-packaging-decision gates first, then additionally:
+The release workflow runs the same validation gates first, then in `build-release`:
 
-- refuses to run when any of the four signing secrets is absent, before the expensive build;
+- extracts `versionName` from `app/build.gradle.kts` and checks any `v*` tag ref against `v${VERSION_NAME}` before installing heavy toolchains;
+- refuses to run when any of the four signing secrets (`KEYSTORE_BASE64`, `STORE_PASS`, `KEY_ALIAS`, `KEY_PASS`) is absent, and verifies the decoded keystore against the pinned certificate fingerprint (`keystore/release-cert.sha256`) before the build;
 - refuses to build if the model-less release escape hatch appears in a workflow file or in an `ORG_GRADLE_PROJECT_*` environment variable;
-- runs `:app:lintDebug` and `:app:checkNativeAlignment` before packaging, so a misaligned dependency fails fast;
-- verifies the packaged APK with `zipalign -c -P 16 -v 4` (the 16 KB requirement of Android 17) and `apksigner verify --print-certs`, and fails if the signer's SHA-256 equals the repository debug key's;
-- verifies the packaged AAB with `jarsigner -verify -certs` and `keytool -printcert -jarfile` (the output is inspected, because `jarsigner -verify` exits `0` for an unsigned bundle) and applies the same debug-key rejection;
-- re-verifies the model inside each built artifact with `scripts/verify_release_artifact.py`, which compares the packaged bytes against the verified source asset by content hash and rejects a model that is missing, duplicated, in the wrong directory, truncated or corrupted.
+- runs `:app:lintDebug`, builds `assembleRelease` and `bundleRelease` in separate invocations, and runs `:app:checkNativeAlignment` and `:app:checkModels`;
+- verifies the packaged APK with `zipalign -c -P 16 -v 4` (the 16 KB requirement of Android 17), `apksigner verify --print-certs`, debug-key rejection, `verify_signing_identity.py`, `verify_release_artifact.py --kind apk`, and `verify_artifact_notices.py --kind apk --require-model-docs`;
+- verifies the packaged AAB with `jarsigner -verify -certs` (inspecting stdout because `jarsigner -verify` exits `0` on unsigned bundles), `keytool -printcert -jarfile`, debug-key rejection, `verify_signing_identity.py`, `verify_release_artifact.py --kind aab`, and `verify_artifact_notices.py --kind aab --require-model-docs`.
 
-Publication (`Upload`/`Create Release`) happens only after all of the above, so a
-failed signing or model check cannot publish an artifact.
+Artifact upload and `Create Release` run only when `startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || inputs.validation_only == false)` holds and every gate above has passed.
 
 ### Checks that have not run
 
-Instrumentation tests, Macrobenchmark measurements, Baseline Profile generation,
-and runtime validation on tablets/foldables all require a device or emulator. No
-arm64 device or emulator is available in this environment, so none of them have
-been executed; `:benchmark:assembleBenchmark` **compiling** is not evidence of
-measured runtime performance. No Macrobenchmark timing or Baseline Profile is
-published here, and none should be assumed.
+Instrumentation tests (`:app:assembleDebugAndroidTest`) and runtime validation on
+physical phones, tablets, foldables, or Bluetooth headsets require a real arm64
+device. No arm64 device or emulator is available in GitHub Actions runners, so
+instrumentation tests are compiled in CI rather than executed there.
 
 The release workflow's signing path has likewise not been exercised end to end
 with real production credentials in this environment (no `release.keystore`,
@@ -258,7 +253,6 @@ hashes against the source asset.
 
 ## Known Limitations
 
-- **On-Device S1-mini Post-Processing is Unavailable:** While configuration options, model download paths, and prompt templates exist in the codebase for S1-mini, on-device text generation is not implemented in this build. The current inference backend (`transcribe-cpp`) is specialized for speech recognition and does not support causal language model generation. The local S1-mini provider is disabled in the settings UI.
 - **Hardware Architecture Restriction:** The application only runs on 64-bit ARM hardware (`arm64-v8a`) with ARMv8.2 dotprod/fp16 support. It does not run on x86 or x86_64 emulators or devices.
 - **Accessibility Insertion Support:** Direct text insertion via the floating overlay relies on Android's Accessibility framework. Non-standard or web-based text fields that do not expose editable accessibility nodes may require manually pasting from the clipboard.
 

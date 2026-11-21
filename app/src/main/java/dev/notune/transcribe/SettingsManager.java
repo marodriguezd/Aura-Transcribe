@@ -106,57 +106,25 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
     private static final String DEFAULT_API_URL = "https://api.openai.com/v1";
     private static final String DEFAULT_MODEL = "gpt-4o-mini";
 
-    public static final String PROVIDER_LOCAL_S1 = "local_s1";
-
     /**
-     * Whether the on-device S1-mini provider can actually refine text in this
-     * build. It cannot, and that is a verified statement rather than a TODO.
-     *
-     * <p>The only inference backend in the dependency graph is
-     * {@code transcribe-cpp 0.1.3}, whose public surface is speech recognition:
-     * {@code Session::run(pcm, &RunOptions)} with {@code Task::Transcribe} or
-     * {@code Task::Translate}. It has no text-generation entry point — no prompt
-     * decode, no sampler, no completion, no tokenizer encode path for a
-     * Qwen-family model (its {@code Feature::InitialPrompt} is a Whisper decode
-     * hint, not generation). SuperWhisper S1-mini is a Qwen-based causal LM, so
-     * running it needs a text-generation engine (llama.cpp or equivalent) plus a
-     * BPE tokenizer, KV cache and sampler that this project does not ship.
-     *
-     * <p>{@code src/post_processor.rs::normalize_text_on_device} consequently
-     * returns the trimmed input; see AGENTS.md §5.4 item 1. Until that changes,
-     * the provider must not be selectable or enableable, because doing so would
-     * present "AI cleanup" that silently returns the transcript unchanged.
-     *
-     * <p>Everything else around the provider is kept deliberately (the provider
-     * catalogue entry, the download/status helpers, the JNI surface and the
-     * native prompt builder) so that completing the inference path is additive.
-     */
-    public static final boolean LOCAL_S1_INFERENCE_AVAILABLE = false;
-
-    /**
-     * Whether [id] can perform post-processing at all in this build. Used by the
-     * settings UI to disable the controls that would otherwise let a user enable
-     * a provider that cannot work.
+     * Whether [id] matches a configured provider preset in {@link #PROVIDERS}.
+     * Unknown or legacy removed IDs (e.g. {@code local_s1}) return {@code false}
+     * so stale markers cannot silently enable post-processing.
      */
     public static boolean isProviderAvailable(String id) {
-        return !PROVIDER_LOCAL_S1.equals(id) || LOCAL_S1_INFERENCE_AVAILABLE;
+        if (id == null) return false;
+        for (Provider p : PROVIDERS) {
+            if (p.id.equals(id)) return true;
+        }
+        return false;
     }
 
     /**
      * The "enabled" value that may actually be persisted for [providerId].
      *
-     * <p>The settings screen is not the only thing that decides whether one of the
-     * recording surfaces runs post-processing: they all read the `pp_enabled`
-     * marker file. So a stale screen state — restored switch, a provider left over
-     * in the marker from an older build, a caller that forgets to check — must not
-     * be able to turn the feature on for a provider that cannot run. This is the
-     * single rule that both {@code PostProcessSettingsActivity.save()} and the JVM
-     * tests use, so the two cannot disagree.
-     *
      * @param providerId the provider the user selected
      * @param requested  the switch state the UI wants to persist
-     * @return [requested] when [providerId] is available in this build, otherwise
-     *         {@code false}
+     * @return [requested] when [providerId] is available, otherwise {@code false}
      */
     public static boolean resolveEnabledOnSave(String providerId, boolean requested) {
         return requested && isProviderAvailable(providerId);
@@ -182,13 +150,6 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
     }
 
     public static final Provider[] PROVIDERS = new Provider[] {
-        // The label carries the limitation on purpose: it is what the provider
-        // dropdown renders, and a user who picks "On-Device" must not be left
-        // believing the transcript is being refined on the phone. See
-        // LOCAL_S1_INFERENCE_AVAILABLE above for the exact blocker.
-        new Provider(PROVIDER_LOCAL_S1,
-                "On-Device (SuperWhisper S1-mini) \u2014 unavailable in this build",
-                null, "s1-mini-q4_k_m.gguf"),
         new Provider("groq",      "Groq",       "https://api.groq.com/openai/v1",       "llama-3.3-70b-versatile"),
         new Provider("openai",    "OpenAI",     "https://api.openai.com/v1",            "gpt-4o-mini"),
         new Provider("cerebras",  "Cerebras",   "https://api.cerebras.ai/v1",           "llama-3.3-70b"),
@@ -230,10 +191,6 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
         this.appContext = context.getApplicationContext();
     }
 
-    public Context getContext() {
-        return appContext;
-    }
-
     // Toggle (marker file)
 
     /**
@@ -266,16 +223,9 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
      * and UI toggle guards.
      */
     public static boolean resolvePostProcessConfigured(String providerId,
-                                                      ApiKeyRead credential,
-                                                      boolean localModelInstalled) {
+                                                      ApiKeyRead credential) {
         if (!isProviderAvailable(providerId)) {
             return false;
-        }
-        if (PROVIDER_LOCAL_S1.equals(providerId)) {
-            // The model being on disk is not enough: without an inference engine
-            // the provider produces no refinement at all, so treating it as
-            // "configured" is what let the nonfunctional path be enabled.
-            return LOCAL_S1_INFERENCE_AVAILABLE && localModelInstalled;
         }
         return credential != null && credential.hasCredential();
     }
@@ -287,9 +237,8 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
      * settings screen.
      */
     public static boolean resolvePostProcessEnabled(boolean switchedOn, String providerId,
-                                                   ApiKeyRead credential,
-                                                   boolean localModelInstalled) {
-        return switchedOn && resolvePostProcessConfigured(providerId, credential, localModelInstalled);
+                                                   ApiKeyRead credential) {
+        return switchedOn && resolvePostProcessConfigured(providerId, credential);
     }
 
     /**
@@ -337,21 +286,21 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
         if (callback == null) return;
         CREDENTIAL_OPS.submitValue(
                 () -> resolvePostProcessEnabled(isPostProcessSwitchedOn(), getProviderId(),
-                        readApiKeyOnLane(), isLocalS1ModelInstalled()),
+                        readApiKeyOnLane()),
                 callbackExecutor,
                 enabled -> callback.accept(Boolean.TRUE.equals(enabled)));
     }
 
     /**
      * Ordered, off-main "is AI fix configured and ready to use?" check: the credential
-     * or local model state queued behind every pending mutation, ignoring whether
+     * state queued behind every pending mutation, ignoring whether
      * the switch is currently on. Used when toggling AI fix from the keyboard or overlay.
      */
     public void readPostProcessConfigured(Executor callbackExecutor, Consumer<Boolean> callback) {
         if (callback == null) return;
         CREDENTIAL_OPS.submitValue(
                 () -> resolvePostProcessConfigured(getProviderId(),
-                        readApiKeyOnLane(), isLocalS1ModelInstalled()),
+                        readApiKeyOnLane()),
                 callbackExecutor,
                 configured -> callback.accept(Boolean.TRUE.equals(configured)));
     }
@@ -378,7 +327,8 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
                     } catch (Exception e) {
                         // Never include the marker contents or decoded key in
                         // diagnostics; the failure itself is reported by gather().
-                        Log.e(TAG, "Failed to decode API key from marker", e);
+                        Log.e(TAG, "Failed to decode API key from marker: "
+                                + e.getClass().getSimpleName());
                         return null;
                     }
                 },
@@ -600,19 +550,6 @@ public class SettingsManager implements PostProcessor.PostProcessorSettings {
             setActivePromptProfileId(PROMPT_DEFAULT_ID);
         }
         return deleted;
-    }
-
-    public File getLocalS1ModelFile() {
-        File modelsDir = new File(appContext.getFilesDir(), "models");
-        File preferred = new File(modelsDir, "s1-mini-q4_k_m.gguf");
-        if (preferred.exists()) return preferred;
-        File alt = new File(modelsDir, "s1-mini.gguf");
-        if (alt.exists()) return alt;
-        return preferred;
-    }
-
-    public boolean isLocalS1ModelInstalled() {
-        return getLocalS1ModelFile().exists();
     }
 
     public String getMicMode() {

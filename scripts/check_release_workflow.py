@@ -31,7 +31,6 @@ PUBLISH_GUARD = (
     "startsWith(github.ref, 'refs/tags/v') && "
     "(github.event_name == 'push' || inputs.validation_only == false)"
 )
-TAG_GUARD = "startsWith(github.ref, 'refs/tags/v')"
 RELEASE_ACTION = "softprops/action-gh-release"
 STEP_SPLIT_RE = re.compile(r"(?m)^(?=    - )")
 FORBIDDEN_COMMANDS = (
@@ -113,10 +112,12 @@ def check_publish_guard(steps: list[tuple[str | None, str]]) -> None:
 def check_artifact_uploads(steps: list[tuple[str | None, str]]) -> None:
     for name in ("Upload APK Artifact", "Upload AAB Artifact"):
         guard = if_line(find_step(steps, name))
-        if guard is None or TAG_GUARD not in guard:
+        if guard != PUBLISH_GUARD:
             fail(
-                f"{name} is not limited to tag refs; a validation-only run would "
-                "leave a distributable artifact behind"
+                f"{name} guard must match the publish guard so a validation-only "
+                "run cannot leave a distributable artifact behind.\n"
+                f"  expected: {PUBLISH_GUARD}\n"
+                f"  found:    {guard}"
             )
     report = find_step(steps, "Upload validation report")
     guard = if_line(report)

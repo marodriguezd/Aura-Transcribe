@@ -103,16 +103,6 @@ public class PostProcessorTest {
         public String getProviderId() {
             return "custom";
         }
-
-        @Override
-        public java.io.File getLocalS1ModelFile() {
-            return new java.io.File("/dev/null");
-        }
-
-        @Override
-        public boolean isLocalS1ModelInstalled() {
-            return false;
-        }
     }
 
     @Before
@@ -518,38 +508,35 @@ public class PostProcessorTest {
     }
 
     @Test
-    public void localS1ProviderWithoutModelFailsSafely() throws Exception {
+    public void removedLocalS1ProviderDeliversRawTextWithoutNetworkTraffic() throws Exception {
         FakeSettings settings = new FakeSettings() {
             @Override
             public String getProviderId() {
-                return PostProcessor.PROVIDER_LOCAL_S1;
-            }
-
-            @Override
-            public boolean isLocalS1ModelInstalled() {
-                return false;
+                return "local_s1";
             }
         };
+        settings.url = server.url("/").toString();
 
         CountDownLatch done = new CountDownLatch(1);
-        AtomicReference<String> errorRef = new AtomicReference<>();
+        AtomicReference<String> resultRef = new AtomicReference<>();
 
         newProcessor(settings, new Object()).process("hello world", new PostProcessor.PostProcessCallback() {
             @Override
             public void onSuccess(String refinedText) {
+                resultRef.set(refinedText);
                 done.countDown();
             }
 
             @Override
             public void onError(String error) {
-                errorRef.set(error);
                 done.countDown();
             }
         });
 
         assertTrue(done.await(5, TimeUnit.SECONDS));
-        assertNotNull(errorRef.get());
-        assertTrue(errorRef.get().contains("S1-mini"));
+        assertEquals("hello world", resultRef.get());
+        assertEquals("unavailable provider must never hit network", null,
+                server.takeRequest(200, TimeUnit.MILLISECONDS));
     }
 
     /**

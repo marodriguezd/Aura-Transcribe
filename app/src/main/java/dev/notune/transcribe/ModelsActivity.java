@@ -110,13 +110,6 @@ public class ModelsActivity extends AppCompatActivity {
                     "https://huggingface.co/handy-computer/parakeet-tdt-0.6b-v3-gguf/resolve/main/parakeet-tdt-0.6b-v3-Q8_0.gguf"),
             new ModelLink("Whisper Large-v3-Turbo", R.string.model_desc_whisper_turbo, "845 MB",
                     "https://huggingface.co/handy-computer/whisper-large-v3-turbo-gguf/resolve/main/whisper-large-v3-turbo-Q8_0.gguf"),
-            // Marked, not removed: the GGUF is real, the download/import plumbing
-            // works and the JNI surface is in place, but nothing in this build can
-            // run a text-generation model, so this entry must not read like a
-            // working feature (SettingsManager.LOCAL_S1_INFERENCE_AVAILABLE).
-            new ModelLink("SuperWhisper S1-mini 0.6B (text normalizer - not usable yet)",
-                    R.string.pp_local_model_title, "380 MB",
-                    "https://huggingface.co/superwhisper/s1-mini-GGUF/resolve/main/s1-mini-q4_k_m.gguf"),
             new ModelLink("huggingface.co/handy-computer", R.string.model_desc_browse, "",
                     "https://huggingface.co/handy-computer"),
     };
@@ -188,6 +181,11 @@ public class ModelsActivity extends AppCompatActivity {
         importText = findViewById(R.id.txt_import);
         importButton = findViewById(R.id.btn_import);
         languageSpinner = findViewById(R.id.spinner_language);
+
+        com.google.android.material.appbar.MaterialToolbar toolbar = findViewById(R.id.toolbar);
+        if (toolbar != null) {
+            toolbar.setNavigationOnClickListener(v -> finish());
+        }
 
         importButton.setOnClickListener(v -> {
             pickModelLauncher.launch(new String[]{"*/*"});
@@ -264,7 +262,9 @@ public class ModelsActivity extends AppCompatActivity {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 String tag = tags.get(position);
-                if (tag.equals(readConfig("model_language"))) return;
+                String current = readConfig("model_language");
+                if (current.equalsIgnoreCase("auto")) current = "";
+                if (tag.equals(current)) return;
                 // "Auto" selects the model's native automatic detection; the
                 // device language is refreshed as the fallback hint for models
                 // without native detection (Canary-family), resolved in Rust.
@@ -332,7 +332,9 @@ public class ModelsActivity extends AppCompatActivity {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 String value = values.get(position);
-                if (value.equals(readConfig("stream_context_right"))) return;
+                String current = readConfig("stream_context_right");
+                if (current.isEmpty()) current = "13";
+                if (value.equals(current)) return;
                 writeConfig("stream_context_right", value);
                 statusText.setText(getString(R.string.models_loading));
                 reloadModelNative(ModelsActivity.this);

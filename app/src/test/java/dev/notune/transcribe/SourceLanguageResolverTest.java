@@ -74,6 +74,15 @@ public class SourceLanguageResolverTest {
     }
 
     @Test
+    public void uppercaseLatinDiacriticsDetectProperly() {
+        assertEquals("de", SourceLanguageResolver.detectFromText("ÜBER ÄRGERT ÖFTER"));
+        assertEquals("fr", SourceLanguageResolver.detectFromText("FORÊT FRANÇAISE"));
+        assertEquals("it", SourceLanguageResolver.detectFromText("PIÙ O MENO CITTÀ CÒSÌ"));
+        assertEquals("pt", SourceLanguageResolver.detectFromText("CORAÇÃO NÃO SÃO"));
+        assertEquals("es", SourceLanguageResolver.detectFromText("MAÑANA NIÑO"));
+    }
+
+    @Test
     public void plainAsciiTextReturnsNull() {
         assertNull(SourceLanguageResolver.detectFromText("this is plain english text"));
     }

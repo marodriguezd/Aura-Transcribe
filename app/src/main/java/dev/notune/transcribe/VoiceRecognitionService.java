@@ -224,7 +224,7 @@ public class VoiceRecognitionService extends RecognitionService {
             // Owned by this service so a cancelled/destroyed session only
             // cancels its own call, never another surface's (P0.1).
             new PostProcessor(settings, mainHandler,
-                    () -> sessionId == currentSessionId && settings.isPostProcessSwitchedOn(),
+                    () -> sessionId == currentSessionId,
                     this)
                     .process(text, new PostProcessor.PostProcessCallback() {
                 @Override
