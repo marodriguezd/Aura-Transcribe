@@ -9,6 +9,7 @@
 
 use once_cell::sync::Lazy;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
 use jni::objects::{GlobalRef, JObject};
@@ -22,6 +23,11 @@ const ACTIVE_MODEL_FILE: &str = "active_model";
 /// File in filesDir with an optional language hint — a locale like `en-US`
 /// or `auto`. Absent or empty = let the model autodetect.
 const MODEL_LANGUAGE_FILE: &str = "model_language";
+/// File in filesDir with the audio language the user pinned for the live
+/// subtitle surface (`auto` = automatic). Deliberately separate from
+/// `model_language`: pinning Chinese captions must not switch the voice
+/// keyboard to Chinese. Only the subtitle run path reads it.
+const SUBTITLE_SOURCE_LANGUAGE_FILE: &str = "subtitle_source_language";
 /// File in filesDir with the device's BCP-47 locale, written by `App` on first
 /// run. Used as the language hint when the user's choice is automatic but the
 /// active model has no native language detection (Canary-family models): that
@@ -98,6 +104,18 @@ pub struct Engine {
     /// language change applies to the voice keyboard too,
     /// without a manual model reload.
     lang_file: PathBuf,
+}
+
+/// Which surface drives a streaming run.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum StreamSurface {
+    /// Dictation surfaces (IME, popup, SpeechRecognizer): honor
+    /// `model_translate` and the `model_language` hint.
+    Dictation,
+    /// Live subtitles: always `Task::Transcribe` (a global "translate to
+    /// English" switch must never translate captions, §4.6) and prefer the
+    /// `subtitle_source_language` hint.
+    Subtitle,
 }
 
 impl Engine {
@@ -212,6 +230,22 @@ impl Engine {
         })
     }
 
+    /// Language hint for the live-subtitle surface: the
+    /// `subtitle_source_language` marker wins when it names a locale, otherwise
+    /// the same resolution the voice surfaces use. Read on every stream start
+    /// (never cached) so changing the subtitle audio language applies to the
+    /// next sentence without a model reload.
+    fn subtitle_language(&mut self) -> Option<String> {
+        if let Some(dir) = self.lang_file.parent() {
+            if let Some(tag) = read_config(&dir.join(SUBTITLE_SOURCE_LANGUAGE_FILE)) {
+                if !tag.eq_ignore_ascii_case("auto") {
+                    return Some(tag);
+                }
+            }
+        }
+        self.effective_language()
+    }
+
     /// Re-reads the `model_language` hint file and resolves the effective hint
     /// for the next run/stream. An explicit locale always wins; automatic or
     /// absent resolves to the model's native language detection when the model
@@ -303,10 +337,18 @@ impl Engine {
         samples: &[f32],
         task: Option<transcribe_cpp::Task>,
     ) -> Result<String, String> {
+        // Keep the original request separate from the resolved task: only the
+        // subtitle path explicitly passes `Some(Task::Transcribe)`, and that is
+        // what selects `subtitle_language()` instead of `effective_language()`.
+        let is_subtitle = task == Some(transcribe_cpp::Task::Transcribe);
         let task = task.unwrap_or(self.task);
         // Re-read the hint on every run (see effective_language). The hint is
         // degraded locally per run; the marker file stays the source of truth.
-        let mut hint = self.effective_language();
+        let mut hint = if is_subtitle {
+            self.subtitle_language()
+        } else {
+            self.effective_language()
+        };
         loop {
             let opts = transcribe_cpp::RunOptions {
                 language: hint.clone(),
@@ -336,9 +378,10 @@ impl Engine {
     /// hypotheses are reported through `on_partial` (committed + tentative
     /// display text), and the final text is returned when [`StreamCmd::Stop`]
     /// arrives. [`StreamCmd::Cancel`] abandons the stream and returns
-    /// `Err("Canceled")`. A rejected language hint is degraded like `run`;
-    /// a requested `att_context_right` that is not in the model's menu is
-    /// retried once with the model default; a failed begin leaves the
+    /// `Err("Canceled")`, as does losing the command channel (the owning
+    /// session was torn down). A rejected language hint is degraded like
+    /// `run`; a requested `att_context_right` that is not in the model's menu
+    /// is retried once with the model default; a failed begin leaves the
     /// session idle so retrying is safe.
     ///
     /// The engine mutex is held for the whole recording, so other surfaces
@@ -350,6 +393,7 @@ impl Engine {
     /// WER-vs-fluidity trade-off can be measured on-device via logcat.
     fn run_stream(
         &mut self,
+        surface: StreamSurface,
         rx: &crossbeam_channel::Receiver<StreamCmd>,
         drain: &mut dyn FnMut(&mut Vec<f32>),
         on_partial: &mut dyn FnMut(&str),
@@ -357,7 +401,14 @@ impl Engine {
         if !self.supports_streaming {
             return Err("this model does not support streaming".to_string());
         }
-        let mut hint = self.effective_language();
+        let task = match surface {
+            StreamSurface::Dictation => self.task,
+            StreamSurface::Subtitle => transcribe_cpp::Task::Transcribe,
+        };
+        let mut hint = match surface {
+            StreamSurface::Dictation => self.effective_language(),
+            StreamSurface::Subtitle => self.subtitle_language(),
+        };
         let mut ctx_retried = false;
         // Track the chunk selector actually in effect for the stop-log
         // telemetry: a menu retry below resets it to the model default, and
@@ -366,7 +417,7 @@ impl Engine {
         let mut stream = loop {
             let run_opts = transcribe_cpp::RunOptions {
                 language: hint.clone(),
-                task: self.task,
+                task,
                 family: self.run_ext.clone(),
                 ..Default::default()
             };
@@ -491,7 +542,13 @@ impl Engine {
                 Ok(_) => {}
                 Err(crossbeam_channel::TryRecvError::Empty) => {}
                 Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                    log::debug!("stream command channel disconnected");
+                    // The owning session dropped its command channel: nobody
+                    // can stop this stream any more, and its final text would
+                    // be delivered to a torn-down overlay. Abandon it instead
+                    // of holding the engine (and its worker thread) forever.
+                    log::debug!("stream command channel disconnected; canceling");
+                    stream.reset();
+                    return Err("Canceled".to_string());
                 }
             }
             std::thread::sleep(std::time::Duration::from_millis(STREAM_TICK_MS));
@@ -501,6 +558,13 @@ impl Engine {
 
 /// Holds the loaded engine singleton.
 static GLOBAL_ENGINE: Lazy<Mutex<Option<Arc<Mutex<Engine>>>>> = Lazy::new(|| Mutex::new(None));
+
+/// Whether the loaded model supports native cache-aware streaming, mirrored
+/// outside the engine mutex. The subtitle audio and UI threads must never
+/// wait on that mutex to ask (a streaming run holds it for a whole
+/// utterance), so this atomic is the non-blocking mirror; it is written by
+/// `do_load` and cleared by `reset`.
+static STREAMING_CAPABLE: AtomicBool = AtomicBool::new(false);
 
 /// Loading coordination state + condvar for waiters.
 static LOAD_STATE: Lazy<(Mutex<LoadState>, Condvar)> =
@@ -599,11 +663,35 @@ pub fn transcribe_stream_shared(
     drain: &mut dyn FnMut(&mut Vec<f32>),
     on_partial: &mut dyn FnMut(&str),
 ) -> Result<String, String> {
+    stream_shared(engine, StreamSurface::Dictation, rx, drain, on_partial)
+}
+
+/// Same as [`transcribe_stream_shared`] for the live-subtitle path: always
+/// `Task::Transcribe` and the `subtitle_source_language` hint (see
+/// [`StreamSurface::Subtitle`]). Used by the subtitle worker to stream one
+/// utterance at a time; the caller feeds audio through `drain` and stops the
+/// stream with [`StreamCmd::Stop`] at a segment boundary.
+pub fn transcribe_subtitle_stream_shared(
+    engine: &Arc<Mutex<Engine>>,
+    rx: &crossbeam_channel::Receiver<StreamCmd>,
+    drain: &mut dyn FnMut(&mut Vec<f32>),
+    on_partial: &mut dyn FnMut(&str),
+) -> Result<String, String> {
+    stream_shared(engine, StreamSurface::Subtitle, rx, drain, on_partial)
+}
+
+fn stream_shared(
+    engine: &Arc<Mutex<Engine>>,
+    surface: StreamSurface,
+    rx: &crossbeam_channel::Receiver<StreamCmd>,
+    drain: &mut dyn FnMut(&mut Vec<f32>),
+    on_partial: &mut dyn FnMut(&str),
+) -> Result<String, String> {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut guard = engine
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        guard.run_stream(rx, drain, on_partial)
+        guard.run_stream(surface, rx, drain, on_partial)
     }))
     .unwrap_or_else(|_| {
         log::error!("streaming transcription panicked; reporting as error");
@@ -618,6 +706,22 @@ pub fn transcribe_stream_shared(
             text
         })
     })
+}
+
+/// Whether the model currently loaded in the shared engine supports native
+/// cache-aware streaming. Locks the engine (poison-recovered), so call it from
+/// a worker thread — never from the audio callback or the UI thread, which
+/// must use the non-blocking [`is_streaming_capable`] mirror instead.
+pub fn supports_streaming_shared(engine: &Arc<Mutex<Engine>>) -> bool {
+    let guard = engine.lock().unwrap_or_else(|p| p.into_inner());
+    guard.supports_streaming()
+}
+
+/// Non-blocking mirror of the loaded model's streaming capability (see
+/// [`STREAMING_CAPABLE`]). Safe on any thread. `false` whenever no engine is
+/// loaded, so every caller degrades to the batch pipeline.
+pub fn is_streaming_capable() -> bool {
+    STREAMING_CAPABLE.load(Ordering::SeqCst)
 }
 
 pub fn is_engine_loaded() -> bool {
@@ -638,6 +742,7 @@ pub fn reset() {
         state = cvar.wait(state).unwrap_or_else(|p| p.into_inner());
     }
     *GLOBAL_ENGINE.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    STREAMING_CAPABLE.store(false, Ordering::SeqCst);
     *state = LoadState::Idle;
 }
 
@@ -890,6 +995,7 @@ fn do_load(env: &mut JNIEnv, context: &JObject) -> Result<(), String> {
         ) {
             Ok(engine) => {
                 let status = engine.ready_status;
+                STREAMING_CAPABLE.store(engine.supports_streaming, Ordering::SeqCst);
                 *GLOBAL_ENGINE.lock().unwrap_or_else(|p| p.into_inner()) =
                     Some(Arc::new(Mutex::new(engine)));
                 notify_status(env, context, status);
@@ -928,6 +1034,7 @@ fn do_load(env: &mut JNIEnv, context: &JObject) -> Result<(), String> {
     ) {
         Ok(engine) => {
             let status = engine.ready_status;
+            STREAMING_CAPABLE.store(engine.supports_streaming, Ordering::SeqCst);
             *GLOBAL_ENGINE.lock().unwrap_or_else(|p| p.into_inner()) =
                 Some(Arc::new(Mutex::new(engine)));
             notify_status(env, context, status);

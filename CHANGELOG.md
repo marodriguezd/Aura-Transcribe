@@ -2,6 +2,15 @@
 
 Change log of **Aura Transcribe** (Next-Gen evolution of [notune/android_transcribe_app](https://github.com/notune/android_transcribe_app)).
 
+## [1.0.3] - 2026-11-21 (versionCode 54)
+
+### Added
+- Native cache-aware streaming pipeline for live subtitles (`src/subtitle.rs` + `src/engine.rs`): feeds 80 ms audio frames through `transcribe_subtitle_stream_shared` (`Task::Transcribe`) with ordered single-FIFO `StreamInput` commands and automatic one-way fallback to the batch pipeline for non-streaming models.
+- Adaptive rolling-window noise-floor VAD (`SubtitleVad`) and hybrid punctuation/prosody segment boundaries (`should_finalize_segment`) tolerating steady background music and splitting cleanly on sentence/clause punctuation across Latin and CJK scripts.
+- Audio source-language selector (`subtitle_source_language` marker) in `LiveSubtitleActivity` localized across all 8 locales, plus $O(1)$ Latin stopword lexical detection and per-session language memory in `SourceLanguageResolver`.
+- Contextual sliding window and 64-entry LRU cache (`SubtitleContextWindow`) for on-device ML Kit subtitle translation, progressive target-language-only partial translation (380 ms debounce, latest-wins, strict FIFO ordering), and ahead-of-time language-pack pre-warming (`OnDeviceSubtitleTranslator.prewarm`).
+- Visual stabilization helper (`SubtitleDisplayStabilizer`): Local Agreement-2 word-boundary prefix anchoring, 75% alpha partial hierarchy without hex literals, and monotonic scroll window tracking across `trimCaptionSegments()`.
+
 ## [1.0.2] - 2026-11-10 (versionCode 53)
 
 ### Changed

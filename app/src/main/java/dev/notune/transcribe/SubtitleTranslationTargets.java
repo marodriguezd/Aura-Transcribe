@@ -27,6 +27,21 @@ public final class SubtitleTranslationTargets {
             AUTO,
             "en-US", "es-ES", "fr-FR", "de-DE", "it-IT", "pt-PT", "ru-RU");
 
+    /**
+     * BCP-47 tags offered for the <em>source</em> (audio) language of the
+     * subtitles. Includes the languages the ASR models can detect so the
+     * user can pin an explicit origin instead of relying on auto-detection.
+     */
+    public static final List<String> SOURCE_TAGS = Arrays.asList(
+            AUTO,
+            "en-US", "es-ES", "fr-FR", "de-DE", "it-IT", "pt-PT", "ru-RU",
+            "zh-CN", "ja-JP", "ko-KR");
+
+    /** Whether a stored source-language tag is one of the supported values. */
+    public static boolean isValidSource(String tag) {
+        return tag != null && (tag.equals(AUTO) || SOURCE_TAGS.contains(tag));
+    }
+
     private SubtitleTranslationTargets() {}
 
     /** Whether a stored tag is one of the supported values (auto included). */

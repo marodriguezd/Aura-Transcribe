@@ -4,7 +4,7 @@
 
 > **Repo:** `Aura-Transcribe` (fork of `notune/android_transcribe_app`)
 > **Type:** Android app for *offline* voice transcription with optional AI post-processing.
-> **Currently declared Gradle version:** 1.0.2 (`versionCode 53`, see `app/build.gradle.kts`). The actually published version must be checked in tags/releases; do not assume it matches this file. (versionCode 52 was the 1.0.1 feature release; 53 is the 1.0.2 maintenance release with full-codebase code-review and anti-slop optimizations.)
+> **Currently declared Gradle version:** 1.0.3 (`versionCode 54`, see `app/build.gradle.kts`). The actually published version must be checked in tags/releases; do not assume it matches this file. (versionCode 52 was the 1.0.1 feature release; 53 was the 1.0.2 maintenance release; 54 is the 1.0.3 live-subtitle streaming and contextual translation release.)
 >
 > **Language (decision 2026-08-04, completed 2026-10-12):** all agentic files
 > (this `AGENTS.md`) is written in **English**. (`.ai_context/` and
@@ -465,6 +465,25 @@ Do not rename Rust/Java files without updating the JNI entry (§4.3).**AI post-p
 ### 4.8 Subtitles: predictable-cost pipeline
 
 `src/subtitle.rs` is probably the subtlest code. Rules:
+
+- **Two pipelines, chosen once per session and one-way.** When the loaded
+  model supports native cache-aware streaming (`engine::is_streaming_capable()`,
+  the non-blocking mirror of the engine field — the session is initialized on
+  the Java main thread, which must never wait on the engine mutex) the session
+  streams: `pushAudio` forwards the speech blocks through one ordered FIFO
+  (`StreamInput::{Audio, Stop, Reset}`) to a streaming worker that runs
+  `engine::transcribe_subtitle_stream_shared` (always `Task::Transcribe`, plus
+  the optional `subtitle_source_language` marker read at every stream start),
+  feeds ~80 ms of audio per tick and delivers `onSubtitleText(partial, false)`
+  whenever `stream.text().display().trim()` changes. The boundary from §4.8
+  becomes `Stop` (finalize + corrector + `onSubtitleText(final, true)`) or
+  `Reset` for a noise-only segment. Everything else, and any stream failure,
+  uses the batch pipeline below unchanged: the degradation is permanent for
+  the session (`SubtitlePipelineState::on_stream_failure`) so the same audio
+  is never delivered twice, and the pusher's segment buffer still holds the
+  audio, so the next boundary transcribes it. The stream is opened on the
+  first block of an utterance, never while idle, so an idle session does not
+  hold the engine mutex the IME/popup may need.
 
 - **Partials:** only enqueued when (a) worker idle, (b) no pending finals, (c) `segment_secs * rtf <= MAX_PARTIAL_COST_SECS` (latest-wins). If the device transcribes slower than the audio, partials are cut — by design.
 - **Finals:** always enqueued (FIFO), *but* folded with `try_recv` up to `MAX_MERGED_SAMPLES` (25 s) to cushion Whisper's fixed window.

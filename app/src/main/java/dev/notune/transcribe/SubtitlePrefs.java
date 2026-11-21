@@ -52,4 +52,21 @@ public final class SubtitlePrefs {
         MarkerFileHelper.writeString(ctx, TRANSLATION_TARGET_FILE,
                 SubtitleTranslationTargets.isValid(tag) ? tag : SubtitleTranslationTargets.AUTO);
     }
+
+    private static final String SOURCE_LANGUAGE_FILE = "subtitle_source_language";
+
+    /**
+     * Live-subtitle <em>source</em> (audio) language. Read by
+     * {@code LiveSubtitleService} at session start and kept as session memory
+     * when resolving the language of each segment.
+     */
+    public static String getSourceLanguage(Context ctx) {
+        String v = MarkerFileHelper.readString(ctx, SOURCE_LANGUAGE_FILE, "");
+        return SubtitleTranslationTargets.isValidSource(v) ? v : SubtitleTranslationTargets.AUTO;
+    }
+
+    public static void setSourceLanguage(Context ctx, String tag) {
+        MarkerFileHelper.writeString(ctx, SOURCE_LANGUAGE_FILE,
+                SubtitleTranslationTargets.isValidSource(tag) ? tag : SubtitleTranslationTargets.AUTO);
+    }
 }

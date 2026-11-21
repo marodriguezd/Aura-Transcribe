@@ -143,4 +143,105 @@ public class SourceLanguageResolverTest {
     public void primaryCodeNullForUnsupported() {
         assertNull(SourceLanguageResolver.primaryCode("xx-XX"));
     }
+
+    // --- Extended resolve (subtitle source + session memory) ----------------
+
+    @Test
+    public void subtitleSourceTagBeatsModelLanguage() {
+        assertEquals("es", SourceLanguageResolver.resolve("hello world", "es-ES", "en-US", null));
+    }
+
+    @Test
+    public void modelLanguageUsedWhenSourceAuto() {
+        assertEquals("en", SourceLanguageResolver.resolve("hello world", "auto", "en-US", null));
+    }
+
+    @Test
+    public void sessionMemoryUsedForShortNeutralFragment() {
+        assertEquals("fr", SourceLanguageResolver.resolve("ok", "auto", "auto", "fr"));
+    }
+
+    @Test
+    public void sessionMemoryIgnoredWithoutLetters() {
+        assertNull(SourceLanguageResolver.resolve("...", "auto", "auto", "fr"));
+    }
+
+    // --- detectFromTextWithLexicon positives --------------------------------
+
+    @Test
+    public void lexiconEnglishPhrase() {
+        assertEquals("en", SourceLanguageResolver.detectFromTextWithLexicon(
+                "Hello everyone, welcome back to the channel"));
+    }
+
+    @Test
+    public void lexiconSpanishPhraseWithoutDiacritics() {
+        assertEquals("es", SourceLanguageResolver.detectFromTextWithLexicon(
+                "Hola a todos y bienvenidos a este video de hoy"));
+    }
+
+    @Test
+    public void lexiconFrenchPhrase() {
+        assertEquals("fr", SourceLanguageResolver.detectFromTextWithLexicon(
+                "bonjour les amis dans cette ville"));
+    }
+
+    @Test
+    public void lexiconGermanPhrase() {
+        assertEquals("de", SourceLanguageResolver.detectFromTextWithLexicon(
+                "hallo und willkommen in dieser welt heute"));
+    }
+
+    @Test
+    public void lexiconItalianPhrase() {
+        assertEquals("it", SourceLanguageResolver.detectFromTextWithLexicon(
+                "ciao sono molto contento oggi"));
+    }
+
+    @Test
+    public void lexiconPortuguesePhrase() {
+        assertEquals("pt", SourceLanguageResolver.detectFromTextWithLexicon(
+                "ola muito obrigado por isso hoje"));
+    }
+
+    // --- detectFromTextWithLexicon negatives (no false positives) -----------
+
+    @Test
+    public void lexiconSingleAmbiguousWordCafe() {
+        assertNull(SourceLanguageResolver.detectFromTextWithLexicon("cafe"));
+    }
+
+    @Test
+    public void lexiconSingleAmbiguousWordHotel() {
+        assertNull(SourceLanguageResolver.detectFromTextWithLexicon("hotel"));
+    }
+
+    @Test
+    public void lexiconSingleAmbiguousWordTest() {
+        assertNull(SourceLanguageResolver.detectFromTextWithLexicon("test"));
+    }
+
+    @Test
+    public void lexiconSingleAmbiguousWordOk() {
+        assertNull(SourceLanguageResolver.detectFromTextWithLexicon("OK"));
+    }
+
+    @Test
+    public void lexiconDigitsOnly() {
+        assertNull(SourceLanguageResolver.detectFromTextWithLexicon("12345"));
+    }
+
+    @Test
+    public void lexiconPunctuationOnly() {
+        assertNull(SourceLanguageResolver.detectFromTextWithLexicon("..."));
+    }
+
+    @Test
+    public void hasLetterOrDigitBasic() {
+        org.junit.Assert.assertTrue(SourceLanguageResolver.hasLetterOrDigit("abc"));
+        org.junit.Assert.assertTrue(SourceLanguageResolver.hasLetterOrDigit("123"));
+        org.junit.Assert.assertTrue(SourceLanguageResolver.hasLetterOrDigit("123a"));
+        org.junit.Assert.assertFalse(SourceLanguageResolver.hasLetterOrDigit("..."));
+        org.junit.Assert.assertFalse(SourceLanguageResolver.hasLetterOrDigit(null));
+    }
 }

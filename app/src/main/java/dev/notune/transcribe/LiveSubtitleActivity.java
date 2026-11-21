@@ -39,6 +39,9 @@ import java.util.Locale;
 public class LiveSubtitleActivity extends AppCompatActivity {
     private static final String TAG = "LiveSubtitleActivity";
     private MediaProjectionManager mProjectionManager;
+    /** Kept as a field so the native ML Kit clients opened for pre-warming can
+     *  be closed in {@link #onDestroy()} instead of leaking per Activity. */
+    private OnDeviceSubtitleTranslator mPrewarmTranslator;
     private boolean mWaitingForOverlayPermission = false;
     private boolean mProjectionStarted = false;
 
@@ -78,8 +81,10 @@ public class LiveSubtitleActivity extends AppCompatActivity {
 
         mProjectionManager = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
 
+        setupSubtitleSourceLanguageSpinner(findViewById(R.id.spinner_subtitle_source_language));
         setupSubtitleTranslationSpinner(findViewById(R.id.spinner_subtitle_translation));
         findViewById(R.id.btn_live_subs_start).setOnClickListener(v -> beginSubtitleFlow());
+        prewarmTranslator();
     }
 
     /** Entry of the permission flow: overlay permission first, then projection. */
@@ -137,12 +142,88 @@ public class LiveSubtitleActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * Pre-warms the ML Kit language packs for the currently selected
+     * (source, target) pair so the first subtitle translation is fast.
+     * When the source is "auto", both common source packs (en, zh) are
+     * warmed for the chosen target.
+     */
+    private void prewarmTranslator() {
+        String target = SubtitlePrefs.getTranslationTarget(this);
+        String targetCode = SubtitleTranslationTargets.mlKitCode(target);
+        if (targetCode == null) return; // auto: no translation, nothing to warm
+        String source = SubtitlePrefs.getSourceLanguage(this);
+        String sourceCode = SubtitleTranslationTargets.primaryTag(source);
+        OnDeviceSubtitleTranslator translator = prewarmTranslatorInstance();
+        if (sourceCode == null) {
+            translator.prewarm("en", targetCode, null);
+            translator.prewarm("zh", targetCode, null);
+        } else {
+            translator.prewarm(sourceCode, targetCode, null);
+        }
+    }
+
+    /** Lazily creates the pre-warm translator for the current Activity. */
+    private OnDeviceSubtitleTranslator prewarmTranslatorInstance() {
+        if (mPrewarmTranslator == null) {
+            mPrewarmTranslator = new OnDeviceSubtitleTranslator();
+        }
+        return mPrewarmTranslator;
+    }
+
+    @Override
+    protected void onDestroy() {
+        // Release the native ML Kit Translator clients opened by pre-warming;
+        // ML Kit does not free them on its own (M6.4).
+        if (mPrewarmTranslator != null) {
+            mPrewarmTranslator.cancelAll();
+            mPrewarmTranslator = null;
+        }
+        super.onDestroy();
+    }
+
     private void startProjection() {
         if (mProjectionStarted) {
             return;
         }
         mProjectionStarted = true;
         projectionLauncher.launch(mProjectionManager.createScreenCaptureIntent());
+    }
+
+    /**
+     * Live-subtitle source (audio) language. "Auto" defers to text detection;
+     * a fixed tag pins the origin language for the whole session.
+     */
+    private void setupSubtitleSourceLanguageSpinner(Spinner spinner) {
+        List<String> tags = new ArrayList<>(SubtitleTranslationTargets.SOURCE_TAGS);
+        List<String> labels = new ArrayList<>(tags.size());
+        for (String tag : tags) {
+            labels.add(SubtitleTranslationTargets.AUTO.equals(tag)
+                    ? getString(R.string.subtitle_source_language_auto)
+                    : Locale.forLanguageTag(tag).getDisplayName() + " (" + tag + ")");
+        }
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(
+                this, android.R.layout.simple_spinner_item, labels);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinner.setAdapter(adapter);
+        String stored = SubtitlePrefs.getSourceLanguage(this);
+        spinner.setSelection(Math.max(0, tags.indexOf(stored)), false);
+        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                String tag = tags.get(position);
+                if (tag.equals(SubtitlePrefs.getSourceLanguage(LiveSubtitleActivity.this))) return;
+                SubtitlePrefs.setSourceLanguage(LiveSubtitleActivity.this, tag);
+                Snackbar.make(findViewById(android.R.id.content),
+                        getString(R.string.subtitle_source_language_saved), Snackbar.LENGTH_LONG).show();
+                // A new source language means new ML Kit packs to warm.
+                prewarmTranslator();
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+            }
+        });
     }
 
     /**
@@ -175,6 +256,7 @@ public class LiveSubtitleActivity extends AppCompatActivity {
                 SubtitlePrefs.setTranslationTarget(LiveSubtitleActivity.this, tag);
                 Snackbar.make(findViewById(android.R.id.content),
                         getString(R.string.subtitle_translation_saved), Snackbar.LENGTH_LONG).show();
+                prewarmTranslator();
             }
 
             @Override

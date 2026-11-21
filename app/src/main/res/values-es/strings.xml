@@ -39,6 +39,11 @@
     <string name="subtitle_lines_4">4 líneas</string>
     <string name="subtitle_lines_all">Todas</string>
 
+    <string name="setting_subtitle_source_language">Idioma del audio</string>
+    <string name="setting_subtitle_source_language_desc">Idioma que se habla en el audio. «Auto» lo detecta en cada fragmento. Fijar un idioma ayuda en frases cortas o ambiguas.</string>
+    <string name="subtitle_source_language_auto">Auto (detectar idioma)</string>
+    <string name="subtitle_source_language_saved">Idioma del audio guardado</string>
+
     <string name="setting_subtitle_translation">Traducción de subtítulos</string>
     <string name="setting_subtitle_translation_desc">Traduce los subtítulos en directo tras reconocerlos. «Auto (idioma original)» conserva el idioma hablado. Al elegir un idioma fijo, la primera vez se descarga un paquete pequeño (Google Play Services; la traducción en sí es local y funciona sin conexión después).</string>
     <string name="subtitle_translation_auto">Auto (idioma original)</string>
