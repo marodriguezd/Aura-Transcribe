@@ -4,7 +4,7 @@
 
 > **Repo:** `Aura-Transcribe` (fork of `notune/android_transcribe_app`)
 > **Type:** Android app for *offline* voice transcription with optional AI post-processing.
-> **Currently declared Gradle version:** 1.0.2 (`versionCode 53`, see `app/build.gradle.kts`). The actually published version must be checked in tags/releases; do not assume it matches this file. (versionCode 52 was the 1.0.1 feature release; 53 is the 1.0.2 maintenance release with full-codebase code-review and anti-slop optimizations.)
+> **Currently declared Gradle version:** 1.0.3 (`versionCode 54`, see `app/build.gradle.kts`). The actually published version must be checked in tags/releases; do not assume it matches this file. (versionCode 52 was the 1.0.1 feature release; 53 was the 1.0.2 maintenance release; 54 is the 1.0.3 live-subtitle streaming and contextual translation release.)
 >
 > **Language (decision 2026-08-04, completed 2026-10-12):** all agentic files
 > (this `AGENTS.md`) is written in **English**. (`.ai_context/` and

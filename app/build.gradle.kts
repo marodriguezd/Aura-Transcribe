@@ -48,13 +48,15 @@ android {
         // `connectedDebugAndroidTest` runs them on a connected device. Without this runner
         // the platform default would silently skip AndroidJUnit4 classes.
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // versionCode 53 = v1.0.2 (2026-11-10): full-codebase code-review and
-        // anti-slop optimization across Rust native engine, Android Java layer,
-        // and tooling. Streamlined JNI callbacks, unified marker handling,
-        // completed natural locale strings, and fixed socket resource cleanup.
+        // versionCode 54 = v1.0.3 (2026-11-21): live-subtitle native cache-aware
+        // streaming (80 ms ticks), adaptive noise-floor VAD, hybrid punctuation
+        // and prosody segmentation, source-language stopword detection with
+        // session memory and audio-language selector, progressive target-only
+        // translation with sliding context window and ML Kit pre-warming, and
+        // Local Agreement-2 visual stabilization with monotonic scroll.
         // versionCode must always increase.
-        versionCode = 53
-        versionName = "1.0.2"
+        versionCode = 54
+        versionName = "1.0.3"
         ndk {
             // Android 17 requires 16 KB page-size alignment, which the native
             // build already produces (see RUSTFLAGS below). Only arm64-v8a is
