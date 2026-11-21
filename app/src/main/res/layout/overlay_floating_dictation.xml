@@ -29,14 +29,14 @@
             android:layout_gravity="center"
             android:background="@drawable/bg_record_circle" />
 
-        <ImageView
+        <androidx.appcompat.widget.AppCompatImageView
             android:id="@+id/floating_bubble_icon"
             android:layout_width="26dp"
             android:layout_height="26dp"
             android:layout_gravity="center"
             android:contentDescription="@string/floating_bubble_description"
             android:src="@drawable/ic_mic"
-            android:tint="?attr/colorOnPrimary" />
+            app:tint="?attr/colorOnPrimary" />
     </FrameLayout>
 
     <!-- Expanded Dictation Panel View: full-width card (the service resizes the
@@ -110,7 +110,7 @@
                 android:visibility="gone" />
 
             <!-- Close icon button with 48dp accessible touch target -->
-            <ImageView
+            <androidx.appcompat.widget.AppCompatImageView
                 android:id="@+id/floating_close_button"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
@@ -119,7 +119,7 @@
                 android:contentDescription="@string/action_close"
                 android:padding="12dp"
                 android:src="@drawable/ic_close"
-                android:tint="?attr/colorOnSurfaceVariant" />
+                app:tint="?attr/colorOnSurfaceVariant" />
         </LinearLayout>
 
         <!-- Live streaming partial transcription (Nemotron etc.): a two-line
@@ -168,14 +168,14 @@
                 android:layout_gravity="center"
                 android:background="@drawable/bg_ime_record" />
 
-            <ImageView
+            <androidx.appcompat.widget.AppCompatImageView
                 android:id="@+id/floating_mic_icon"
                 android:layout_width="44dp"
                 android:layout_height="44dp"
                 android:layout_gravity="center"
                 android:importantForAccessibility="no"
                 android:src="@drawable/ic_mic"
-                android:tint="?attr/colorOnPrimaryContainer" />
+                app:tint="?attr/colorOnPrimaryContainer" />
 
             <TextView
                 android:id="@+id/floating_hint"
