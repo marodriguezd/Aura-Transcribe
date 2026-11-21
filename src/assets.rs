@@ -16,9 +16,23 @@ const LEGACY_MODEL_DIR: &str = "parakeet-tdt-0.6b-v3-int8";
 
 /// Clears any pending Java exception when a JNI call fails so callers on the
 /// model-load thread never leak pending exceptions across JNI boundaries.
-fn jni_err<T>(env: &mut JNIEnv, ctx: &str, res: jni::errors::Result<T>) -> anyhow::Result<T> {
-    match res {
-        Ok(val) => Ok(val),
+/// Evaluates `$call` first inside `match` so `$env` is never borrowed twice.
+macro_rules! jni_result {
+    ($env:expr, $ctx:expr, $call:expr) => {{
+        match $call {
+            Ok(val) => Ok(val),
+            Err(e) => {
+                crate::jni_util::clear_exception($env, $ctx);
+                Err(anyhow::anyhow!("{}: {}", $ctx, e))
+            }
+        }
+    }};
+}
+
+fn jni_get_string(env: &mut JNIEnv, ctx: &str, obj: JObject) -> anyhow::Result<String> {
+    let jstr = jni::objects::JString::from(obj);
+    match env.get_string(&jstr) {
+        Ok(s) => Ok(String::from(s)),
         Err(e) => {
             crate::jni_util::clear_exception(env, ctx);
             Err(anyhow::anyhow!("{}: {}", ctx, e))
@@ -28,13 +42,13 @@ fn jni_err<T>(env: &mut JNIEnv, ctx: &str, res: jni::errors::Result<T>) -> anyho
 
 /// Resolves the app's `filesDir` via the given Context.
 pub fn files_dir(env: &mut JNIEnv, context: &JObject) -> anyhow::Result<PathBuf> {
-    let files_dir_obj = jni_err(
+    let files_dir_obj = jni_result!(
         env,
         "files_dir getFilesDir",
         env.call_method(context, "getFilesDir", "()Ljava/io/File;", &[])
-            .and_then(|v| v.l()),
+            .and_then(|v| v.l())
     )?;
-    let path_str_obj = jni_err(
+    let path_str_obj = jni_result!(
         env,
         "files_dir getAbsolutePath",
         env.call_method(
@@ -43,14 +57,9 @@ pub fn files_dir(env: &mut JNIEnv, context: &JObject) -> anyhow::Result<PathBuf>
             "()Ljava/lang/String;",
             &[],
         )
-        .and_then(|v| v.l()),
+        .and_then(|v| v.l())
     )?;
-    let path_string: String = jni_err(
-        env,
-        "files_dir get_string",
-        env.get_string(&path_str_obj.into()),
-    )?
-    .into();
+    let path_string = jni_get_string(env, "files_dir get_string", path_str_obj)?;
     Ok(PathBuf::from(path_string))
 }
 
@@ -90,7 +99,7 @@ pub fn extract_builtin_model(env: &mut JNIEnv, context: &JObject) -> anyhow::Res
 
     std::fs::create_dir_all(&model_dir)?;
 
-    let asset_manager_obj = jni_err(
+    let asset_manager_obj = jni_result!(
         env,
         "extract_builtin_model getAssets",
         env.call_method(
@@ -99,7 +108,7 @@ pub fn extract_builtin_model(env: &mut JNIEnv, context: &JObject) -> anyhow::Res
             "()Landroid/content/res/AssetManager;",
             &[],
         )
-        .and_then(|v| v.l()),
+        .and_then(|v| v.l())
     )?;
 
     copy_assets_recursively(env, &asset_manager_obj, BUILTIN_MODEL_DIR, &base_path)?;
@@ -138,7 +147,7 @@ fn extraction_matches_assets(
 ) -> anyhow::Result<bool> {
     use jni::objects::JObjectArray;
 
-    let asset_manager_obj = jni_err(
+    let asset_manager_obj = jni_result!(
         env,
         "extraction_matches_assets getAssets",
         env.call_method(
@@ -147,15 +156,15 @@ fn extraction_matches_assets(
             "()Landroid/content/res/AssetManager;",
             &[],
         )
-        .and_then(|v| v.l()),
+        .and_then(|v| v.l())
     )?;
 
-    let path_jstring = jni_err(
+    let path_jstring = jni_result!(
         env,
         "extraction_matches_assets new_string dir",
-        env.new_string(BUILTIN_MODEL_DIR),
+        env.new_string(BUILTIN_MODEL_DIR)
     )?;
-    let list_array_obj = jni_err(
+    let list_array_obj = jni_result!(
         env,
         "extraction_matches_assets list",
         env.call_method(
@@ -164,31 +173,26 @@ fn extraction_matches_assets(
             "(Ljava/lang/String;)[Ljava/lang/String;",
             &[(&path_jstring).into()],
         )
-        .and_then(|v| v.l()),
+        .and_then(|v| v.l())
     )?;
 
     let list_array: JObjectArray = list_array_obj.into();
-    let len = jni_err(
+    let len = jni_result!(
         env,
         "extraction_matches_assets get_array_length",
-        env.get_array_length(&list_array),
+        env.get_array_length(&list_array)
     )?;
     if len <= 0 {
         return Ok(false);
     }
 
     for i in 0..len {
-        let file_name_obj = jni_err(
+        let file_name_obj = jni_result!(
             env,
             "extraction_matches_assets get_object_array_element",
-            env.get_object_array_element(&list_array, i),
+            env.get_object_array_element(&list_array, i)
         )?;
-        let file_name: String = jni_err(
-            env,
-            "extraction_matches_assets get_string",
-            env.get_string(&file_name_obj.into()),
-        )?
-        .into();
+        let file_name = jni_get_string(env, "extraction_matches_assets get_string", file_name_obj)?;
         let disk_entry = model_dir.join(&file_name);
         if !disk_entry.exists() {
             log::info!(
@@ -203,12 +207,12 @@ fn extraction_matches_assets(
         // metadata/size is treated as a mismatch.
         if disk_entry.is_file() {
             let asset_path = format!("{}/{}", BUILTIN_MODEL_DIR, file_name);
-            let path_jstring = jni_err(
+            let path_jstring = jni_result!(
                 env,
                 "extraction_matches_assets new_string asset",
-                env.new_string(&asset_path),
+                env.new_string(&asset_path)
             )?;
-            let stream = match jni_err(
+            let stream = match jni_result!(
                 env,
                 "extraction_matches_assets open",
                 env.call_method(
@@ -217,16 +221,16 @@ fn extraction_matches_assets(
                     "(Ljava/lang/String;)Ljava/io/InputStream;",
                     &[(&path_jstring).into()],
                 )
-                .and_then(|v| v.l()),
+                .and_then(|v| v.l())
             ) {
                 Ok(s) => s,
                 Err(_) => return Ok(false),
             };
-            let avail_res = jni_err(
+            let avail_res = jni_result!(
                 env,
                 "extraction_matches_assets available",
                 env.call_method(&stream, "available", "()I", &[])
-                    .and_then(|v| v.i()),
+                    .and_then(|v| v.i())
             );
             if env.call_method(&stream, "close", "()V", &[]).is_err() {
                 crate::jni_util::clear_exception(env, "extraction_matches_assets close");
@@ -277,12 +281,12 @@ fn copy_assets_recursively(
 ) -> anyhow::Result<()> {
     use jni::objects::JObjectArray;
 
-    let path_jstring = jni_err(
+    let path_jstring = jni_result!(
         env,
         "copy_assets_recursively new_string",
-        env.new_string(path),
+        env.new_string(path)
     )?;
-    let list_array_obj = jni_err(
+    let list_array_obj = jni_result!(
         env,
         "copy_assets_recursively list",
         env.call_method(
@@ -291,14 +295,14 @@ fn copy_assets_recursively(
             "(Ljava/lang/String;)[Ljava/lang/String;",
             &[(&path_jstring).into()],
         )
-        .and_then(|v| v.l()),
+        .and_then(|v| v.l())
     )?;
 
     let list_array: JObjectArray = list_array_obj.into();
-    let len = jni_err(
+    let len = jni_result!(
         env,
         "copy_assets_recursively get_array_length",
-        env.get_array_length(&list_array),
+        env.get_array_length(&list_array)
     )?;
 
     if len == 0 {
@@ -309,17 +313,12 @@ fn copy_assets_recursively(
     std::fs::create_dir_all(&target_dir)?;
 
     for i in 0..len {
-        let file_name_obj = jni_err(
+        let file_name_obj = jni_result!(
             env,
             "copy_assets_recursively get_object_array_element",
-            env.get_object_array_element(&list_array, i),
+            env.get_object_array_element(&list_array, i)
         )?;
-        let file_name: String = jni_err(
-            env,
-            "copy_assets_recursively get_string",
-            env.get_string(&file_name_obj.into()),
-        )?
-        .into();
+        let file_name = jni_get_string(env, "copy_assets_recursively get_string", file_name_obj)?;
 
         let child_path = if path.is_empty() {
             file_name
@@ -338,10 +337,10 @@ fn copy_asset_file(
     asset_path: &str,
     target_root: &Path,
 ) -> anyhow::Result<()> {
-    let path_jstring = jni_err(
+    let path_jstring = jni_result!(
         env,
         "copy_asset_file new_string",
-        env.new_string(asset_path),
+        env.new_string(asset_path)
     )?;
     let result = env.call_method(
         asset_manager,
@@ -352,25 +351,25 @@ fn copy_asset_file(
 
     match result {
         Ok(stream_val) => {
-            let stream_obj = jni_err(env, "copy_asset_file open result", stream_val.l())?;
+            let stream_obj = jni_result!(env, "copy_asset_file open result", stream_val.l())?;
             let target_file_path = target_root.join(asset_path);
 
             let copy_res: anyhow::Result<()> = (|| {
                 const CHUNK_SIZE: usize = 64 * 1024;
                 let mut file = std::fs::File::create(&target_file_path)?;
                 let mut buffer = vec![0u8; CHUNK_SIZE];
-                let buffer_j = jni_err(
+                let buffer_j = jni_result!(
                     env,
                     "copy_asset_file new_byte_array",
-                    env.new_byte_array(CHUNK_SIZE as jni::sys::jsize),
+                    env.new_byte_array(CHUNK_SIZE as jni::sys::jsize)
                 )?;
 
                 loop {
-                    let bytes_read = jni_err(
+                    let bytes_read = jni_result!(
                         env,
                         "copy_asset_file read",
                         env.call_method(&stream_obj, "read", "([B)I", &[(&buffer_j).into()])
-                            .and_then(|v| v.i()),
+                            .and_then(|v| v.i())
                     )?;
 
                     if bytes_read == -1 {
@@ -395,10 +394,10 @@ fn copy_asset_file(
                         )
                     };
 
-                    jni_err(
+                    jni_result!(
                         env,
                         "copy_asset_file get_byte_array_region",
-                        env.get_byte_array_region(&buffer_j, 0, buffer_slice),
+                        env.get_byte_array_region(&buffer_j, 0, buffer_slice)
                     )?;
 
                     use std::io::Write;
