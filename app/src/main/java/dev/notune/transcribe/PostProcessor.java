@@ -38,6 +38,8 @@ import okhttp3.Response;
  */
 public class PostProcessor {
     private static final String TAG = "PostProcessor";
+    private static final String DIAGNOSTIC_INPUT =
+            "This is a diagnostic post-processing test.";
     private static final String DIAGNOSTIC_MARKER = "POSTPROCESS_DIAGNOSTIC_OK";
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
 
