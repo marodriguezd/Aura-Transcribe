@@ -39,10 +39,10 @@
     <string name="subtitle_lines_4">4 linhas</string>
     <string name="subtitle_lines_all">Todas</string>
 
-    <string name="setting_subtitle_source_language">Audio language</string>
-    <string name="setting_subtitle_source_language_desc">Language spoken in the audio. "Auto" detects it per segment. Pinning a language helps short or ambiguous fragments.</string>
-    <string name="subtitle_source_language_auto">Auto (detect)</string>
-    <string name="subtitle_source_language_saved">Audio language saved</string>
+    <string name="setting_subtitle_source_language">Idioma do áudio</string>
+    <string name="setting_subtitle_source_language_desc">Idioma falado no áudio. «Auto» deteta-o em cada segmento. Fixar um idioma ajuda em frases curtas ou ambíguas.</string>
+    <string name="subtitle_source_language_auto">Auto (detetar)</string>
+    <string name="subtitle_source_language_saved">Idioma do áudio guardado</string>
 
     <string name="setting_subtitle_translation">Tradução de legendas</string>
     <string name="setting_subtitle_translation_desc">Traduz as legendas ao vivo após o reconhecimento. «Auto (idioma original)» mantém o idioma falado. Ao escolher um idioma fixo, na primeira utilização é transferido um pacote pequeno (Google Play Services; a tradução em si é local e passa a funcionar offline).</string>

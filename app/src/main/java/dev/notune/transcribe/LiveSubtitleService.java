@@ -753,8 +753,11 @@ public class LiveSubtitleService extends Service {
         String contextPrefix = mSubtitleContextWindow.effectiveContextPrefix(sourceCode, now);
         String cached = mSubtitleContextWindow.getCached(sourceCode, targetCode,
                 contextPrefix, text);
-        if (cached != null || (mLastPartialSource.equals(text)
-                && !mLastTranslatedPartial.isEmpty())) {
+        // Only promote synchronously when no earlier final is waiting or in
+        // flight: otherwise segment B would jump ahead of segment A (M7.2).
+        if (mTranslationQueue.isEmpty() && !mTranslationBusy
+                && (cached != null || (mLastPartialSource.equals(text)
+                        && !mLastTranslatedPartial.isEmpty()))) {
             String translated = (cached != null) ? cached : mLastTranslatedPartial;
             mLastTranslatedPartial = "";
             mPendingPartialSource = null;
@@ -790,7 +793,11 @@ public class LiveSubtitleService extends Service {
         String cached = mSubtitleContextWindow.getCached(sourceCode, targetCode,
                 contextPrefix, text);
         if (cached != null) {
-            mLastTranslatedPartial = cached;
+            // Cached partials go through the stabilizer too, exactly like a
+            // freshly translated hypothesis (M7.2).
+            mLastTranslatedPartial = (mDisplayStabilizer != null)
+                    ? mDisplayStabilizer.stabilize(cached)
+                    : cached;
             mLastPartialSource = text;
             return;
         }
@@ -801,10 +808,15 @@ public class LiveSubtitleService extends Service {
         if (now - mLastPartialTranslateTimeMs < PARTIAL_TRANSLATE_DEBOUNCE_MS) {
             mPendingPartialSource = text;
             final String pending = text;
+            final int gen = mTranslationGeneration;
             mMainHandler.postDelayed(() -> {
+                if (gen != mTranslationGeneration || mSubtitleText == null) return;
                 if (mPendingPartialSource == pending) {
                     mPendingPartialSource = null;
                     onPartialTranslated(pending);
+                    // A cache hit inside onPartialTranslated does not repaint
+                    // on its own: force it here (M7.2).
+                    renderTranslatedCaption("");
                 }
             }, PARTIAL_TRANSLATE_DEBOUNCE_MS - (now - mLastPartialTranslateTimeMs));
             return;
@@ -939,6 +951,16 @@ public class LiveSubtitleService extends Service {
         final long now = System.currentTimeMillis();
         final String contextPrefix = (mSubtitleContextWindow != null)
                 ? mSubtitleContextWindow.effectiveContextPrefix(sourceCode, now) : "";
+        // If this final already landed in the cache (e.g. promoted from the
+        // partial hypothesis), apply it on the main thread without calling
+        // ML Kit again — FIFO order is preserved (M7.2).
+        final String cached = (mSubtitleContextWindow != null)
+                ? mSubtitleContextWindow.getCached(sourceCode, targetCode, contextPrefix, job.text)
+                : null;
+        if (cached != null) {
+            mMainHandler.post(() -> applyTranslation(job, cached));
+            return;
+        }
         final String payload = (mSubtitleContextWindow != null)
                 ? mSubtitleContextWindow.buildPayload(job.text, sourceCode, now)
                 : job.text;

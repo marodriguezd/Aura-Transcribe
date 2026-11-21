@@ -39,10 +39,10 @@
     <string name="subtitle_lines_4">4 行</string>
     <string name="subtitle_lines_all">全部</string>
 
-    <string name="setting_subtitle_source_language">Audio language</string>
-    <string name="setting_subtitle_source_language_desc">Language spoken in the audio. "Auto" detects it per segment. Pinning a language helps short or ambiguous fragments.</string>
-    <string name="subtitle_source_language_auto">Auto (detect)</string>
-    <string name="subtitle_source_language_saved">Audio language saved</string>
+    <string name="setting_subtitle_source_language">音频语言</string>
+    <string name="setting_subtitle_source_language_desc">音频中说话的语言。“自动”会按片段检测。固定语言有助于识别简短或含糊的片段。</string>
+    <string name="subtitle_source_language_auto">自动（检测）</string>
+    <string name="subtitle_source_language_saved">音频语言已保存</string>
 
     <string name="setting_subtitle_translation">字幕翻译</string>
     <string name="setting_subtitle_translation_desc">识别后翻译实时字幕。“自动（原语言）”保留说话的语言。选择固定语言会在首次使用时下载小型语言包（Google Play 服务；翻译本身在设备端完成，之后可离线使用）。</string>
