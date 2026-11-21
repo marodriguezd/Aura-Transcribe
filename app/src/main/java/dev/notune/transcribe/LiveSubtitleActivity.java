@@ -39,6 +39,9 @@ import java.util.Locale;
 public class LiveSubtitleActivity extends AppCompatActivity {
     private static final String TAG = "LiveSubtitleActivity";
     private MediaProjectionManager mProjectionManager;
+    /** Kept as a field so the native ML Kit clients opened for pre-warming can
+     *  be closed in {@link #onDestroy()} instead of leaking per Activity. */
+    private OnDeviceSubtitleTranslator mPrewarmTranslator;
     private boolean mWaitingForOverlayPermission = false;
     private boolean mProjectionStarted = false;
 
@@ -151,13 +154,32 @@ public class LiveSubtitleActivity extends AppCompatActivity {
         if (targetCode == null) return; // auto: no translation, nothing to warm
         String source = SubtitlePrefs.getSourceLanguage(this);
         String sourceCode = SubtitleTranslationTargets.primaryTag(source);
-        OnDeviceSubtitleTranslator translator = new OnDeviceSubtitleTranslator();
+        OnDeviceSubtitleTranslator translator = prewarmTranslatorInstance();
         if (sourceCode == null) {
             translator.prewarm("en", targetCode, null);
             translator.prewarm("zh", targetCode, null);
         } else {
             translator.prewarm(sourceCode, targetCode, null);
         }
+    }
+
+    /** Lazily creates the pre-warm translator for the current Activity. */
+    private OnDeviceSubtitleTranslator prewarmTranslatorInstance() {
+        if (mPrewarmTranslator == null) {
+            mPrewarmTranslator = new OnDeviceSubtitleTranslator();
+        }
+        return mPrewarmTranslator;
+    }
+
+    @Override
+    protected void onDestroy() {
+        // Release the native ML Kit Translator clients opened by pre-warming;
+        // ML Kit does not free them on its own (M6.4).
+        if (mPrewarmTranslator != null) {
+            mPrewarmTranslator.cancelAll();
+            mPrewarmTranslator = null;
+        }
+        super.onDestroy();
     }
 
     private void startProjection() {
@@ -194,6 +216,8 @@ public class LiveSubtitleActivity extends AppCompatActivity {
                 SubtitlePrefs.setSourceLanguage(LiveSubtitleActivity.this, tag);
                 Snackbar.make(findViewById(android.R.id.content),
                         getString(R.string.subtitle_source_language_saved), Snackbar.LENGTH_LONG).show();
+                // A new source language means new ML Kit packs to warm.
+                prewarmTranslator();
             }
 
             @Override

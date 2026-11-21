@@ -72,6 +72,21 @@ public final class SubtitleContextWindow {
     }
 
     /**
+     * Returns the active context prefix when it is still valid for
+     * {@code (sourceLang, nowMs)}, or {@code ""} otherwise.
+     *
+     * <p>This is the value every caller must use as the LRU cache key: the
+     * cache key has to describe exactly the payload that was sent to ML Kit.
+     * Using {@link #getLastFinalSource()} directly would key an expired (or
+     * other-language) context that {@link #buildPayload} already omitted, so a
+     * context-less translation could be found later and promoted to a final
+     * segment as if it had been translated with context.
+     */
+    public String effectiveContextPrefix(String sourceLang, long nowMs) {
+        return hasValidContext(sourceLang, nowMs) ? lastFinalSource : "";
+    }
+
+    /**
      * Builds the source payload sent to ML Kit for {@code currentSource}.
      * When a valid previous sentence exists, it is prepended with a newline
      * separator so the NMT model keeps pronominal/temporal context while still

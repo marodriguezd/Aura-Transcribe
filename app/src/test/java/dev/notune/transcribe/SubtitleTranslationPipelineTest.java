@@ -83,4 +83,63 @@ public class SubtitleTranslationPipelineTest {
     public void maxPreviousSourceConstant() {
         assertEquals(60, SubtitleContextWindow.MAX_PREVIOUS_SOURCE_CHARS);
     }
+
+    // --- M6.1: effective context prefix -----------------------------------
+
+    @Test
+    public void effectiveContextPrefixReturnsSourceWhileContextIsValid() {
+        SubtitleContextWindow w = new SubtitleContextWindow();
+        w.recordFinal("hola mundo", "hello world", "es", 1000L);
+        assertEquals("hola mundo", w.effectiveContextPrefix("es", 6000L));
+        // Exactly at the 6 s limit is still valid; one ms later it is not.
+        assertEquals("hola mundo", w.effectiveContextPrefix("es", 7000L));
+        assertEquals("", w.effectiveContextPrefix("es", 7001L));
+    }
+
+    @Test
+    public void effectiveContextPrefixEmptyWhenLanguageChanged() {
+        SubtitleContextWindow w = new SubtitleContextWindow();
+        w.recordFinal("hola mundo", "hello world", "es", 1000L);
+        assertEquals("", w.effectiveContextPrefix("en", 1001L));
+    }
+
+    @Test
+    public void effectiveContextPrefixEmptyOnFreshWindow() {
+        SubtitleContextWindow w = new SubtitleContextWindow();
+        assertEquals("", w.effectiveContextPrefix("es", 1000L));
+        assertEquals("", w.effectiveContextPrefix(null, 1000L));
+    }
+
+    @Test
+    public void effectiveContextPrefixEmptyAfterReset() {
+        SubtitleContextWindow w = new SubtitleContextWindow();
+        w.recordFinal("hola mundo", "hello world", "es", 1000L);
+        w.reset();
+        assertEquals("", w.effectiveContextPrefix("es", 1001L));
+    }
+
+    /**
+     * Regression (M6.1): the partial/final paths must key the LRU cache with
+     * the same prefix {@link SubtitleContextWindow#buildPayload} used. Once the
+     * context expires, the entry written under the stale prefix must not be
+     * found, otherwise a context-less partial translation is promoted to a
+     * final segment as if it had been translated with context.
+     */
+    @Test
+    public void expiredContextDoesNotReuseContextualCacheEntry() {
+        SubtitleContextWindow w = new SubtitleContextWindow();
+        w.recordFinal("hola mundo", "hello world", "es", 1000L);
+        long now = 2000L;
+        String payload = w.buildPayload("today we learn", "es", now);
+        assertEquals("hola mundo\ntoday we learn", payload);
+        w.putCached("es", "en", w.effectiveContextPrefix("es", now), "today we learn",
+                "we learn today");
+        assertEquals("we learn today", w.getCached("es", "en",
+                w.effectiveContextPrefix("es", now), "today we learn"));
+
+        long later = now + SubtitleContextWindow.CONTEXT_EXPIRY_MS + 1;
+        assertEquals("today we learn", w.buildPayload("today we learn", "es", later));
+        assertNull(w.getCached("es", "en",
+                w.effectiveContextPrefix("es", later), "today we learn"));
+    }
 }

@@ -92,11 +92,10 @@ public final class SubtitleDisplayStabilizer {
             int common = commonPrefixLength(candidate, lockedPrefix);
             if (candidate.startsWith(lockedPrefix)
                     || common * 5 >= lockedPrefix.length() * 3) {
-                if (candidate.length() >= lockedPrefix.length()) {
-                    result = lockedPrefix + candidate.substring(lockedPrefix.length());
-                } else {
-                    result = lockedPrefix;
-                }
+                // Never slice the candidate at a raw character index: a word
+                // before the divergence point may have changed length, which
+                // would glue half of one word onto the anchored prefix.
+                result = mergeLockedPrefixWithCandidate(lockedPrefix, candidate);
             } else {
                 result = candidate;
             }
@@ -197,6 +196,50 @@ public final class SubtitleDisplayStabilizer {
             } else {
                 break;
             }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Joins an anchored prefix with the part of {@code candidate} that is new,
+     * always on a word boundary for space-delimited scripts (and on a code
+     * point boundary for CJK).
+     *
+     * <p>The naive {@code lockedPrefix + candidate.substring(lockedPrefix.length())}
+     * cuts through the middle of a word whenever an earlier word changed
+     * length (e.g. locked {@code "Estamos viendo la"} vs candidate
+     * {@code "Estamos mirando la película"}), producing text like
+     * {@code "Estamos viendo laa película"}. This helper keeps only whole
+     * words: it anchors the first {@code lockedWordCount} words of the locked
+     * prefix and appends the remaining candidate words. When the candidate has
+     * no more words than the prefix, the anchored prefix is returned as is
+     * (nothing stable to append, so the candidate's fluctuation is dropped).
+     */
+    public static String mergeLockedPrefixWithCandidate(String lockedPrefix, String candidate) {
+        if (lockedPrefix == null || lockedPrefix.isEmpty()) {
+            return candidate == null ? "" : candidate;
+        }
+        if (candidate == null) candidate = "";
+        if (candidate.startsWith(lockedPrefix)) {
+            return lockedPrefix + candidate.substring(lockedPrefix.length());
+        }
+        if (isCjkDominant(lockedPrefix) && isCjkDominant(candidate)) {
+            return candidate.length() >= lockedPrefix.length()
+                    ? lockedPrefix + candidate.substring(lockedPrefix.length())
+                    : lockedPrefix;
+        }
+        String trimmedPrefix = lockedPrefix.trim();
+        if (trimmedPrefix.isEmpty()) return candidate;
+        String[] lockedWords = trimmedPrefix.split("\\s+");
+        String trimmedCandidate = candidate.trim();
+        if (trimmedCandidate.isEmpty()) return lockedPrefix;
+        String[] candWords = trimmedCandidate.split("\\s+");
+        if (candWords.length <= lockedWords.length) {
+            return lockedPrefix;
+        }
+        StringBuilder sb = new StringBuilder(trimmedPrefix);
+        for (int i = lockedWords.length; i < candWords.length; i++) {
+            sb.append(' ').append(candWords[i]);
         }
         return sb.toString();
     }

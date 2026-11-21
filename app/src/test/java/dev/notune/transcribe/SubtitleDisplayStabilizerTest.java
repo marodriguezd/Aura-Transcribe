@@ -147,4 +147,96 @@ public class SubtitleDisplayStabilizerTest {
         SubtitleDisplayStabilizer s = new SubtitleDisplayStabilizer();
         assertEquals("x", s.stabilizePartial("x"));
     }
+
+    // --- M6.3: word-boundary merge -----------------------------------------
+
+    @Test
+    public void mergeLockedPrefixKeepsWholeWordsWhenEarlierWordChanged() {
+        // The old character-index slice produced "Estamos viendo laa película".
+        assertEquals("Estamos viendo la película de hoy",
+                SubtitleDisplayStabilizer.mergeLockedPrefixWithCandidate(
+                        "Estamos viendo la", "Estamos mirando la película de hoy"));
+    }
+
+    @Test
+    public void mergeLockedPrefixAppendsCandidateTailWhenPrefixMatches() {
+        assertEquals("hola mundo cruel",
+                SubtitleDisplayStabilizer.mergeLockedPrefixWithCandidate(
+                        "hola mundo", "hola mundo cruel"));
+    }
+
+    @Test
+    public void mergeLockedPrefixReturnsPrefixWhenCandidateHasNoNewWords() {
+        assertEquals("hola mundo",
+                SubtitleDisplayStabilizer.mergeLockedPrefixWithCandidate(
+                        "hola mundo", "hola mundo"));
+        assertEquals("hola mundo",
+                SubtitleDisplayStabilizer.mergeLockedPrefixWithCandidate(
+                        "hola mundo", "hola"));
+    }
+
+    @Test
+    public void mergeLockedPrefixHandlesCjkOnCodePointBoundary() {
+        assertEquals("今天我们学习中文",
+                SubtitleDisplayStabilizer.mergeLockedPrefixWithCandidate(
+                        "今天我们学习", "我们今天学习中文"));
+        assertEquals("今天我们学习",
+                SubtitleDisplayStabilizer.mergeLockedPrefixWithCandidate(
+                        "今天我们学习", "今天"));
+    }
+
+    @Test
+    public void mergeLockedPrefixWithEmptyPrefixReturnsCandidate() {
+        assertEquals("hola mundo",
+                SubtitleDisplayStabilizer.mergeLockedPrefixWithCandidate("", "hola mundo"));
+        assertEquals("", SubtitleDisplayStabilizer.mergeLockedPrefixWithCandidate(null, null));
+    }
+
+    @Test
+    public void mergeLockedPrefixKeepsPrefixOnEmptyCandidate() {
+        assertEquals("hola mundo",
+                SubtitleDisplayStabilizer.mergeLockedPrefixWithCandidate("hola mundo", ""));
+    }
+
+    /**
+     * End-to-end (M6.3): once the prefix is locked and a hypothesis diverges
+     * inside a word while still agreeing on >= 60 % of the characters, the
+     * rendered text must keep whole words only — never a Frankenstein word
+     * glued onto the anchored prefix.
+     */
+    @Test
+    public void stabilizeDoesNotGlueHalfWordsOnDivergentHypothesis() {
+        SubtitleDisplayStabilizer s = new SubtitleDisplayStabilizer();
+        s.stabilize("we are going to the market");
+        s.stabilize("we are going to the market now");
+        s.stabilize("we are going to the market today");
+        assertEquals("we are going to the market", s.getLockedPrefix());
+
+        String out = s.stabilize("we are going to the markt today at noon");
+        assertEquals("we are going to the market today at noon", out);
+        assertFalse("no glued word: " + out, out.contains("markettoday"));
+    }
+
+    /** Negative: an unrelated hypothesis is never spliced with the lock. */
+    @Test
+    public void stabilizeReturnsUnrelatedCandidateInsteadOfGluingIt() {
+        SubtitleDisplayStabilizer s = new SubtitleDisplayStabilizer();
+        s.stabilize("hola mundo foo");
+        s.stabilize("hola mundo bar");
+        s.stabilize("hola mundo baz");
+        assertEquals("hola mundo", s.getLockedPrefix());
+        String out = s.stabilize("buenas noches a todos");
+        assertEquals("buenas noches a todos", out);
+    }
+
+    /** Negative: ordinary, unrelated phrases still produce no substitutions. */
+    @Test
+    public void mergeLockedPrefixIsIdempotentOnRepeatedCandidate() {
+        String locked = "the quick brown fox";
+        String candidate = "the quick brown fox jumps";
+        String once = SubtitleDisplayStabilizer.mergeLockedPrefixWithCandidate(locked, candidate);
+        assertEquals("the quick brown fox jumps", once);
+        assertEquals(once,
+                SubtitleDisplayStabilizer.mergeLockedPrefixWithCandidate(locked, once));
+    }
 }

@@ -744,11 +744,13 @@ public class LiveSubtitleService extends Service {
             renderTranslatedCaption("");
             return;
         }
-        String contextPrefix = mSubtitleContextWindow.getLastFinalSource();
         long now = System.currentTimeMillis();
         resolveSource(text);
         String sourceCode = mSessionResolvedSourceCode;
         String targetCode = SubtitleTranslationTargets.mlKitCode(mTranslationTarget);
+        // Cache key must match the payload buildPayload() would send: an
+        // expired context must not be part of the key (M6.1).
+        String contextPrefix = mSubtitleContextWindow.effectiveContextPrefix(sourceCode, now);
         String cached = mSubtitleContextWindow.getCached(sourceCode, targetCode,
                 contextPrefix, text);
         if (cached != null || (mLastPartialSource.equals(text)
@@ -756,10 +758,11 @@ public class LiveSubtitleService extends Service {
             String translated = (cached != null) ? cached : mLastTranslatedPartial;
             mLastTranslatedPartial = "";
             mPendingPartialSource = null;
-            mSubtitleContextWindow.recordFinal(text, translated, sourceCode, now);        addFinalSegment(translated, true);
-        if (mDisplayStabilizer != null) mDisplayStabilizer.resetUtterance();
-        renderTranslatedCaption("");
-        return;
+            mSubtitleContextWindow.recordFinal(text, translated, sourceCode, now);
+            addFinalSegment(translated, true);
+            if (mDisplayStabilizer != null) mDisplayStabilizer.resetUtterance();
+            renderTranslatedCaption("");
+            return;
         }
         // Keep the last translated partial visible until the final lands (no
         // blank flicker); do not leak the untranslated source.
@@ -779,11 +782,11 @@ public class LiveSubtitleService extends Service {
         if (!hasMeaningfulGrowth(text, mLastPartialSource)) {
             return;
         }
-        String contextPrefix = mSubtitleContextWindow.getLastFinalSource();
         long now = System.currentTimeMillis();
         resolveSource(text);
         String sourceCode = mSessionResolvedSourceCode;
         String targetCode = SubtitleTranslationTargets.mlKitCode(mTranslationTarget);
+        String contextPrefix = mSubtitleContextWindow.effectiveContextPrefix(sourceCode, now);
         String cached = mSubtitleContextWindow.getCached(sourceCode, targetCode,
                 contextPrefix, text);
         if (cached != null) {
@@ -816,7 +819,12 @@ public class LiveSubtitleService extends Service {
         mLastPartialTranslateTimeMs = now;
         mPendingPartialSource = null;
         final int gen = mTranslationGeneration;
-        mTranslator.translate(text, sourceCode, targetCode, new SubtitleTranslator.Callback() {
+        // Translate the contextual payload (previous sentence + current one),
+        // exactly the text the cache key above describes (M6.1).
+        final String payload = (mSubtitleContextWindow != null)
+                ? mSubtitleContextWindow.buildPayload(text, sourceCode, now)
+                : text;
+        mTranslator.translate(payload, sourceCode, targetCode, new SubtitleTranslator.Callback() {
             @Override
             public void onSuccess(String translated) {
                 mMainHandler.post(() -> {
@@ -928,9 +936,9 @@ public class LiveSubtitleService extends Service {
             mSessionResolvedSourceCode = sourceCode;
         }
         final String targetCode = SubtitleTranslationTargets.mlKitCode(mTranslationTarget);
-        final String contextPrefix = (mSubtitleContextWindow != null)
-                ? mSubtitleContextWindow.getLastFinalSource() : "";
         final long now = System.currentTimeMillis();
+        final String contextPrefix = (mSubtitleContextWindow != null)
+                ? mSubtitleContextWindow.effectiveContextPrefix(sourceCode, now) : "";
         final String payload = (mSubtitleContextWindow != null)
                 ? mSubtitleContextWindow.buildPayload(job.text, sourceCode, now)
                 : job.text;
@@ -958,6 +966,9 @@ public class LiveSubtitleService extends Service {
                 // Tell the user once per session that translation fell back to
                 // the original language (no Play Services, missing pack, …).
                 mMainHandler.post(() -> {
+                    // Same degradation as the partial path: never keep the
+                    // source text hidden once ML Kit is gone (M6.1).
+                    mTranslationFallbackToOriginal = true;
                     if (mTranslationUnavailableNotified) return;
                     mTranslationUnavailableNotified = true;
                     Toast.makeText(LiveSubtitleService.this,
@@ -1015,6 +1026,10 @@ public class LiveSubtitleService extends Service {
         }
         // Monotonic window start (never moves backward).
         if (mTranslatedWindowStart > text.length()) mTranslatedWindowStart = 0;
+        // Cosmetic: never start the window on the separator space.
+        while (mTranslatedWindowStart < text.length() && text.charAt(mTranslatedWindowStart) == ' ') {
+            mTranslatedWindowStart++;
+        }
         String visible = text.substring(Math.min(mTranslatedWindowStart, text.length()));
         int tailVisibleStart = tailStart - mTranslatedWindowStart;
         if (tailVisibleStart < 0) tailVisibleStart = -1; // tail scrolled off
@@ -1062,7 +1077,14 @@ public class LiveSubtitleService extends Service {
         while (mCaptionSegments.size() > MAX_CAPTION_SEGMENTS) {
             CaptionSegment first = mCaptionSegments.peekFirst();
             if (first != null && !first.finalText) break;
-            mCaptionSegments.removeFirst();
+            CaptionSegment removed = mCaptionSegments.removeFirst();
+            if (removed != null && removed.shown != null) {
+                // Every dropped segment shifts the joined buffer left by its
+                // length plus the separator space; keep the monotonic window
+                // aligned with the text that is actually rendered (M6.2).
+                int dropped = removed.shown.length() + 1;
+                mTranslatedWindowStart = Math.max(0, mTranslatedWindowStart - dropped);
+            }
         }
     }
 
