@@ -31,13 +31,14 @@ macro_rules! jni_result {
 
 fn jni_get_string(env: &mut JNIEnv, ctx: &str, obj: JObject) -> anyhow::Result<String> {
     let jstr = jni::objects::JString::from(obj);
-    match env.get_string(&jstr) {
+    let out = match env.get_string(&jstr) {
         Ok(s) => Ok(String::from(s)),
         Err(e) => {
             crate::jni_util::clear_exception(env, ctx);
             Err(anyhow::anyhow!("{}: {}", ctx, e))
         }
-    }
+    };
+    out
 }
 
 /// Resolves the app's `filesDir` via the given Context.
