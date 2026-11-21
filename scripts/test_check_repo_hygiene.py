@@ -6,6 +6,7 @@ No real project file, credential or network access is involved.
 """
 
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -62,8 +63,8 @@ class ForbiddenPathTest(unittest.TestCase):
             "keystore/debug.keystore",
             "keystore/release-cert.sha256",
             "scripts/check_repo_hygiene.py",
-            "fastlane/metadata/android/en-US/images/icon.png",
-            "benchmark/src/main/AndroidBenchmark.kt",
+            "app/src/main/res/values/strings.xml",
+            "scripts/check_translations.py",
         ):
             self.assertIsNone(hyg.is_forbidden_path(path), path)
 
@@ -124,6 +125,7 @@ class SecretScanTest(unittest.TestCase):
 class RunChecksTest(unittest.TestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp(prefix="hygiene-test-")
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
 
     def _track(self, relpath, content=b"hello\n"):

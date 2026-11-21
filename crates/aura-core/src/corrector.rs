@@ -21,6 +21,8 @@ pub struct Term {
     pub lower: String,
     /// Phonetic key of the lowercased term.
     pub key: String,
+    /// Character count of `key` (used for UTF-8-accurate length pruning).
+    pub key_chars: usize,
     /// Precomputed character-bigram counts for zero-allocation cosine tiebreaking.
     pub bigrams: HashMap<(char, char), u32>,
     /// Precomputed L2 norm of bigram vector.
@@ -60,12 +62,14 @@ pub fn parse_dict(raw: &str) -> Dictionary {
         }
         let lower = trimmed.to_lowercase();
         let key = phonetic_key(&lower);
+        let key_chars = key.chars().count();
         let (bigrams, bigram_norm) = compute_bigrams(&lower);
         let word_count = trimmed.split_whitespace().count();
         let term = Term {
             text: trimmed.to_string(),
             lower,
             key,
+            key_chars,
             bigrams,
             bigram_norm,
         };
@@ -92,17 +96,17 @@ pub fn best_term(word_lower: &str, terms: &[Term]) -> Option<String> {
     // Phonetic match: minimize Levenshtein distance on phonetic keys, break ties
     // with highest orthographic cosine similarity.
     let key = phonetic_key(word_lower);
-    let key_len = key.len();
+    let key_chars = key.chars().count();
     let mut best: Option<(usize, f64, usize)> = None; // (distance, -cosine, index)
     let mut word_bigrams: Option<(HashMap<(char, char), u32>, f64)> = None;
 
     for (idx, t) in terms.iter().enumerate() {
-        let max_dist = if key_len <= 4 || t.key.len() <= 4 {
+        let max_dist = if key_chars <= 4 || t.key_chars <= 4 {
             1
         } else {
             MAX_PHONETIC_DISTANCE
         };
-        let len_diff = key_len.abs_diff(t.key.len());
+        let len_diff = key_chars.abs_diff(t.key_chars);
         if len_diff > max_dist {
             continue;
         }
@@ -241,6 +245,16 @@ pub fn correct(text: &str, dict: &Dictionary) -> String {
                     Some(c) if !c.is_empty() => c.as_slice(),
                     _ => continue,
                 };
+                let contiguous_words =
+                    (word_indices[i] + 1..word_indices[i + window - 1]).all(|seg_idx| {
+                        match &segments[seg_idx] {
+                            Segment::Sep(sep) => sep.chars().all(|c| c.is_whitespace()),
+                            Segment::Word(_) => true,
+                        }
+                    });
+                if !contiguous_words {
+                    continue;
+                }
                 let joined: String = (i..i + window)
                     .map(|j| words[j].as_str())
                     .collect::<Vec<_>>()
@@ -365,5 +379,37 @@ mod tests {
         assert_eq!(apply_case("madrid", "MADRID"), "MADRID");
         assert_eq!(apply_case("Madrid", "Mad"), "Madrid");
         assert_eq!(apply_case("madrid", "123"), "madrid");
+    }
+
+    #[test]
+    fn multi_word_term_does_not_span_punctuation() {
+        let d = parse_dict("New York");
+        assert_eq!(
+            correct("I saw new. york today", &d),
+            "I saw new. york today"
+        );
+        assert_eq!(
+            correct("I saw new, york today", &d),
+            "I saw new, york today"
+        );
+    }
+
+    #[test]
+    fn multibyte_utf8_pruning_uses_char_count() {
+        // 3 Cyrillic characters ("мир") = 6 UTF-8 bytes, but key_chars == 3 <= 4,
+        // so max_dist must be 1 (char-based), rejecting 2-edit Cyrillic words.
+        let d = parse_dict("Мир\nМосква");
+        assert_eq!(best_term("мир", &d.single), Some("Мир".to_string()));
+        // "мис" is 1 char edit from "мир", should match with max_dist = 1
+        assert_eq!(best_term("мис", &d.single), Some("Мир".to_string()));
+        // "abc" is 2 char edits from "мир", must not falsely pass as 4 bytes vs 6 bytes
+        assert_eq!(best_term("абв", &d.single), None);
+        // 4-char CJK word ("東京京都") -> key_chars == 4, max_dist == 1; 2 edits rejected
+        let d_cjk = parse_dict("東京京都");
+        assert_eq!(
+            best_term("東京阪府", &d_cjk.single),
+            None,
+            "4-char CJK word must use max_dist=1 (not 2 from UTF-8 byte length)"
+        );
     }
 }

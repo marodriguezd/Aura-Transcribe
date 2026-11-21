@@ -59,11 +59,13 @@ def main():
         if p.is_dir() and locale_re.match(p.name)
     )
     status = 0
+    failed_locales = 0
     for loc in locales:
         f = loc / "strings.xml"
         if not f.exists():
             print(f"FAIL {loc.name}: missing strings.xml")
             status = 1
+            failed_locales += 1
             continue
         cur_values = trans_values(f)
         names = sorted(set(cur_values.keys()))
@@ -105,10 +107,11 @@ def main():
                     print(f"    - {u}")
             if hard_fail:
                 status = 1
+                failed_locales += 1
 
     print("-" * 60)
     if status:
-        print(f"\n[CHECK-TRANSLATIONS] FAIL: parity gap in {len(locales)} locale(s)")
+        print(f"\n[CHECK-TRANSLATIONS] FAIL: parity gap in {failed_locales} locale(s)")
         sys.exit(1)
     print(f"\n[CHECK-TRANSLATIONS] PASS: all {len(locales)} locales complete")
     sys.exit(0)

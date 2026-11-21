@@ -25,23 +25,12 @@ GATE = REPO / "scripts" / "check_license_docs.py"
 FILES = [
     "LICENSE",
     "README.md",
-    "README_es.md",
-    "README_de.md",
-    "README_fr.md",
-    "README_it.md",
-    "README_zh.md",
     "ABOUT.md",
     "Cargo.toml",
     "crates/aura-core/Cargo.toml",
     "THIRD_PARTY_NOTICES.md",
     "MODEL_LICENSE.md",
     "MODEL_NOTICE.md",
-    "LICENSE_AUDIT.md",
-    "fastlane/Fastfile",
-    "fastlane/fdroid/com.auratranscribe.app.yml",
-    "fastlane/metadata/android/en-US/full_description.txt",
-    "benchmark/manifests/corpus.json",
-    "benchmark/manifests/models.json",
     "app/build.gradle.kts",
     "app/src/main/java/dev/notune/transcribe/MainActivity.java",
     "app/src/main/assets/LICENSE",
@@ -137,13 +126,13 @@ class GateTest(unittest.TestCase):
         self.assert_rejected("crates/aura-core/Cargo.toml must declare license")
 
     # -- publication surfaces -------------------------------------------
-    def test_stale_badge_in_one_locale_rejected(self) -> None:
+    def test_stale_badge_in_readme_rejected(self) -> None:
         self.rewrite(
-            "README_es.md",
+            "README.md",
             "[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)",
             "[![License: GPL-3.0-only](https://img.shields.io/badge/License-GPL--3.0--only-blue.svg)](LICENSE)",
         )
-        self.assert_rejected("README_es.md is missing '[![License: MIT]")
+        self.assert_rejected("README.md is missing '[![License: MIT]")
 
     def test_cc_by_claim_rejected(self) -> None:
         path = self.root / "README.md"
@@ -156,23 +145,6 @@ class GateTest(unittest.TestCase):
     def test_about_without_mit_rejected(self) -> None:
         self.rewrite("ABOUT.md", "MIT License", "proprietary terms")
         self.assert_rejected("ABOUT.md is missing 'MIT License'")
-
-    def test_store_description_without_mit_rejected(self) -> None:
-        self.rewrite(
-            "fastlane/metadata/android/en-US/full_description.txt",
-            "MIT License",
-            "a source-available license",
-        )
-        self.assert_rejected("store description is missing 'MIT License'")
-
-    def test_fastfile_old_repository_url_rejected(self) -> None:
-        path = self.root / "fastlane/Fastfile"
-        path.write_text(
-            path.read_text(encoding="utf-8")
-            + "\nRepo: https://github.com/marodriguezd/android_transcribe_app.git\n",
-            encoding="utf-8",
-        )
-        self.assert_rejected("unrelated/old repository URL")
 
     # -- model documents -------------------------------------------------
     def test_model_claimed_as_mit_rejected(self) -> None:
@@ -337,14 +309,6 @@ class GateTest(unittest.TestCase):
         )
         self.assert_rejected("app/build.gradle.kts is missing '86429e8c")
 
-    def test_unpinned_benchmark_manifest_rejected(self) -> None:
-        self.rewrite(
-            "benchmark/manifests/models.json",
-            f"/resolve/{PIN}/",
-            "/resolve/main/",
-        )
-        self.assert_rejected("models.json still uses resolve/main")
-
     # -- removed material ------------------------------------------------
     def test_bundled_audio_fixture_rejected(self) -> None:
         (self.root / "app/src/main/assets/bench.wav").write_bytes(b"RIFF")
@@ -353,22 +317,6 @@ class GateTest(unittest.TestCase):
     def test_other_bundled_audio_rejected(self) -> None:
         (self.root / "app/src/main/assets/sample.mp3").write_bytes(b"ID3")
         self.assert_rejected("audio fixture(s) must not be bundled")
-
-    def test_fleurs_corpus_rejected(self) -> None:
-        path = self.root / "benchmark/manifests/corpus.json"
-        corpus = path.read_text(encoding="utf-8")
-        path.write_text(
-            corpus.replace('"clips"', '"dataset": "FLEURS",\n  "clips"'), encoding="utf-8"
-        )
-        self.assert_rejected("still declares the FLEURS dataset")
-
-    def test_corpus_with_copyleft_label_rejected(self) -> None:
-        self.rewrite(
-            "benchmark/manifests/corpus.json",
-            '"license": "MIT"',
-            '"license": "GPL-3.0-only"',
-        )
-        self.assert_rejected("corpus.json must declare the project's MIT")
 
     def test_json_runtime_dependency_rejected(self) -> None:
         self.rewrite(

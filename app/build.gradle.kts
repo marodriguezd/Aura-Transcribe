@@ -107,22 +107,11 @@ android {
                 val envStorePass = System.getenv("STORE_PASS")
                 val envKeyAlias = System.getenv("KEY_ALIAS")
                 val envKeyPass = System.getenv("KEY_PASS")
-                // Detect every task that can produce a release artifact, not
-                // just the ones whose name contains "Release"/"bundle": the
-                // aggregators `assemble` and `build` (with or without a project
-                // prefix, e.g. `:app:assemble`) also build the release
-                // variant, and would otherwise sign with the default
-                // credentials below without failing. Debug-only tasks such as
-                // `assembleDebug` never touch the release signing config, so
-                // they stay exempt and local debug builds keep working
-                // without exported env vars.
-                val taskTargetsRelease = gradle.startParameter.taskNames.any { name ->
-                    val base = name.substringAfterLast(':')
-                    base.equals("assemble", ignoreCase = true)
-                        || base.equals("build", ignoreCase = true)
-                        || base.contains("Release", ignoreCase = true)
-                        || base.contains("bundle", ignoreCase = true)
-                }
+                // Detect every task that actually produces a release artifact
+                // (reusing the same predicate as model download wiring). Debug
+                // and verification-only tasks stay exempt so local debug builds
+                // and tests work without exported release signing credentials.
+                val taskTargetsRelease = shouldWireModelDownload(gradle.startParameter.taskNames)
                 if (taskTargetsRelease
                     && (envStorePass == null || envKeyAlias == null || envKeyPass == null)
                 ) {
@@ -165,20 +154,6 @@ android {
             if (hasReleaseKeystore) {
                 signingConfig = signingConfigs.getByName("release")
             }
-        }
-
-        // Dedicated variant for Macrobenchmark / Baseline Profile generation.
-        // Mirrors the official Android performance-samples setup: same code path
-        // as release but unminified so the measurement harness can address
-        // components by name, and signed with the debug key so it is installable.
-        // AGP injects <profileable android:shell="true"/> for this build type.
-        create("benchmark") {
-            initWith(getByName("release"))
-            signingConfig = signingConfigs.getByName("debug")
-            matchingFallbacks += listOf("release")
-            isDebuggable = false
-            isMinifyEnabled = false
-            isShrinkResources = false
         }
     }
 
@@ -280,12 +255,11 @@ android {
 //
 //   * An APK has to carry the GGUF inside the base module, because AGP ignores
 //     asset packs when it packages an APK. That is the mechanism behind the
-//     ~745 MB APK attached to GitHub Releases and built by F-Droid, so it must
-//     keep working.
+//     ~560 MB APK attached to GitHub Releases, so it must keep working.
 //   * An AAB must carry the GGUF ONLY in the :model_assets asset pack (a
-//     separate install-time delivery), so the base module stays under Play's
-//     download limit. Adding the same directory to the base module as well would
-//     deliver ~750 MB to the user twice.
+//     separate install-time delivery), so the base module stays compact.
+//     Adding the same directory to the base module as well would deliver
+//     ~560 MB to the user twice.
 //
 // Both artifacts are packaged from the same `release` variant, so the choice can
 // only be made per *invocation*. The previous implementation sniffed the whole
@@ -318,7 +292,7 @@ if (packagingMode == "ambiguous") {
             "AAB must keep it only in the :model_assets asset pack:\n" +
             "  APK tasks:    ${apkTaskNames.joinToString(", ")}\n" +
             "  bundle tasks: ${bundleTaskNames.joinToString(", ")}\n" +
-            "Packaging the same 750 MB model twice would either bloat or break the artifact, so the " +
+            "Packaging the same ~560 MB model twice would either bloat or break the artifact, so the " +
             "build stops here. Build the two artifacts in separate invocations (this is what the CI " +
             "workflows do):\n" +
             "  ./gradlew assembleRelease\n" +
@@ -338,10 +312,6 @@ dependencies {
     implementation(libs.androidx.core)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.activity)
-    // Window Size Classes drive the adaptive large-screen layouts.
-    implementation(libs.androidx.window)
-    // Ships the Baseline Profile with the APK (see :benchmark module).
-    implementation(libs.androidx.profileinstaller)
 
     // Material Components (Material 3 / Material You). Pulls in AppCompat.
     implementation(libs.material)
@@ -630,29 +600,15 @@ fun downloadToDir(assetsDir: File, files: List<ModelFile>) {
 }
 
 val downloadModels = tasks.register("downloadModels") {
-    description = "Download the built-in speech model (GGUF) and package its license and NOTICE"
+    description = "Download the built-in speech model (GGUF)"
     group = "build"
 
     // The GGUF -> asset pack (separate install-time delivery)
     val packAssetsDir = rootProject.file("model_assets/src/main/assets/builtin-model")
-    val packRootDir = rootProject.file("model_assets/src/main/assets")
-    val licenseSrc = rootProject.file("MODEL_LICENSE.md")
-    val noticeSrc = rootProject.file("MODEL_NOTICE.md")
-
     outputs.dir(packAssetsDir)
-    outputs.file(File(packRootDir, "MODEL_LICENSE.md"))
-    outputs.file(File(packRootDir, "MODEL_NOTICE.md"))
 
     doLast {
-        if (!licenseSrc.isFile || !noticeSrc.isFile) {
-            throw GradleException(
-                "downloadModels: MODEL_LICENSE.md and MODEL_NOTICE.md must both exist at the " +
-                    "repository root; the model cannot be distributed without them."
-            )
-        }
         downloadToDir(packAssetsDir, modelPackFiles)
-        licenseSrc.copyTo(File(packRootDir, "MODEL_LICENSE.md"), overwrite = true)
-        noticeSrc.copyTo(File(packRootDir, "MODEL_NOTICE.md"), overwrite = true)
     }
 }
 
@@ -931,27 +887,6 @@ val checkNativeAlignment = tasks.register("checkNativeAlignment") {
     }
 }
 
-// Force every variant's native-library merge to run before the gate inspects its
-// output, so a stale directory from an earlier build can never be reported as a
-// failure of the current one. This is also what makes a plain `assembleDebug` /
-// `assembleRelease` verify its own package (the merge tasks are direct inputs of
-// the packaging tasks).
-
-// Project-built libraries are provided by cargoNdkBuild above. Dependency-
-// contributed libraries are scanned from the merged output when it exists
-// (it does after a real build); we deliberately do NOT force the merge tasks
-// to run here, because their implicit read of cargoNdkBuild's output
-// directory trips Gradle's configuration validation. In CI the gate runs
-// after the packaging build, so the merged output is fresh.
-checkNativeAlignment.configure {
-    dependsOn(cargoNdkBuild)
-}
-
-// The merged output must be snapshotted after cargoNdkBuild has finished
-// writing `src/main/jniLibs`: in a standalone `checkNativeAlignment` run
-// nothing else orders the two, and a merge racing the native build could copy
-// a partially written project library that the gate would then verify.
-
 // Regression gate for the native-alignment logic above. Like
 // verifyPackagingDecision it drives the REAL production functions
 // (missingRequiredProjectLibs + nativeAlignmentVerdict) against synthetic
@@ -1044,8 +979,18 @@ tasks.named("check") {
 val copyModelLicense = tasks.register<Copy>("copyModelLicense") {
     description = "Copies MODEL_LICENSE.md and MODEL_NOTICE.md into model_assets for release packaging"
     group = "build"
-    from(rootProject.file("MODEL_LICENSE.md"))
-    from(rootProject.file("MODEL_NOTICE.md"))
+    val licenseSrc = rootProject.file("MODEL_LICENSE.md")
+    val noticeSrc = rootProject.file("MODEL_NOTICE.md")
+    doFirst {
+        if (!licenseSrc.isFile || !noticeSrc.isFile) {
+            throw GradleException(
+                "copyModelLicense: MODEL_LICENSE.md and MODEL_NOTICE.md must both exist at the " +
+                    "repository root; the model cannot be distributed without them."
+            )
+        }
+    }
+    from(licenseSrc)
+    from(noticeSrc)
     into(rootProject.file("model_assets/src/main/assets"))
 }
 
@@ -1461,7 +1406,7 @@ fun verifyModelInArchive(
                     "$kind ${archive.name} contains $modelName ${copies.size} times " +
                         "(${copies.joinToString(", ") { it.name }}). The model must be delivered " +
                         "exactly once: an APK carries it at $expectedPath, an AAB only in the " +
-                        ":model_assets asset pack. Packaging both copies ships ~750 MB twice."
+                        ":model_assets asset pack. Packaging both copies ships ~560 MB twice."
                 )
             }
 
@@ -1690,7 +1635,7 @@ fun expectModelDocumentsGateOutcome(
  * [packagingDecision] and the real [verifyModelInArchive] over a fixed table.
  *
  * Everything here is synthetic and microscopic (a few 4 KB zips in the build
- * directory), so the gate runs in every CI job without downloading the 750 MB
+ * directory), so the gate runs in every CI job without downloading the 560 MB
  * model or building a single native library.
  */
 fun runPackagingDecisionGate(workDir: File) {
@@ -1708,7 +1653,7 @@ fun runPackagingDecisionGate(workDir: File) {
         Triple(listOf("assembleDebug", "bundleRelease"), "ambiguous", "debug APK and release bundle at once"),
         Triple(listOf("assembleDebug"), "apk", "debug-only build"),
         Triple(listOf("installDebug"), "apk", "debug install"),
-        Triple(listOf("assembleBenchmark"), "apk", "benchmark-variant build"),
+        Triple(listOf("assembleDebugAndroidTest"), "apk", "debug androidTest APK build"),
         Triple(listOf("assemble"), "apk", "bare assemble aggregator"),
         Triple(listOf("build"), "apk", "bare build aggregator"),
         Triple(listOf("clean", "assembleRelease"), "apk", "clean plus a release build"),
@@ -1761,7 +1706,7 @@ fun runPackagingDecisionGate(workDir: File) {
         "AAB with the model only in the :model_assets pack", true,
     )
 
-    // Delivered twice (base module plus asset pack): the user downloads ~750 MB twice.
+    // Delivered twice (base module plus asset pack): the user downloads ~560 MB twice.
     val duplicated = File(workDir, "aab-duplicated.zip")
     writeProbeArchive(
         duplicated,

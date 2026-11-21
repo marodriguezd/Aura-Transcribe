@@ -1,2 +1,0 @@
-- clarify which keyboards work for voice input (e.g. SwiftKey)
-- note that Gboard uses Google's own voice typing and can't use this app

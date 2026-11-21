@@ -43,8 +43,8 @@ UNRECOGNIZED_LICENSE_MARKERS = frozenset(
 # common permissive identifiers. Extend via --allowed-license after review.
 #
 # `GPL-3.0-only` deliberately has no entry here (2026-10 definitive licensing
-# decision: the application stays MIT and never migrates to GPL-3.0-only; see
-# LICENSE_AUDIT.md). A pre-approved GPL identifier would let a copyleft
+# decision: the application stays MIT and never migrates to GPL-3.0-only). A
+# pre-approved GPL identifier would let a copyleft
 # dependency silently pass the inventory and conflict with the MIT grant over
 # the combined binary; such an expression must surface as "unrecognized" and be
 # reviewed explicitly instead.

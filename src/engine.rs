@@ -67,8 +67,6 @@ const STREAM_TICK_MS: u64 = 80;
 
 /// Commands fed to an active streaming run (see [`Engine::run_stream`]).
 pub enum StreamCmd {
-    /// A chunk of 16 kHz mono f32 audio captured since the previous tick.
-    Audio(Vec<f32>),
     /// End of input: flush the stream and return the final text.
     Stop,
     /// Abandon the stream and deliver nothing.
@@ -254,16 +252,18 @@ impl Engine {
     /// applies immediately to the voice keyboard too, without
     /// a manual model reload.
     fn effective_language(&mut self) -> Option<String> {
-        if let Ok(raw) = std::fs::read_to_string(&self.lang_file) {
-            let s = raw.trim();
-            let new_lang = if s.is_empty() || s.eq_ignore_ascii_case("auto") {
-                None
-            } else {
-                Some(s.to_string())
-            };
-            if new_lang != self.language {
-                self.language = new_lang;
-            }
+        let new_lang = std::fs::read_to_string(&self.lang_file)
+            .ok()
+            .and_then(|raw| {
+                let s = raw.trim();
+                if s.is_empty() || s.eq_ignore_ascii_case("auto") {
+                    None
+                } else {
+                    Some(s.to_string())
+                }
+            });
+        if new_lang != self.language {
+            self.language = new_lang;
         }
         match (&self.language, self.native_lang_detect) {
             (Some(l), _) => Some(l.clone()),
@@ -374,15 +374,15 @@ impl Engine {
     }
 
     /// Runs a cache-aware streaming session (Nemotron-family models): audio
-    /// chunks arrive via [`StreamCmd::Audio`] pulled by `drain`, partial
-    /// hypotheses are reported through `on_partial` (committed + tentative
-    /// display text), and the final text is returned when [`StreamCmd::Stop`]
-    /// arrives. [`StreamCmd::Cancel`] abandons the stream and returns
-    /// `Err("Canceled")`, as does losing the command channel (the owning
-    /// session was torn down). A rejected language hint is degraded like
-    /// `run`; a requested `att_context_right` that is not in the model's menu
-    /// is retried once with the model default; a failed begin leaves the
-    /// session idle so retrying is safe.
+    /// chunks are pulled periodically by `drain`, partial hypotheses are
+    /// reported through `on_partial` (committed + tentative display text), and
+    /// the final text is returned when [`StreamCmd::Stop`] arrives.
+    /// [`StreamCmd::Cancel`] abandons the stream and returns `Err("Canceled")`,
+    /// as does losing the command channel (the owning session was torn down). A
+    /// rejected language hint is degraded like `run`; a requested
+    /// `att_context_right` that is not in the model's menu is retried once with
+    /// the model default; a failed begin leaves the session idle so retrying
+    /// is safe.
     ///
     /// The engine mutex is held for the whole recording, so other surfaces
     /// block while a stream is active — the C library allows only one active
@@ -446,6 +446,7 @@ impl Engine {
                 Err(transcribe_cpp::Error::InvalidArgument(e)) if !ctx_retried => {
                     ctx_retried = true;
                     effective_ctx = None;
+                    self.stream_ctx_right = None;
                     self.stream_ext = self.stream_ext.take().map(|ext| match ext {
                         transcribe_cpp::StreamExtension::ParakeetStream(mut opts) => {
                             opts.att_context_right = None;
@@ -496,8 +497,9 @@ impl Engine {
                     on_partial(trimmed);
                 }
             }
-            // Handle control commands: Stop finalizes, Cancel abandons.
-            match rx.try_recv() {
+            // Wait up to STREAM_TICK_MS for control commands: Stop finalizes
+            // immediately instead of sleeping another tick; Cancel abandons.
+            match rx.recv_timeout(std::time::Duration::from_millis(STREAM_TICK_MS)) {
                 Ok(StreamCmd::Stop) => {
                     chunk.clear();
                     drain(&mut chunk);
@@ -539,9 +541,8 @@ impl Engine {
                     stream.reset();
                     return Err("Canceled".to_string());
                 }
-                Ok(_) => {}
-                Err(crossbeam_channel::TryRecvError::Empty) => {}
-                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
                     // The owning session dropped its command channel: nobody
                     // can stop this stream any more, and its final text would
                     // be delivered to a torn-down overlay. Abandon it instead
@@ -551,7 +552,6 @@ impl Engine {
                     return Err("Canceled".to_string());
                 }
             }
-            std::thread::sleep(std::time::Duration::from_millis(STREAM_TICK_MS));
         }
     }
 }
@@ -790,29 +790,39 @@ pub fn ensure_loaded_from_thread(
 
     // Re-check under lock: another thread may have finished loading first
     if is_engine_loaded() {
+        drop(state);
         notify("Ready");
         return Ok(());
     }
 
     match &*state {
         LoadState::Loading => {
-            // Another thread is loading — wait for it
+            // Another thread is loading — release the lock before JNI status
+            // notification so the loader thread cannot stall on `LOAD_STATE`,
+            // then wait for it to complete.
+            drop(state);
             notify("Waiting for model...");
+            let mut state = lock.lock().unwrap_or_else(|p| p.into_inner());
             while *state == LoadState::Loading {
                 state = cvar.wait(state).unwrap_or_else(|p| p.into_inner());
             }
+            let failed_msg = match &*state {
+                LoadState::Failed(msg) => Some(msg.clone()),
+                _ => None,
+            };
             drop(state);
 
             if is_engine_loaded() {
                 notify("Ready");
                 Ok(())
             } else {
-                let msg = "Model failed to load".to_string();
+                let msg = failed_msg.unwrap_or_else(|| "Model failed to load".to_string());
                 notify(&format!("Error: {}", msg));
                 Err(msg)
             }
         }
         LoadState::Done => {
+            drop(state);
             notify("Ready");
             Ok(())
         }
@@ -845,6 +855,7 @@ pub fn ensure_loaded_from_thread(
                 Ok(()) => *state = LoadState::Done,
                 Err(msg) => *state = LoadState::Failed(msg.clone()),
             }
+            drop(state);
             cvar.notify_all();
             result
         }
@@ -872,9 +883,9 @@ fn performance_core_count() -> i32 {
         match std::fs::read_to_string(&path) {
             Ok(s) => match s.trim().parse::<u64>() {
                 Ok(f) => freqs.push(f),
-                Err(_) => break,
+                Err(_) => continue,
             },
-            Err(_) => break,
+            Err(_) => continue,
         }
     }
     match freqs.iter().max() {

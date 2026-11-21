@@ -1,4 +1,0 @@
-• Default model upgraded to Nemotron 3.5 Streaming 0.6B Q5_K_M (5-bit quantization).
-• 25.5% smaller download and storage footprint (reduced from 751 MB to 560 MB).
-• ~210 MB lower runtime memory usage with improved battery efficiency and faster response.
-• Maintained full streaming transcription accuracy across 40 languages and regional locales.

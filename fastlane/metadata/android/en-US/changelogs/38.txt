@@ -1,3 +1,0 @@
-- Fixed phonetic dictionary matching accuracy and eliminated false word replacements.
-- Preserved all transcript words verbatim without accidental dictionary substitutions.
-- Enhanced test coverage for custom dictionary stability.

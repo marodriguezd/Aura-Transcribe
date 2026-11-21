@@ -1,3 +1,0 @@
-- Live subtitles can now translate finalized captions on-device into the selected language, with safe fallback to the original text.
-- Live subtitles show four lines by default, preserving more original-language context before translation.
-- Translation results are applied in order and stale or failed translations never replace valid captions.

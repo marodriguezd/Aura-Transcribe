@@ -250,6 +250,7 @@ public class RustInputMethodService extends InputMethodService {
                         settingsManager.setPostProcessEnabled(false);
                         if (!isRecording && statusView != null
                                 && getString(R.string.ime_refining).equals(statusView.getText().toString())) {
+                            currentSessionId++;
                             PostProcessor.cancelAllFor(RustInputMethodService.this);
                             if (lastRawTranscript != null && !lastRawTranscript.trim().isEmpty()) {
                                 commitFinalText(lastRawTranscript);
@@ -285,7 +286,12 @@ public class RustInputMethodService extends InputMethodService {
                 if (isRecording) {
                     pendingSwitchBack = true;
                     resultPending = true;
+                    AudioDeviceManager.releaseMicrophone(this);
                     stopRecording();
+                    if (pauseAudioActive) {
+                        audioPauser.abandon(this);
+                        pauseAudioActive = false;
+                    }
                     updateRecordButtonUI(false);
                 } else {
                     switchToPreviousInputMethodSafe();
@@ -477,7 +483,7 @@ public class RustInputMethodService extends InputMethodService {
             final boolean pause = autoRecord && isPauseAudioEnabled();
             final boolean autoStop = autoRecord && isAutoStopEnabled();
             if (mainHandler != null) mainHandler.post(() -> {
-                if (isDestroyed || !windowVisible) return;
+                if (isDestroyed || !windowVisible || isRecording) return;
                 if (!autoRecord) return;
                 if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
                         != PackageManager.PERMISSION_GRANTED) return;
@@ -639,8 +645,12 @@ public class RustInputMethodService extends InputMethodService {
     @Override
     public void onDestroy() {
         currentSessionId++;
-        try { cancelRecording(); } catch (Throwable ignored) { }
-        AudioDeviceManager.releaseMicrophone(this);
+        if (isRecording || resultPending) {
+            isRecording = false;
+            resultPending = false;
+            try { cancelRecording(); } catch (Throwable ignored) { }
+            AudioDeviceManager.releaseMicrophone(this);
+        }
         if (mainHandler != null) {
             if (backspaceRepeatRunnable != null) mainHandler.removeCallbacks(backspaceRepeatRunnable);
             if (spaceRepeatRunnable != null) mainHandler.removeCallbacks(spaceRepeatRunnable);
@@ -999,8 +1009,9 @@ public class RustInputMethodService extends InputMethodService {
         if (pendingCommitText == null) return;
         InputConnection ic = getCurrentInputConnection();
         if (ic != null) {
-            commitTranscribedText(ic, pendingCommitText);
+            String text = pendingCommitText;
             pendingCommitText = null;
+            commitTranscribedText(ic, text);
         }
     }
     public void onAudioLevel(float level, int sessionId) {

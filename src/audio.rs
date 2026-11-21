@@ -92,7 +92,7 @@ pub fn fast_sum_squares(samples: &[f32]) -> f32 {
 }
 
 /// Computes Root-Mean-Square (RMS) energy using vectorized SIMD sum of squares
-/// with NaN/Infinity sanitization and [0.0, 1.0] margin clamping.
+/// with NaN/Infinity sanitization (returns unclipped RMS >= 0.0).
 #[inline]
 pub fn fast_rms(samples: &[f32]) -> f32 {
     if samples.is_empty() {
@@ -142,155 +142,9 @@ pub fn find_quietest_split(samples: &[f32], from: usize, to: usize) -> usize {
     best_pos
 }
 
-/// Converts 16-bit signed PCM audio samples to 32-bit floating point samples [-1.0, 1.0]
-/// using ARM NEON vectorization on aarch64 with an unrolled scalar fallback.
-/// Converts in-place directly into the provided destination vector without intermediate allocations.
-#[inline]
-pub fn pcm_i16_to_f32_neon(src: &[i16], dst: &mut Vec<f32>) {
-    let src_len = src.len();
-    if src_len == 0 {
-        return;
-    }
-    const INV_SCALE: f32 = 1.0 / 32768.0;
-    let start_idx = dst.len();
-    dst.resize(start_idx + src_len, 0.0f32);
-    unsafe {
-        let dst_ptr = dst.as_mut_ptr().add(start_idx);
-        let src_ptr = src.as_ptr();
-
-        #[cfg(target_arch = "aarch64")]
-        {
-            use std::arch::aarch64::*;
-            let v_scale = vdupq_n_f32(INV_SCALE);
-            let mut i = 0;
-
-            // Process in 16-sample blocks (32 bytes = 2x 128-bit NEON registers)
-            while i + 16 <= src_len {
-                let v0_16 = vld1q_s16(src_ptr.add(i));
-                let v1_16 = vld1q_s16(src_ptr.add(i + 8));
-
-                let l0_32 = vmovl_s16(vget_low_s16(v0_16));
-                let h0_32 = vmovl_high_s16(v0_16);
-                let l1_32 = vmovl_s16(vget_low_s16(v1_16));
-                let h1_32 = vmovl_high_s16(v1_16);
-
-                let f0 = vmulq_f32(vcvtq_f32_s32(l0_32), v_scale);
-                let f1 = vmulq_f32(vcvtq_f32_s32(h0_32), v_scale);
-                let f2 = vmulq_f32(vcvtq_f32_s32(l1_32), v_scale);
-                let f3 = vmulq_f32(vcvtq_f32_s32(h1_32), v_scale);
-
-                vst1q_f32(dst_ptr.add(i), f0);
-                vst1q_f32(dst_ptr.add(i + 4), f1);
-                vst1q_f32(dst_ptr.add(i + 8), f2);
-                vst1q_f32(dst_ptr.add(i + 12), f3);
-
-                i += 16;
-            }
-
-            // Process remaining 8-sample blocks
-            while i + 8 <= src_len {
-                let v_16 = vld1q_s16(src_ptr.add(i));
-                let l_32 = vmovl_s16(vget_low_s16(v_16));
-                let h_32 = vmovl_high_s16(v_16);
-
-                let f0 = vmulq_f32(vcvtq_f32_s32(l_32), v_scale);
-                let f1 = vmulq_f32(vcvtq_f32_s32(h_32), v_scale);
-
-                vst1q_f32(dst_ptr.add(i), f0);
-                vst1q_f32(dst_ptr.add(i + 4), f1);
-
-                i += 8;
-            }
-
-            // Process remaining 4-sample blocks
-            while i + 4 <= src_len {
-                let v4_16 = vld1_s16(src_ptr.add(i));
-                let v4_32 = vmovl_s16(v4_16);
-                let f0 = vmulq_f32(vcvtq_f32_s32(v4_32), v_scale);
-                vst1q_f32(dst_ptr.add(i), f0);
-                i += 4;
-            }
-
-            // Scalar tail for last 0..3 elements
-            while i < src_len {
-                *dst_ptr.add(i) = (*src_ptr.add(i) as f32) * INV_SCALE;
-                i += 1;
-            }
-        }
-
-        #[cfg(not(target_arch = "aarch64"))]
-        {
-            let mut i = 0;
-            while i + 8 <= src_len {
-                *dst_ptr.add(i) = (*src_ptr.add(i) as f32) * INV_SCALE;
-                *dst_ptr.add(i + 1) = (*src_ptr.add(i + 1) as f32) * INV_SCALE;
-                *dst_ptr.add(i + 2) = (*src_ptr.add(i + 2) as f32) * INV_SCALE;
-                *dst_ptr.add(i + 3) = (*src_ptr.add(i + 3) as f32) * INV_SCALE;
-                *dst_ptr.add(i + 4) = (*src_ptr.add(i + 4) as f32) * INV_SCALE;
-                *dst_ptr.add(i + 5) = (*src_ptr.add(i + 5) as f32) * INV_SCALE;
-                *dst_ptr.add(i + 6) = (*src_ptr.add(i + 6) as f32) * INV_SCALE;
-                *dst_ptr.add(i + 7) = (*src_ptr.add(i + 7) as f32) * INV_SCALE;
-                i += 8;
-            }
-            while i < src_len {
-                *dst_ptr.add(i) = (*src_ptr.add(i) as f32) * INV_SCALE;
-                i += 1;
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_pcm_i16_to_f32_neon_edge_cases_and_lengths() {
-        // Empty input: nothing to convert, destination stays unchanged
-        let mut dst = Vec::new();
-        pcm_i16_to_f32_neon(&[], &mut dst);
-        assert!(dst.is_empty());
-
-        // Extreme values: full i16 range must map exactly into [-1.0, 1.0]
-        let extremes = vec![i16::MIN, -16384, -1, 0, 1, 16384, 32767, -32768];
-        let mut dst_extremes = Vec::new();
-        pcm_i16_to_f32_neon(&extremes, &mut dst_extremes);
-        assert_eq!(dst_extremes.len(), extremes.len());
-        for (i, &s) in extremes.iter().enumerate() {
-            let expected = (s as f32) * (1.0 / 32768.0);
-            assert_eq!(dst_extremes[i].to_bits(), expected.to_bits());
-        }
-
-        // Test various slice lengths to exercise all SIMD unroll loops (16, 8, 4, scalar tail)
-        for len in [1, 2, 3, 4, 7, 8, 9, 15, 16, 17, 31, 32, 33, 100, 1600] {
-            let src: Vec<i16> = (0..len)
-                .map(|i| (((i as i32) * 137) % 65535 - 32768) as i16)
-                .collect();
-            let mut dst = Vec::new();
-            pcm_i16_to_f32_neon(&src, &mut dst);
-            assert_eq!(dst.len(), len);
-            for (idx, &s) in src.iter().enumerate() {
-                let expected = (s as f32) * (1.0 / 32768.0);
-                assert_eq!(
-                    dst[idx].to_bits(),
-                    expected.to_bits(),
-                    "Mismatch at index {} for len {}",
-                    idx,
-                    len
-                );
-            }
-        }
-
-        // Test appending to an already populated vector
-        let mut dst = vec![1.0f32, 2.0f32];
-        let src = vec![0i16, 16384i16];
-        pcm_i16_to_f32_neon(&src, &mut dst);
-        assert_eq!(dst.len(), 4);
-        assert_eq!(dst[0], 1.0);
-        assert_eq!(dst[1], 2.0);
-        assert_eq!(dst[2], 0.0);
-        assert_eq!(dst[3], 0.5);
-    }
 
     #[test]
     fn returns_to_when_window_does_not_fit() {

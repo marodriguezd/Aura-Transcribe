@@ -67,10 +67,25 @@ class TestTruncation(unittest.TestCase):
         self.assertEqual(send_telegram.truncate_alert_message(msg), msg)
 
     def test_alert_truncation_one_over_boundary(self):
-        msg = "B" * (send_telegram.MAX_MSG_LENGTH + 1)
+        plain = "B" * (send_telegram.MAX_MSG_LENGTH + 1)
+        res_plain = send_telegram.truncate_alert_message(plain)
+        self.assertTrue(res_plain.endswith("..."))
+        self.assertFalse(res_plain.endswith("</pre>"))
+        self.assertLessEqual(len(res_plain), send_telegram.MAX_MSG_LENGTH)
+
+        with_pre = "<pre>" + "B" * send_telegram.MAX_MSG_LENGTH + "</pre>"
+        res_pre = send_telegram.truncate_alert_message(with_pre)
+        self.assertTrue(res_pre.endswith("...</pre>"))
+        self.assertLessEqual(len(res_pre), send_telegram.MAX_MSG_LENGTH)
+
+    def test_alert_truncation_avoids_split_html_entity(self):
+        cutoff = send_telegram.MAX_MSG_LENGTH - 20
+        prefix = "<pre>" + "A" * (cutoff - 7)
+        msg = prefix + "&amp;" + "Z" * 100 + "</pre>"
         res = send_telegram.truncate_alert_message(msg)
+        self.assertNotIn("&am...", res)
         self.assertTrue(res.endswith("...</pre>"))
-        self.assertLessEqual(len(res), send_telegram.MAX_MSG_LENGTH + 10)
+        self.assertLessEqual(len(res), send_telegram.MAX_MSG_LENGTH)
 
     def test_generic_truncate_text(self):
         self.assertEqual(send_telegram.truncate_text("hello", 10), "hello")
@@ -149,11 +164,12 @@ class TestRetryBackoffDecisions(unittest.TestCase):
                 raise urllib.error.HTTPError("u", 429, "rate", {}, io.BytesIO(b""))
             return _FakeResponse('{"ok": true}')
 
+        orig_sleep = send_telegram.time.sleep
         send_telegram.time.sleep = lambda _: None
         try:
             res = send_telegram.post_multipart("http://x", {"a": "b"}, transport=flaky, max_retries=3)
         finally:
-            pass
+            send_telegram.time.sleep = orig_sleep
         self.assertEqual(res, {"ok": True})
         self.assertEqual(calls["n"], 2)
 
@@ -166,8 +182,12 @@ class TestRetryBackoffDecisions(unittest.TestCase):
                 raise urllib.error.URLError("boom")
             return _FakeResponse('{"ok": true}')
 
+        orig_sleep = send_telegram.time.sleep
         send_telegram.time.sleep = lambda _: None
-        res = send_telegram.post_multipart("http://x", {"a": "b"}, transport=flaky, max_retries=3)
+        try:
+            res = send_telegram.post_multipart("http://x", {"a": "b"}, transport=flaky, max_retries=3)
+        finally:
+            send_telegram.time.sleep = orig_sleep
         self.assertEqual(res, {"ok": True})
         self.assertEqual(calls["n"], 2)
 
@@ -185,14 +205,23 @@ class TestFailurePath(unittest.TestCase):
 
     def test_network_error_returns_false(self):
         transport = _transport(exc=urllib.error.URLError("boom"))
-        result = send_telegram.send_failure_alert("tok", "chat", "sha", "", transport=transport)
+        orig_sleep = send_telegram.time.sleep
+        send_telegram.time.sleep = lambda _: None
+        try:
+            result = send_telegram.send_failure_alert("tok", "chat", "sha", "", transport=transport)
+        finally:
+            send_telegram.time.sleep = orig_sleep
         self.assertFalse(result)
 
     def test_http_error_returns_false(self):
         def transport(req, timeout=None):
             raise urllib.error.HTTPError("u", 500, "err", {}, io.BytesIO(b""))
+        orig_sleep = send_telegram.time.sleep
         send_telegram.time.sleep = lambda _: None
-        result = send_telegram.send_failure_alert("tok", "chat", "sha", "", transport=transport)
+        try:
+            result = send_telegram.send_failure_alert("tok", "chat", "sha", "", transport=transport)
+        finally:
+            send_telegram.time.sleep = orig_sleep
         self.assertFalse(result)
 
 

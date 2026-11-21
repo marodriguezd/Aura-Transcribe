@@ -3,6 +3,8 @@ use std::fs;
 use std::path::PathBuf;
 
 fn main() {
+    println!("cargo:rerun-if-changed=build.rs");
+
     // transcribe-cpp-sys reconstructs its link line from a generic Unix
     // manifest that lists `pthread` and the C++ runtime. Bionic has neither a
     // separate libpthread (pthreads live in libc) nor a full libstdc++ (the
@@ -30,7 +32,7 @@ void __android_log_assert(const char *cond, const char *tag, const char *fmt, ..
 int __android_log_is_loggable(int prio, const char *tag, int default_prio) { (void)prio; (void)tag; (void)default_prio; return 1; }\n\
 int __android_log_is_loggable_len(int prio, const char *tag, unsigned long size, int default_prio) { (void)prio; (void)tag; (void)size; (void)default_prio; return 1; }\n\
 void __android_log_write_log_message(void *msg) { (void)msg; }\n";
-        let _ = fs::write(&stub_c, stub_source);
+        fs::write(&stub_c, stub_source).expect("failed to write android_log_stub.c");
         let stub_o = out.join("android_log_stub.o");
         let cc = env::var("CC").unwrap_or_else(|_| "cc".to_string());
         let compiled = std::process::Command::new(&cc)
@@ -48,15 +50,17 @@ void __android_log_write_log_message(void *msg) { (void)msg; }\n";
 
         if compiled {
             let ar = env::var("AR").unwrap_or_else(|_| "ar".to_string());
-            let _ = std::process::Command::new(&ar)
+            let status = std::process::Command::new(&ar)
                 .args([
                     "rcs",
                     out.join("liblog.a").to_str().unwrap(),
                     stub_o.to_str().unwrap(),
                 ])
-                .status();
+                .status()
+                .expect("failed to invoke archiver for liblog.a");
+            assert!(status.success(), "archiver failed building liblog.a");
         } else {
-            let _ = fs::write(out.join("liblog.a"), b"!<arch>\n");
+            fs::write(out.join("liblog.a"), b"!<arch>\n").expect("failed to write empty liblog.a");
         }
         println!("cargo:rustc-link-search=native={}", out.display());
     }

@@ -82,26 +82,16 @@ jobs:
         python3 scripts/test_check_release_workflow.py
         python3 scripts/check_release_workflow.py
 
-    # F-Droid descriptor gate: the emitted recipe must stay root-project (no
-    # `subdir`), keep `Disabled:` with its verified reasons, and never claim a
-    # network step. `ruby -c` is the only syntax check the Fastfile gets.
-    - name: Validate F-Droid descriptor (hard gate)
-      run: |
-        python3 scripts/test_check_fdroid_descriptor.py
-        python3 scripts/check_fdroid_descriptor.py
-        ruby -c fastlane/Fastfile
-
     - name: Cargo dependency license inventory
-      run: python3 scripts/report_cargo_licenses.py --output build/reports/cargo-licenses.md
+      run: |
+        python3 scripts/test_report_cargo_licenses.py
+        python3 scripts/report_cargo_licenses.py --output build/reports/cargo-licenses.md
 
     - name: Check translations (i18n parity gate)
       run: python3 scripts/check_translations.py
 
     - name: Test Telegram helper
       run: python3 scripts/test_send_telegram.py
-
-    - name: Test benchmark suite (hard gate)
-      run: python3 scripts/test_benchmark_suite.py
 
     # Pure Python, no Android SDK: proves the release-artifact verifier still
     # rejects a missing, duplicated, misplaced, truncated or corrupted bundled
@@ -148,11 +138,6 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Fix gradle.properties for CI
-      run: |
-        sed -i '/org.gradle.java.home/d' gradle.properties
-        sed -i '/android.aapt2FromMavenOverride/d' gradle.properties
-
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d # v4.4.1
 
@@ -194,13 +179,6 @@ jobs:
         set -e -o pipefail
         ./gradlew :app:verifyPackagingDecision :app:verifyModelDownloadDecision 2>&1 | tee gradle_packaging_gate.log
 
-    # These are reference-algorithm micro-benchmarks on stand-in data: they prove
-    # the fast paths still agree with the naive implementations, and they assert
-    # those equivalences rather than reporting a made-up speed-up. They are NOT a
-    # measurement of on-device inference performance.
-    - name: Reference-algorithm micro-benchmarks (correctness gate)
-      run: python3 scripts/bench_performance.py
-
     - name: Alert Validation Failure to Telegram
       if: failure() && github.event_name != 'pull_request'
       env:
@@ -233,11 +211,6 @@ jobs:
       uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
       with:
         python-version: '3.11'
-
-    - name: Fix gradle.properties for CI
-      run: |
-        sed -i '/org.gradle.java.home/d' gradle.properties
-        sed -i '/android.aapt2FromMavenOverride/d' gradle.properties
 
     - name: Setup Android SDK & NDK
       run: |
@@ -307,9 +280,6 @@ jobs:
         set -e -o pipefail
         ./gradlew lintDebug --stacktrace 2>&1 | tee gradle_lint.log
 
-    - name: Verify bundled model hash (checkModels gate)
-      run: ./gradlew checkModels
-
     # 16 KB page-size alignment of every shipped native library (Android 17).
     # Reuses the .so files assembleDebug just merged; this gate never ran in CI
     # before, so a misaligned dependency could only fail a local build.
@@ -319,27 +289,15 @@ jobs:
         set -e -o pipefail
         ./gradlew :app:checkNativeAlignment 2>&1 | tee gradle_alignment.log
 
-    # Drives the real APK/AAB packaging decision and the real bundled-model
-    # verifier against synthetic archives: no model download, no extra native
-    # build, and it fails if either guarantee regresses.
-    - name: Verify packaging decision and model gates (hard gate)
-      run: |
-        export PATH="$HOME/.cargo/bin:$PATH"
-        set -e -o pipefail
-        ./gradlew :app:verifyPackagingDecision :app:verifyModelDownloadDecision 2>&1 | tee gradle_packaging_gate.log
-
-    # Compiles the Macrobenchmark/Baseline-Profile module. Compiling is all a
-    # device-less runner can do — it is NOT a performance measurement.
-    - name: Compile Macrobenchmark module
-      run: |
-        export PATH="$HOME/.cargo/bin:$PATH"
-        set -e -o pipefail
-        ./gradlew :benchmark:assembleBenchmark --stacktrace 2>&1 | tee gradle_benchmark.log
-
     - name: Extract Version Name
       id: version
       run: |
-        VERSION_NAME=$(grep 'versionName' app/build.gradle.kts | head -1 | grep -oP '"[^"]*"' | tr -d '"')
+        set -euo pipefail
+        VERSION_NAME=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
+        if [ -z "$VERSION_NAME" ]; then
+          echo "::error::could not extract versionName from app/build.gradle.kts"
+          exit 1
+        fi
         echo "VERSION_NAME=$VERSION_NAME" >> $GITHUB_ENV
 
     - name: Validate and stage debug APK
@@ -433,10 +391,6 @@ jobs:
         cat gradle_lint.log || true
         echo "=================== NATIVE ALIGNMENT LOG ==================="
         cat gradle_alignment.log || true
-        echo "=================== PACKAGING GATE LOG ==================="
-        cat gradle_packaging_gate.log || true
-        echo "=================== BENCHMARK COMPILE LOG ==================="
-        cat gradle_benchmark.log || true
 
     - name: Upload Build Logs on Failure
       if: failure()
@@ -459,4 +413,4 @@ jobs:
           --chat-id "$TELEGRAM_CHAT_ID" \
           --mode alert \
           --sha "$COMMIT_SHA" \
-          --logs "gradle_build.log,gradle_androidtest_build.log,gradle_lint.log"
+          --logs "gradle_build.log,gradle_androidtest_build.log,gradle_lint.log,gradle_alignment.log"

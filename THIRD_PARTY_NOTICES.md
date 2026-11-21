@@ -68,9 +68,10 @@ a short identifier.
   [`licenses/libc++-NOTICE.txt`](licenses/libc++-NOTICE.txt) and
   [`licenses/LLVM-exception.txt`](licenses/LLVM-exception.txt). It is shipped
   dynamically because `transcribe-cpp` links against it.
-- Other direct crates declared in `Cargo.toml` (`anyhow`, `log`,
-  `android_logger`, `jni`, `libc`, `once_cell`, `crossbeam-channel`, `strsim`)
-  use permissive upstream options, commonly MIT and/or Apache-2.0.
+- Other direct crates declared in the workspace (`Cargo.toml` and
+  `crates/aura-core/Cargo.toml`: `anyhow`, `log`, `android_logger`, `jni`,
+  `libc`, `once_cell`, `crossbeam-channel`, `strsim`) use permissive upstream
+  options, commonly MIT and/or Apache-2.0.
 - Every Rust-built binary additionally carries the Rust standard library's own
   vendored dependencies (`miniz_oxide`, `addr2line`, `gimli`, `hashbrown`,
   `rustc-demangle`, `object`, `libc`, `memchr`; MIT and/or Apache-2.0). These
@@ -136,22 +137,17 @@ upstream authorship and the upstream MIT grant rather than being presented as
 newly created Aura assets:
 
 - Screenshots: `.screenshots/screenshot_home.png`, `.screenshots/screenshot_recording.png`, `.screenshots/screenshot_subtitles.png`.
-- Store artwork: `fastlane/metadata/android/en-US/images/icon.png` and `fastlane/metadata/android/en-US/images/phoneScreenshots/1.png`, `2.png`, `3.png`.
 - Drawable icons: `app/src/main/res/drawable/ic_backspace.xml`, `ic_check_circle.xml`, `ic_close.xml`, `ic_delete.xml`, `ic_error.xml`, `ic_mic.xml`, `ic_model.xml`, `ic_palette.xml`, `ic_settings.xml`, `ic_subtitles.xml`.
 
 The same comparison also identifies inherited non-image files, including
-`src/models.rs`, `app/src/main/res/layout/item_model_link.xml`,
-`app/src/main/res/xml/recognition_service.xml`, `.cargo/config.toml.example` and
-the upstream Fastlane changelogs. These remain upstream-derived even where
-adjacent files were modified by the fork.
+`src/models.rs`, `app/src/main/res/layout/item_model_link.xml`, and
+`app/src/main/res/xml/recognition_service.xml`. These remain upstream-derived
+even where adjacent files were modified by the fork.
 
 ## 6. Audio fixtures and benchmark material
 
-No audio is distributed with the repository or with the application. The former
-in-app WAV fixture and the in-app audio benchmark were removed; the remaining
-developer tooling is a synthetic smoke test that generates its signal at run
-time and never reports measured ASR accuracy. The Macrobenchmark module contains
-no audio fixture either.
+No audio fixtures or external benchmark corpora are distributed with the
+repository or with the application.
 
 ## 7. License texts included with the application
 

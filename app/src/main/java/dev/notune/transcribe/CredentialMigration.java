@@ -295,7 +295,11 @@ final class CredentialMigration {
                     + "); nothing was persisted");
             return false;
         }
-        clearTombstoneIfSet();
+        boolean wasTombstone = isDeletionTombstone();
+        if (!clearTombstoneIfSet() && wasTombstone) {
+            diagnostics.error("API key could not lift deletion tombstone");
+            return false;
+        }
         deleteLegacyCopies();
         return true;
     }
@@ -377,17 +381,18 @@ final class CredentialMigration {
     }
 
     /** Drops a deletion tombstone that is no longer needed. */
-    private void clearTombstoneIfSet() {
-        clearTombstone();
+    private boolean clearTombstoneIfSet() {
+        return clearTombstone();
     }
 
     /** Leaves an empty "checked" sentinel in place of a tombstone. */
-    private void clearTombstone() {
+    private boolean clearTombstone() {
         if (sentinel.exists() && !sentinel.delete()) {
             diagnostics.warn("API key migration sentinel could not be reset");
-            return;
+            return false;
         }
         touchSentinel();
+        return true;
     }
 
     /** Records "checked, nothing to import" (best effort, as before). */

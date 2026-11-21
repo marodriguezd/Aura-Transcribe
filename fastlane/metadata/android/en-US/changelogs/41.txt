@@ -1,4 +1,0 @@
-- Dedicated AudioRecordBridge pipeline with direct JNI streaming for wireless Bluetooth headset audio capture.
-- Zero-latency Bluetooth pre-warming handshake on the keyboard and floating overlay.
-- Dynamic headset vs microphone indicators (ic_headset / ic_mic) and a real-time microphone diagnostics sound test.
-- Concurrency hardening, memory safety, and complete i18n parity across the six translated locales.

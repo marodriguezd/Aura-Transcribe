@@ -1,2 +1,0 @@
-- The keyboard's Cancel button now appears from the moment a voice recording starts, so you can discard a dictation before it is transcribed or sent to post-processing — no wasted API calls.
-- Cancel no longer flickers: it stays visible from the moment you release the mic until the text is committed or cancelled.

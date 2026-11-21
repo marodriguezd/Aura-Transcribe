@@ -28,8 +28,9 @@ const AUTO_STOP_NO_SPEECH_MS: u64 = 8000;
 const MAX_SESSION_MS: u64 = 300_000;
 
 pub struct SendStream(#[allow(dead_code)] pub cpal::Stream);
+// SAFETY: SendStream is only stored inside Mutex-protected VoiceSessionState/Session
+// and dropped when stopping/cleaning up capture; it is never shared unsynchronized.
 unsafe impl Send for SendStream {}
-unsafe impl Sync for SendStream {}
 
 /// Speech/silence tracking shared between the audio callback and the
 /// auto-stop monitor thread. Fully lock-free atomic structures to avoid
@@ -72,14 +73,26 @@ use crate::jni_util::{
     notify_text_with_session,
 };
 
-pub fn init_session(env: JNIEnv, target: JObject) -> VoiceSessionState {
+pub fn init_session(env: JNIEnv, target: JObject) -> Option<VoiceSessionState> {
     android_logger::init_once(
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
 
-    let vm = env.get_java_vm().expect("Failed to get JavaVM");
-    let vm_arc = Arc::new(vm);
-    let target_ref = env.new_global_ref(&target).expect("Failed to ref target");
+    let vm = match env.get_java_vm() {
+        Ok(vm) => Arc::new(vm),
+        Err(e) => {
+            log::error!("init_session: failed to get JavaVM: {:?}", e);
+            return None;
+        }
+    };
+    let vm_arc = vm;
+    let target_ref = match env.new_global_ref(&target) {
+        Ok(r) => r,
+        Err(e) => {
+            log::error!("init_session: failed to ref target: {:?}", e);
+            return None;
+        }
+    };
 
     let state = VoiceSessionState {
         stream: None,
@@ -103,7 +116,13 @@ pub fn init_session(env: JNIEnv, target: JObject) -> VoiceSessionState {
         let _ = engine::ensure_loaded_from_thread(&vm_clone, &target_ref_clone);
     });
 
-    state
+    Some(state)
+}
+
+impl Drop for VoiceSessionState {
+    fn drop(&mut self) {
+        terminate_session(self);
+    }
 }
 
 /// Deterministically ends the session after a capture failure (no input
@@ -172,6 +191,7 @@ pub fn start_recording(
         state.streaming_active = Arc::new(AtomicBool::new(false));
     }
     state.session_id = session_id;
+    state.last_level_sent_ms.store(0, Ordering::Relaxed);
     let buffer_clone = state.audio_buffer.clone();
 
     // End any previous session's monitor, then arm a fresh flag.
@@ -205,7 +225,7 @@ pub fn start_recording(
     *state
         .stream_cmd_tx
         .lock()
-        .unwrap_or_else(|p| p.into_inner()) = Some(cmd_tx.clone());
+        .unwrap_or_else(|p| p.into_inner()) = Some(cmd_tx);
     state.streaming_active.store(false, Ordering::SeqCst);
     let jvm_pump = state.jvm.clone();
     let target_ref_pump = state.target_ref.clone();
@@ -221,7 +241,6 @@ pub fn start_recording(
             jvm_pump,
             target_ref_pump,
             buffer_pump,
-            cmd_tx,
             cmd_rx,
             session_active_pump,
             session_cancelled_pump,
@@ -245,9 +264,9 @@ pub fn start_recording(
             }
             let mut done = started_at.elapsed() >= Duration::from_millis(MAX_SESSION_MS);
             if let Some(ep) = &ep_monitor {
-                let speech = ep.speech_started.load(Ordering::SeqCst);
+                let speech = ep.speech_started.load(Ordering::Acquire);
                 let elapsed_ms = ep.started_at.elapsed().as_millis() as u64;
-                let last_voice_ms = ep.last_voice_ms.load(Ordering::Relaxed);
+                let last_voice_ms = ep.last_voice_ms.load(Ordering::Acquire);
                 let silence_ms = elapsed_ms.saturating_sub(last_voice_ms);
                 done = done
                     || (speech && silence_ms >= AUTO_STOP_SILENCE_MS)
@@ -314,17 +333,16 @@ pub fn start_recording(
                 let is_speech = level > MIN_SPEECH_LEVEL && level > floor + SPEECH_MARGIN;
                 if is_speech {
                     let elapsed_ms = ep.started_at.elapsed().as_millis() as u64;
-                    if ep.speech_started.load(Ordering::SeqCst) {
-                        ep.last_voice_ms.store(elapsed_ms, Ordering::Relaxed);
+                    if ep.speech_started.load(Ordering::Acquire) {
+                        ep.last_voice_ms.store(elapsed_ms, Ordering::Release);
                     } else {
                         let run = ep
                             .speech_run_samples
                             .fetch_add(data.len(), Ordering::SeqCst)
                             + data.len();
-                        if run >= MIN_SPEECH_SAMPLES
-                            && ep.speech_started.swap(true, Ordering::SeqCst) == false
-                        {
-                            ep.last_voice_ms.store(elapsed_ms, Ordering::Relaxed);
+                        if run >= MIN_SPEECH_SAMPLES {
+                            ep.last_voice_ms.store(elapsed_ms, Ordering::Release);
+                            ep.speech_started.store(true, Ordering::Release);
                         }
                     }
                 } else {
@@ -401,7 +419,6 @@ fn streaming_pump(
     jvm: Arc<jni::JavaVM>,
     target_ref: GlobalRef,
     buffer: Arc<Mutex<Vec<f32>>>,
-    _tx: crossbeam_channel::Sender<crate::engine::StreamCmd>,
     rx: crossbeam_channel::Receiver<crate::engine::StreamCmd>,
     session_active: Arc<AtomicBool>,
     session_cancelled: Arc<AtomicBool>,
@@ -421,17 +438,15 @@ fn streaming_pump(
     };
 
     // Serialize the start decision with stop/cancel so exactly one path
-    // delivers the transcription (see stop_recording).
+    // delivers the transcription (see stop_recording). Use the lock-free
+    // capability mirror so stop_recording on the UI thread cannot block behind
+    // another surface holding engine_arc.lock().
     {
         let _guard = stream_lock.lock().unwrap_or_else(|p| p.into_inner());
         if !session_active.load(Ordering::SeqCst) {
             return; // stop/cancel already ran the whole-buffer path
         }
-        let is_streaming = engine_arc
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .supports_streaming();
-        if !is_streaming {
+        if !engine::is_streaming_capable() {
             return; // whole-buffer path handles transcription
         }
         streaming_active.store(true, Ordering::SeqCst);
@@ -439,7 +454,11 @@ fn streaming_pump(
 
     let mut env = match jvm.attach_current_thread() {
         Ok(e) => e,
-        Err(_) => return,
+        Err(_) => {
+            let _guard = stream_lock.lock().unwrap_or_else(|p| p.into_inner());
+            streaming_active.store(false, Ordering::SeqCst);
+            return;
+        }
     };
     let obj = target_ref.as_obj();
 
@@ -451,8 +470,10 @@ fn streaming_pump(
     let result = {
         let buffer_ref = &buffer;
         let mut drain = |chunk: &mut Vec<f32>| {
-            let mut b = buffer_ref.lock().unwrap_or_else(|p| p.into_inner());
-            chunk.extend(b.drain(..));
+            {
+                let mut b = buffer_ref.lock().unwrap_or_else(|p| p.into_inner());
+                chunk.extend(b.drain(..));
+            }
             local.extend_from_slice(chunk);
         };
         let mut partial = |text: &str| {
@@ -463,7 +484,68 @@ fn streaming_pump(
         };
         engine::transcribe_stream_shared(&engine_arc, &rx, &mut drain, &mut partial)
     };
-    streaming_active.store(false, Ordering::SeqCst);
+
+    // Keep streaming_active transitions serialized with stop_recording on Err
+    // so mid-stream failure never triggers both an early pump callback and a
+    // second whole-buffer callback from stop_recording.
+    if let Err(msg) = result {
+        if msg == "Canceled" {
+            let _guard = stream_lock.lock().unwrap_or_else(|p| p.into_inner());
+            streaming_active.store(false, Ordering::SeqCst);
+            return;
+        }
+        let still_active = {
+            let _guard = stream_lock.lock().unwrap_or_else(|p| p.into_inner());
+            streaming_active.store(false, Ordering::SeqCst);
+            if session_active.load(Ordering::SeqCst) {
+                let mut b = buffer.lock().unwrap_or_else(|p| p.into_inner());
+                if b.is_empty() {
+                    *b = std::mem::take(&mut local);
+                } else if !local.is_empty() {
+                    local.extend_from_slice(&b);
+                    *b = std::mem::take(&mut local);
+                }
+                true
+            } else {
+                false
+            }
+        };
+        if still_active || session_cancelled.load(Ordering::SeqCst) {
+            return;
+        }
+        if local.is_empty() {
+            notify_status_with_session(&mut env, obj, &format!("Error: {}", msg), session_id);
+        } else {
+            match engine::transcribe_shared(&engine_arc, local) {
+                Ok(t) => {
+                    if session_cancelled.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    notify_status_with_session(&mut env, obj, "Ready", session_id);
+                    if session_cancelled.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    notify_text_with_session(&mut env, obj, &t, session_id);
+                }
+                Err(e) => {
+                    if !session_cancelled.load(Ordering::SeqCst) {
+                        notify_status_with_session(
+                            &mut env,
+                            obj,
+                            &format!("Error: {}", e),
+                            session_id,
+                        );
+                    }
+                }
+            }
+        }
+        return;
+    }
+
+    {
+        let _guard = stream_lock.lock().unwrap_or_else(|p| p.into_inner());
+        streaming_active.store(false, Ordering::SeqCst);
+    }
 
     // A normal stop sets session_active=false but still permits this pump to
     // deliver its final text. Replacement/cancel sets session_cancelled=true;
@@ -494,40 +576,7 @@ fn streaming_pump(
                 );
             }
         }
-        Err(msg) if msg == "Canceled" => {}
-        Err(msg) => {
-            // The stream could not run (e.g. begin failed): transcribe the
-            // whole buffer offline so no text is lost.
-            if session_cancelled.load(Ordering::SeqCst) {
-                return;
-            }
-            if local.is_empty() {
-                notify_status_with_session(&mut env, obj, &format!("Error: {}", msg), session_id);
-            } else {
-                match engine::transcribe_shared(&engine_arc, local) {
-                    Ok(t) => {
-                        if session_cancelled.load(Ordering::SeqCst) {
-                            return;
-                        }
-                        notify_status_with_session(&mut env, obj, "Ready", session_id);
-                        if session_cancelled.load(Ordering::SeqCst) {
-                            return;
-                        }
-                        notify_text_with_session(&mut env, obj, &t, session_id);
-                    }
-                    Err(e) => {
-                        if !session_cancelled.load(Ordering::SeqCst) {
-                            notify_status_with_session(
-                                &mut env,
-                                obj,
-                                &format!("Error: {}", e),
-                                session_id,
-                            );
-                        }
-                    }
-                }
-            }
-        }
+        Err(_) => unreachable!(),
     }
 }
 

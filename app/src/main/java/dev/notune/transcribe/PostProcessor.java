@@ -60,15 +60,11 @@ public class PostProcessor {
             "Stored API key could not be read; re-enter it in post-processing settings";
 
     /**
-     * Stable callback error for the on-device provider, which has no inference
-     * engine in this build (see
-     * {@link SettingsManager#LOCAL_S1_INFERENCE_AVAILABLE}). Delivered through
-     * {@code onError}, so every caller keeps its guaranteed fallback to the raw
-     * transcript instead of receiving the input text back as if it were refined.
+     * Stable callback error when the stored provider id does not match any
+     * supported preset (for example a removed legacy provider).
      */
-    public static final String LOCAL_S1_UNAVAILABLE_ERROR =
-            "On-device AI cleanup (SuperWhisper S1-mini) is unavailable in this build: "
-                    + "it has no inference engine";
+    public static final String UNAVAILABLE_PROVIDER_ERROR =
+            "Selected post-processing provider is unavailable";
 
     /**
      * Timeouts for the shared production client: 30 s to reach a provider
@@ -148,33 +144,6 @@ public class PostProcessor {
         this.owner = owner;
     }
 
-    public static final String PROVIDER_LOCAL_S1 = "local_s1";
-
-    /**
-     * Steerable control axis passed to the on-device normalizer. There is no
-     * style-preset selector in the UI any more (the user picks a prompt, not a
-     * preset), so the placeholder on-device path always asks for the neutral
-     * "clean" axis; the native side keeps its own preset vocabulary.
-     */
-    private static final String ON_DEVICE_STYLE = "clean";
-
-    private static final java.util.concurrent.ExecutorService onDeviceExecutor =
-            java.util.concurrent.Executors.newSingleThreadExecutor();
-
-    public static native String nativeNormalizeOnDevice(String rawText, String preset, String customPrompt);
-    public static native void nativeSetS1ModelPath(String path);
-    // Lifecycle probes for the on-device provider. Neither has a Java call site
-    // today: the native side unloads on its own 60-second idle timer and from
-    // App.onTrimMemory -> nativeTrimMemory, which is the hook that actually runs.
-    // They are kept as the explicit API for that lifecycle, and R8 removes them
-    // from release builds as unreachable members (verified against the release
-    // DEX); wiring them up is only meaningful once the on-device inference path
-    // is real — see the PLACEHOLDER note on
-    // src/post_processor.rs::normalize_text_on_device.
-    public static native void nativeUnloadS1();
-    public static native boolean nativeIsS1Loaded();
-    public static native void nativeTrimMemory(int level);
-
     /**
      * The settings surface {@link PostProcessor} reads. Implemented by
      * {@link SettingsManager} in production; a fake implements it in the
@@ -207,19 +176,11 @@ public class PostProcessor {
             return "custom";
         }
 
-        default java.io.File getLocalS1ModelFile() {
-            return new java.io.File("/dev/null");
-        }
-
-        default boolean isLocalS1ModelInstalled() {
-            return false;
-        }
-
-        // "Configured" is deliberately no longer a method here: for a cloud provider
-        // it depends on the credential, which is only knowable through the ordered
-        // read above, so the rule lives in one place —
-        // SettingsManager.resolvePostProcessEnabled — and callers that need it
-        // combine isPostProcessSwitchedOn() with the read's outcome.
+        // "Configured" is deliberately no longer a method here: it depends on
+        // the credential, which is only knowable through the ordered read above,
+        // so the rule lives in one place — SettingsManager.resolvePostProcessEnabled
+        // — and callers that need it combine isPostProcessSwitchedOn() with the
+        // read's outcome.
     }
 
     private static OkHttpClient getSharedClient() {
@@ -346,17 +307,11 @@ public class PostProcessor {
             // a dead surface. (A destroy landing after this check is still covered by
             // cancelAllFor(owner) — the call is registered before it is enqueued.)
             if (validator != null && !validator.getAsBoolean()) return;
+            boolean providerAvailable = SettingsManager.isProviderAvailable(settings.getProviderId());
             boolean usable = credential != null && credential.hasCredential();
-            // Same rule as SettingsManager.resolvePostProcessEnabled: the switch must
-            // be on, and the credential must be usable — except for the on-device
-            // provider, which needs no API key (it is refused earlier in this build
-            // because there is no inference engine behind it).
-            boolean providerUsable = PROVIDER_LOCAL_S1.equals(settings.getProviderId())
-                    || usable;
-            if (!forceRequest && !(settings.isPostProcessSwitchedOn() && providerUsable)) {
-                // No usable credential, or the switch is off: the raw transcript
-                // wins, delivered exactly once, as the callers' former `else`
-                // branch did.
+            if (!forceRequest && !(settings.isPostProcessSwitchedOn() && providerAvailable && usable)) {
+                // No usable credential, unavailable provider, or switch off: the
+                // raw transcript wins, delivered exactly once.
                 dispatchToUi(() -> callback.onSuccess(rawText));
                 return;
             }
@@ -374,16 +329,8 @@ public class PostProcessor {
     private void runRequest(final String rawText, final PostProcessCallback callback,
                             boolean forceRequest, final String apiKey,
                             final boolean credentialUnreadable) {
-        if (PROVIDER_LOCAL_S1.equals(settings.getProviderId())) {
-            if (!SettingsManager.LOCAL_S1_INFERENCE_AVAILABLE) {
-                // Defensive: the settings UI refuses to enable this provider, but
-                // a marker file written by an older build (or a direct caller
-                // such as the diagnostic button) must still not be answered with
-                // the unchanged transcript dressed up as a refined one.
-                dispatchToUi(() -> callback.onError(LOCAL_S1_UNAVAILABLE_ERROR));
-                return;
-            }
-            processOnDeviceInternal(rawText, callback, forceRequest);
+        if (!SettingsManager.isProviderAvailable(settings.getProviderId())) {
+            dispatchToUi(() -> callback.onError(UNAVAILABLE_PROVIDER_ERROR));
             return;
         }
 
@@ -530,46 +477,6 @@ public class PostProcessor {
             debugLog("Failed to create post-processing request: " + e.getClass().getSimpleName());
             dispatchToUi(() -> callback.onError("Request setup error: " + error));
         }
-    }
-
-    private void processOnDeviceInternal(final String rawText, final PostProcessCallback callback,
-                                         final boolean forceRequest) {
-        if (!settings.isLocalS1ModelInstalled()) {
-            dispatchToUi(() -> callback.onError("On-device S1-mini model not found. Download it in settings."));
-            return;
-        }
-
-        final java.io.File modelFile = settings.getLocalS1ModelFile();
-        final String modelPath = (modelFile != null) ? modelFile.getAbsolutePath() : "";
-        final String customPrompt = settings.getActivePromptBody();
-
-        onDeviceExecutor.execute(() -> {
-            try {
-                nativeSetS1ModelPath(modelPath);
-                if (forceRequest) {
-                    // Diagnostic probe for on-device S1 normalizer
-                    String result = nativeNormalizeOnDevice(DIAGNOSTIC_INPUT, ON_DEVICE_STYLE, null);
-                    if (result != null) {
-                        dispatchToUi(() -> callback.onSuccess(DIAGNOSTIC_MARKER));
-                    } else {
-                        dispatchToUi(() -> callback.onError("On-device model initialization failed"));
-                    }
-                    return;
-                }
-
-                String refined = nativeNormalizeOnDevice(rawText, ON_DEVICE_STYLE, customPrompt);
-                if (refined != null && !refined.trim().isEmpty()) {
-                    dispatchToUi(() -> callback.onSuccess(refined));
-                } else {
-                    dispatchToUi(() -> callback.onError("On-device normalizer returned empty output"));
-                }
-            } catch (Throwable t) {
-                try {
-                    Log.e(TAG, "Error running on-device normalization", t);
-                } catch (Throwable ignored) {}
-                dispatchToUi(() -> callback.onError(t.getMessage() != null ? t.getMessage() : "On-device normalization error"));
-            }
-        });
     }
 
     /**

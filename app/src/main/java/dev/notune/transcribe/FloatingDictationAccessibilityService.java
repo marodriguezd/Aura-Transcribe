@@ -107,6 +107,10 @@ public class FloatingDictationAccessibilityService extends AccessibilityService 
             if (event == null) {
                 return;
             }
+            CharSequence eventPkg = event.getPackageName();
+            if (eventPkg != null && getPackageName().contentEquals(eventPkg)) {
+                return;
+            }
             int eventType = event.getEventType();
 
             // The focused window changed: the previously remembered node belongs
@@ -120,11 +124,13 @@ public class FloatingDictationAccessibilityService extends AccessibilityService 
             if (eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED) {
                 AccessibilityNodeInfo source = event.getSource();
                 if (source == null) return;
+                CharSequence sourcePkg = source.getPackageName();
+                if (sourcePkg != null && getPackageName().contentEquals(sourcePkg)) {
+                    release(source);
+                    return;
+                }
                 if (source.isEditable() && source.isEnabled()) {
-                    clearLastFocusedNode();
-                    mLastFocusedNode = source;
-                    FocusChangeListener l = sFocusListener;
-                    if (l != null) l.onFocusChanged(true);
+                    setLastFocusedNode(source);
                 } else {
                     release(source);
                 }
@@ -140,10 +146,29 @@ public class FloatingDictationAccessibilityService extends AccessibilityService 
         Log.w(TAG, "FloatingDictationAccessibilityService interrupted");
     }
 
-    private synchronized void clearLastFocusedNode() {
-        if (mLastFocusedNode != null) {
-            release(mLastFocusedNode);
-            mLastFocusedNode = null;
+    private void setLastFocusedNode(AccessibilityNodeInfo node) {
+        synchronized (this) {
+            if (mLastFocusedNode != null) {
+                release(mLastFocusedNode);
+            }
+            mLastFocusedNode = node;
+        }
+        if (node != null) {
+            FocusChangeListener l = sFocusListener;
+            if (l != null) l.onFocusChanged(true);
+        }
+    }
+
+    private void clearLastFocusedNode() {
+        boolean cleared = false;
+        synchronized (this) {
+            if (mLastFocusedNode != null) {
+                release(mLastFocusedNode);
+                mLastFocusedNode = null;
+                cleared = true;
+            }
+        }
+        if (cleared) {
             FocusChangeListener l = sFocusListener;
             if (l != null) l.onFocusChanged(false);
         }
@@ -268,9 +293,11 @@ public class FloatingDictationAccessibilityService extends AccessibilityService 
                 Bundle args = new Bundle();
                 args.putCharSequence(
                         AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, combined);
-                args.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, caret);
-                args.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, caret);
                 if (targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
+                    Bundle selArgs = new Bundle();
+                    selArgs.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, caret);
+                    selArgs.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, caret);
+                    targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selArgs);
                     Log.i(TAG, "Inserted text via ACTION_SET_TEXT at cursor");
                     return true;
                 }

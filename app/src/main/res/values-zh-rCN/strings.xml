@@ -83,7 +83,7 @@
     <string name="pack_pro_title">🏆 专业集成包（推荐）</string>
     <string name="pack_pro_desc">Nemotron 3.5 ASR 0.6B（内置）+ AI Fix 云端，精度最高，支持专业术语和智能排版。</string>
     <string name="pack_multilingual_title">🚀 Whisper 扩展包</string>
-    <string name="pack_multilingual_desc">Whisper Large-v3-Turbo，适用于嘈杂音频、重口音和多语言翻译。</string>
+    <string name="pack_multilingual_desc">Whisper Large-v3-Turbo，适用于嘈杂音频、重口音和 99 种语言转录。</string>
     <string name="models_no_browser">未找到可打开链接的浏览器。</string>
     <string name="models_delete">删除模型</string>
     <string name="models_delete_confirm">从应用存储中删除 %1$s？</string>
@@ -165,15 +165,7 @@
     <string name="pp_test_connection">测试后期处理</string>
     <string name="pp_test_success">后期处理工作正常</string>
     <string name="pp_test_error">后期处理测试失败：%1$s</string>
-    <string name="pp_local_model_title">SuperWhisper S1-mini (0.6B)</string>
-    <string name="pp_local_model_installed">已安装（%1$s）</string>
-    <string name="pp_local_model_not_installed">模型未安装。下载后即可使用设备端后期处理。</string>
-    <string name="pp_local_unavailable">此版本不支持设备端 AI 润色：需要应用尚未内置的文本生成引擎。请选择云端服务商，或关闭 AI 修复。</string>
-    <string name="pp_download_s1">下载 S1-mini GGUF</string>
-    <string name="pp_downloading_s1">正在下载 S1-mini GGUF…</string>
-    <string name="pp_download_s1_done">S1-mini GGUF 下载成功</string>
-    <string name="pp_download_s1_error">下载失败：%1$s</string>
-    <string name="pp_not_configured_prompt">AI 后期处理尚未配置。请在设置中添加 API 密钥或安装本地 S1 模型。</string>
+    <string name="pp_not_configured_prompt">AI 后期处理尚未配置。请在设置中添加 API 密钥。</string>
 
     <!-- Custom words dictionary (fork addition): phonetic post-correction -->
     <string name="cw_card_title">自定义词语</string>
@@ -234,7 +226,6 @@
     <string name="file_error_no_audio_received">错误：未收到音频文件</string>
     <string name="file_error_no_audio">错误：没有音频文件</string>
     <string name="file_error_no_speech">错误：音频文件中未检测到语音</string>
-    <string name="file_error_format">错误：%1$s</string>
     <string name="file_error_decode">错误：无法解码音频文件。</string>
     <string name="file_error_timeout">等待转写数据块超时</string>
 

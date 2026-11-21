@@ -34,7 +34,7 @@ public final class OnDeviceSubtitleTranslator implements SubtitleTranslator {
     private final Map<String, Translator> translators = new HashMap<>();
     private final Set<String> downloaded = new HashSet<>();
     private final Set<String> failed = new HashSet<>();
-    private Translator probe;
+    private int generation = 0;
     private boolean availabilityChecked = false;
     private boolean available = false;
 
@@ -70,13 +70,21 @@ public final class OnDeviceSubtitleTranslator implements SubtitleTranslator {
                     .setSourceLanguage(TranslateLanguage.ENGLISH)
                     .setTargetLanguage(TranslateLanguage.SPANISH)
                     .build();
-            probe = Translation.getClient(probeOpts);
+            Translator probeClient = Translation.getClient(probeOpts);
+            try {
+                probeClient.close();
+            } catch (Throwable ignored) {
+            }
             available = true;
         } catch (Throwable t) {
             Log.w(TAG, "ML Kit translation unavailable on this device; "
                     + "subtitles stay in the original language", t);
         }
         return available;
+    }
+
+    private synchronized boolean isCurrentGeneration(int reqGen) {
+        return reqGen == generation;
     }
 
     @Override
@@ -94,14 +102,18 @@ public final class OnDeviceSubtitleTranslator implements SubtitleTranslator {
         }
         if (!isAvailable()) {
             callback.onUnavailable();
-            callback.onSuccess(sourceText);
+            callback.onFailure(new IllegalStateException("ML Kit translation unavailable"));
             return;
         }
 
+        final int reqGen;
+        synchronized (this) {
+            reqGen = generation;
+        }
         final String key = sourceLanguage + ":" + targetLanguage;
-        final Translator translator = getOrCreateTranslator(key, sourceText, callback);
+        final Translator translator = getOrCreateTranslator(key, callback);
         if (translator == null) {
-            return; // fallback already delivered by getOrCreateTranslator
+            return; // error/unavailable already delivered by getOrCreateTranslator
         }
 
         final boolean packDownloaded;
@@ -109,34 +121,38 @@ public final class OnDeviceSubtitleTranslator implements SubtitleTranslator {
             packDownloaded = downloaded.contains(key);
         }
         if (packDownloaded) {
-            runTranslate(translator, key, sourceText, callback);
+            runTranslate(translator, key, sourceText, reqGen, callback);
         } else {
             translator.downloadModelIfNeeded()
                     .addOnSuccessListener(v -> {
                         synchronized (this) {
+                            if (reqGen != generation) return;
                             downloaded.add(key);
                             failed.remove(key);
                         }
-                        runTranslate(translator, key, sourceText, callback);
+                        runTranslate(translator, key, sourceText, reqGen, callback);
                     })
                     .addOnFailureListener(e -> {
                         synchronized (this) {
+                            if (reqGen != generation) return;
                             failed.add(key);
                         }
                         Log.w(TAG, "Language pack download failed for " + key
                                 + "; showing original", e);
                         callback.onUnavailable();
-                        callback.onSuccess(sourceText);
+                        callback.onFailure(e);
                     });
         }
     }
 
-    /** Returns the cached/created translator, or null after delivering the fallback. */
-    private Translator getOrCreateTranslator(String key, String sourceText, Callback callback) {
+    /** Returns the cached/created translator, or null after notifying {@code callback}. */
+    private Translator getOrCreateTranslator(String key, Callback callback) {
         synchronized (this) {
             if (failed.contains(key)) {
-                callback.onUnavailable();
-                callback.onSuccess(sourceText);
+                if (callback != null) {
+                    callback.onUnavailable();
+                    callback.onFailure(new IllegalStateException("Translator failed for " + key));
+                }
                 return null;
             }
             Translator existing = translators.get(key);
@@ -146,8 +162,11 @@ public final class OnDeviceSubtitleTranslator implements SubtitleTranslator {
                 String srcConst = languageConstant(key.substring(0, key.indexOf(':')));
                 String tgtConst = languageConstant(key.substring(key.indexOf(':') + 1));
                 if (srcConst == null || tgtConst == null) {
-                    callback.onUnavailable();
-                    callback.onSuccess(sourceText);
+                    if (callback != null) {
+                        callback.onUnavailable();
+                        callback.onFailure(
+                                new IllegalArgumentException("Unsupported language pair: " + key));
+                    }
                     return null;
                 }
                 TranslatorOptions options = new TranslatorOptions.Builder()
@@ -160,21 +179,27 @@ public final class OnDeviceSubtitleTranslator implements SubtitleTranslator {
             } catch (Throwable t) {
                 Log.w(TAG, "Failed to create translator for " + key + "; showing original", t);
                 failed.add(key);
-                callback.onUnavailable();
-                callback.onSuccess(sourceText);
+                if (callback != null) {
+                    callback.onUnavailable();
+                    callback.onFailure(t);
+                }
                 return null;
             }
         }
     }
 
-    private void runTranslate(Translator translator, String key, String sourceText,
+    private void runTranslate(Translator translator, String key, String sourceText, int reqGen,
                               Callback callback) {
         translator.translate(sourceText)
-                .addOnSuccessListener(callback::onSuccess)
+                .addOnSuccessListener(translated -> {
+                    if (!isCurrentGeneration(reqGen)) return;
+                    callback.onSuccess(translated);
+                })
                 .addOnFailureListener(e -> {
+                    if (!isCurrentGeneration(reqGen)) return;
                     Log.w(TAG, "Translation failed for " + key + "; showing original", e);
                     callback.onUnavailable();
-                    callback.onSuccess(sourceText);
+                    callback.onFailure(e);
                 });
     }
 
@@ -196,12 +221,12 @@ public final class OnDeviceSubtitleTranslator implements SubtitleTranslator {
             if (cb != null) cb.onUnavailable();
             return;
         }
+        final int reqGen;
+        synchronized (this) {
+            reqGen = generation;
+        }
         final String key = sourceLanguage + ":" + targetLanguage;
-        final Translator translator = getOrCreateTranslator(key, "", new Callback() {
-            @Override public void onSuccess(String translatedText) { }
-            @Override public void onFailure(Throwable error) { }
-            @Override public void onUnavailable() { if (cb != null) cb.onUnavailable(); }
-        });
+        final Translator translator = getOrCreateTranslator(key, null);
         if (translator == null) {
             if (cb != null) cb.onUnavailable();
             return;
@@ -215,6 +240,7 @@ public final class OnDeviceSubtitleTranslator implements SubtitleTranslator {
         translator.downloadModelIfNeeded()
                 .addOnSuccessListener(v -> {
                     synchronized (this) {
+                        if (reqGen != generation) return;
                         downloaded.add(key);
                         failed.remove(key);
                     }
@@ -222,6 +248,7 @@ public final class OnDeviceSubtitleTranslator implements SubtitleTranslator {
                 })
                 .addOnFailureListener(e -> {
                     synchronized (this) {
+                        if (reqGen != generation) return;
                         failed.add(key);
                     }
                     if (cb != null) cb.onUnavailable();
@@ -236,18 +263,12 @@ public final class OnDeviceSubtitleTranslator implements SubtitleTranslator {
 
     @Override
     public void cancelAll() {
-        // ML Kit Tasks are not cancellable; stale results are dropped by the
-        // service's session generation before they reach any UI. We do close
-        // every translator (the documented ML Kit cleanup) so a long-lived
-        // process does not accumulate per-session native resources.
+        // ML Kit Tasks are not cancellable; stale results are rejected by the
+        // generation check before reaching callers. Close every translator
+        // (the documented ML Kit cleanup) so a long-lived process does not
+        // accumulate native resources.
         synchronized (this) {
-            if (probe != null) {
-                try {
-                    probe.close();
-                } catch (Throwable ignored) {
-                }
-                probe = null;
-            }
+            generation++;
             for (Translator t : translators.values()) {
                 try {
                     t.close();

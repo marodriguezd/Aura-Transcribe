@@ -24,11 +24,11 @@ public class AuraTranscribeBrandingTest {
         assertNotNull(SettingsManager.PROVIDERS);
         assertTrue(SettingsManager.PROVIDERS.length >= 4);
 
-        // Verify Local S1 provider preset
-        SettingsManager.Provider localS1 = SettingsManager.providerById(SettingsManager.PROVIDER_LOCAL_S1);
-        assertNotNull(localS1);
-        assertEquals(SettingsManager.PROVIDER_LOCAL_S1, localS1.id);
-        assertEquals("s1-mini-q4_k_m.gguf", localS1.defaultModel);
+        for (SettingsManager.Provider p : SettingsManager.PROVIDERS) {
+            assertTrue("Removed local_s1 placeholder must not be listed",
+                    !"local_s1".equals(p.id));
+            assertTrue(SettingsManager.isProviderAvailable(p.id));
+        }
 
         // Verify Groq provider preset
         SettingsManager.Provider groq = SettingsManager.providerById("groq");

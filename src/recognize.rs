@@ -21,8 +21,9 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_RecognizeActivity_initN
     _class: JClass,
     activity: JObject,
 ) {
-    let state = voice_session::init_session(env, activity);
-    *RECOG_STATE.lock().unwrap_or_else(|p| p.into_inner()) = Some(state);
+    if let Some(state) = voice_session::init_session(env, activity) {
+        *RECOG_STATE.lock().unwrap_or_else(|p| p.into_inner()) = Some(state);
+    }
 }
 
 #[no_mangle]

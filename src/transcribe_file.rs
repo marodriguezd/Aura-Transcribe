@@ -53,7 +53,20 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_TranscribeFileActivity_
         target_ref: target_ref.clone(),
         current_cancel: Mutex::new(None),
     };
-    *STATE.lock().unwrap_or_else(|p| p.into_inner()) = Some(state);
+    if let Some(previous_state) = STATE
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .replace(state)
+    {
+        if let Some(prev_cancel) = previous_state
+            .current_cancel
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+        {
+            prev_cancel.store(true, Ordering::SeqCst);
+        }
+    }
 
     // Load engine in background: decode setup must not wait for model I/O
     let vm_clone = vm.clone();
@@ -69,63 +82,84 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_TranscribeFileActivity_
     _env: JNIEnv,
     _class: JClass,
 ) {
-    *STATE.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    if let Some(previous_state) = STATE.lock().unwrap_or_else(|p| p.into_inner()).take() {
+        if let Some(prev_cancel) = previous_state
+            .current_cancel
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+        {
+            prev_cancel.store(true, Ordering::SeqCst);
+        }
+    }
 }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_dev_notune_transcribe_TranscribeFileActivity_transcribeAudio(
-    env: JNIEnv,
+    mut env: JNIEnv,
     _class: JClass,
     samples_array: JFloatArray,
     length: jint,
     op_id: jint,
 ) {
-    let guard = STATE.lock().unwrap_or_else(|p| p.into_inner());
-    let state = match guard.as_ref() {
-        Some(s) => s,
-        None => return,
-    };
-
-    let len = length as usize;
+    let len = usize::try_from(length).unwrap_or(0);
     if len == 0 {
-        log::warn!("transcribeAudio called with empty buffer");
-        let jvm = state.jvm.clone();
-        let target_ref = state.target_ref.clone();
-        drop(guard);
-        if let Ok(mut env) = jvm.attach_current_thread() {
-            jni_util::notify_status_with_session(
-                &mut env,
-                target_ref.as_obj(),
-                "Error: no audio data to transcribe",
-                op_id,
-            );
+        log::warn!(
+            "transcribeAudio called with empty/invalid buffer: {}",
+            length
+        );
+        let target = {
+            let guard = STATE.lock().unwrap_or_else(|p| p.into_inner());
+            guard
+                .as_ref()
+                .map(|s| (s.jvm.clone(), s.target_ref.clone()))
+        };
+        if let Some((jvm, target_ref)) = target {
+            if let Ok(mut env) = jvm.attach_current_thread() {
+                jni_util::notify_status_with_session(
+                    &mut env,
+                    target_ref.as_obj(),
+                    "Error: no audio data to transcribe",
+                    op_id,
+                );
+            }
         }
         return;
     }
 
+    if STATE.lock().unwrap_or_else(|p| p.into_inner()).is_none() {
+        return;
+    }
+
+    // Allocate and copy the PCM array outside `STATE` so `cancelNative`/`cleanupNative`
+    // cannot stall behind a large JNI transfer.
     let mut buffer = vec![0.0f32; len];
     if env
         .get_float_array_region(&samples_array, 0, &mut buffer)
         .is_err()
     {
+        jni_util::clear_exception(&mut env, "transcribeAudio get_float_array_region");
         log::error!("Failed to read float array from Java");
         return;
     }
 
-    let jvm = state.jvm.clone();
-    let target_ref = state.target_ref.clone();
     let cancelled = Arc::new(AtomicBool::new(false));
-    if let Some(previous) = state
-        .current_cancel
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .replace(cancelled.clone())
-    {
-        previous.store(true, Ordering::SeqCst);
-    }
-
-    // Drop the lock before spawning the thread
-    drop(guard);
+    let (jvm, target_ref) = {
+        let guard = STATE.lock().unwrap_or_else(|p| p.into_inner());
+        let state = match guard.as_ref() {
+            Some(s) => s,
+            None => return,
+        };
+        if let Some(previous) = state
+            .current_cancel
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .replace(cancelled.clone())
+        {
+            previous.store(true, Ordering::SeqCst);
+        }
+        (state.jvm.clone(), state.target_ref.clone())
+    };
 
     std::thread::spawn(move || {
         let mut env = match jvm.attach_current_thread() {

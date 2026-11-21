@@ -1,3 +1,0 @@
-- Hardened release signing and excluded app data from cloud backup, keeping your API key and speech models on-device.
-- Voice recordings and file transcription are now memory-bounded; fixed a live-subtitles crash and restored the local Ollama preset.
-- Faster hot paths: fewer JVM attach/detach cycles, O(n) split-point search, and leaner dictionary correction.

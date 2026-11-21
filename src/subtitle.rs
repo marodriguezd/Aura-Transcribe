@@ -123,8 +123,12 @@ pub enum SubtitlePipeline {
 /// utterance's first blocks and cancel them. In one queue, everything the
 /// stream sees is exactly what was pushed, in order.
 enum StreamInput {
-    /// A block of the current utterance.
-    Audio(Vec<f32>),
+    /// A block of the current utterance, tagged with its utterance id so late
+    /// partials cannot spill into a subsequent segment.
+    Audio {
+        samples: Vec<f32>,
+        utterance_id: u64,
+    },
     /// The utterance ended: flush and finalize.
     Stop,
     /// Discard the utterance (a noise-only segment).
@@ -253,14 +257,18 @@ impl SubtitleVad {
     /// Pure, deterministic and O([`VAD_WINDOW_BLOCKS`]) per block.
     pub fn observe(&mut self, rms: f32) -> bool {
         let rms = if rms.is_finite() { rms.max(0.0) } else { 0.0 };
-        if self.window.len() == VAD_WINDOW_BLOCKS {
-            self.window.pop_front();
+        let settled = self.window.len() == VAD_WINDOW_BLOCKS;
+        let obvious_speech = rms > MAX_NOISE_FLOOR_RMS + NOISE_FLOOR_MARGIN_RMS;
+        if !obvious_speech && (!settled || rms <= self.threshold()) {
+            if settled {
+                self.window.pop_front();
+            }
+            self.window.push_back(rms);
+            let window_min = self.window.iter().copied().fold(f32::INFINITY, f32::min);
+            self.noise_floor_rms = (self.noise_floor_rms * VAD_FLOOR_EMA_OLD
+                + window_min * VAD_FLOOR_EMA_NEW)
+                .clamp(0.0, MAX_NOISE_FLOOR_RMS);
         }
-        self.window.push_back(rms);
-        let window_min = self.window.iter().copied().fold(f32::INFINITY, f32::min);
-        self.noise_floor_rms = (self.noise_floor_rms * VAD_FLOOR_EMA_OLD
-            + window_min * VAD_FLOOR_EMA_NEW)
-            .clamp(0.0, MAX_NOISE_FLOOR_RMS);
         rms >= self.threshold()
     }
 }
@@ -398,9 +406,12 @@ struct LiveSubtitleState {
     segment_epoch: Arc<AtomicU64>,
     /// Streaming/batch pipeline of this session (one-way).
     pipeline: SubtitlePipelineState,
+    /// Monotonic utterance id for streaming partials.
+    utterance_id: u64,
+    current_utterance_id: Arc<AtomicU64>,
     /// Ordered audio + boundary items of the current utterance, for the
-    /// streaming worker (see [`StreamInput`]).
-    stream_tx: crossbeam_channel::Sender<StreamInput>,
+    /// streaming worker (see [`StreamInput`]). `None` once degraded to batch.
+    stream_tx: Option<crossbeam_channel::Sender<StreamInput>>,
 }
 
 static LIVE_STATE: Lazy<Mutex<Option<LiveSubtitleState>>> = Lazy::new(|| Mutex::new(None));
@@ -416,24 +427,35 @@ fn deliver(env: &mut JNIEnv, service: &JObject, text: &str, is_final: bool) {
 }
 
 /// Forwards one block of the current utterance to the streaming worker. No-op
-/// in the batch pipeline (and after a stream failure, which flips the
-/// session to batch).
+/// in the batch pipeline (and after a stream failure, which drops `stream_tx`).
 fn forward_stream_audio(state: &LiveSubtitleState, samples: &[f32]) {
     if state.pipeline.is_streaming() && !samples.is_empty() {
-        let _ = state.stream_tx.send(StreamInput::Audio(samples.to_vec()));
+        if let Some(tx) = &state.stream_tx {
+            let _ = tx.send(StreamInput::Audio {
+                samples: samples.to_vec(),
+                utterance_id: state.utterance_id,
+            });
+        }
     }
 }
 
+fn clear_stream_on_failure(
+    pipeline: &mut SubtitlePipelineState,
+    stream_tx: &mut Option<crossbeam_channel::Sender<StreamInput>>,
+) -> bool {
+    *stream_tx = None;
+    pipeline.on_stream_failure()
+}
+
 /// Permanently degrades the current session to the batch pipeline (see
-/// [`SubtitlePipelineState`]). The audio already forwarded to the failed
-/// stream is still in the pusher's segment buffer, so the next boundary
-/// transcribes it with the batch worker: no speech is lost. (A final already
-/// delivered before the failure may repeat the tail carried over from a forced
-/// split; truncating the segment instead would lose audio no final covered yet.)
+/// [`SubtitlePipelineState`]), dropping `stream_tx` so queued items cannot hold
+/// the worker open.
 fn degrade_to_batch(generation: u32) {
     let mut guard = LIVE_STATE.lock().unwrap_or_else(|p| p.into_inner());
     if let Some(state) = guard.as_mut() {
-        if state.generation == generation && state.pipeline.on_stream_failure() {
+        if state.generation == generation
+            && clear_stream_on_failure(&mut state.pipeline, &mut state.stream_tx)
+        {
             log::warn!("subtitle streaming disabled for this session; using the batch pipeline");
         }
     }
@@ -447,13 +469,14 @@ fn degrade_to_batch(generation: u32) {
 /// delivered as they change and published to `partial_text` so the pusher can
 /// close the segment on sentence punctuation; `Stop` finalizes the utterance
 /// and delivers the corrected final text; a failure degrades the session to
-/// the batch pipeline and the loop re-arms for the next utterance.
+/// the batch pipeline and exits the stream worker cleanly.
 fn run_stream_worker(
     vm: Arc<jni::JavaVM>,
     service_ref: jni::objects::GlobalRef,
     generation: u32,
     input_rx: crossbeam_channel::Receiver<StreamInput>,
     partial_text: Arc<Mutex<String>>,
+    current_utterance_id: Arc<AtomicU64>,
 ) {
     let mut env = match vm.attach_current_thread() {
         Ok(e) => e,
@@ -467,8 +490,11 @@ fn run_stream_worker(
         // The first item of an utterance is always audio: a command with no
         // audio in front of it belongs to a segment that never reached the
         // stream (e.g. a blip cancelled before any block was queued).
-        let first = match input_rx.recv() {
-            Ok(StreamInput::Audio(chunk)) => chunk,
+        let (first, first_utt_id) = match input_rx.recv() {
+            Ok(StreamInput::Audio {
+                samples,
+                utterance_id,
+            }) => (samples, utterance_id),
             Ok(_) => continue,
             // The channel is dropped with the session state: teardown.
             Err(_) => break,
@@ -480,12 +506,12 @@ fn run_stream_worker(
             Some(arc) => arc,
             None => {
                 degrade_to_batch(generation);
-                continue;
+                break;
             }
         };
         if !engine::supports_streaming_shared(&engine_arc) {
             degrade_to_batch(generation);
-            continue;
+            break;
         }
 
         // Local command channel for `run_stream`: `drain` translates the
@@ -510,7 +536,7 @@ fn run_stream_worker(
                 }
                 loop {
                     match input_rx.try_recv() {
-                        Ok(StreamInput::Audio(chunk)) => {
+                        Ok(StreamInput::Audio { samples: chunk, .. }) => {
                             fed_samples += chunk.len();
                             buf.extend_from_slice(&chunk);
                         }
@@ -539,7 +565,7 @@ fn run_stream_worker(
                 if !generation_is_current(generation, GENERATION.load(Ordering::SeqCst)) {
                     return;
                 }
-                {
+                if first_utt_id == current_utterance_id.load(Ordering::SeqCst) {
                     let mut slot = partial_text.lock().unwrap_or_else(|p| p.into_inner());
                     slot.clear();
                     slot.push_str(text);
@@ -582,6 +608,7 @@ fn run_stream_worker(
                     e
                 );
                 degrade_to_batch(generation);
+                break;
             }
         }
     }
@@ -628,6 +655,7 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_ini
     let rtf_milli = Arc::new(AtomicU32::new(0));
     let last_partial_text = Arc::new(Mutex::new(String::new()));
     let segment_epoch = Arc::new(AtomicU64::new(0));
+    let current_utterance_id = Arc::new(AtomicU64::new(0));
     let worker_partial_text = last_partial_text.clone();
     let worker_segment_epoch = segment_epoch.clone();
 
@@ -656,7 +684,13 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_ini
         last_partial_text: last_partial_text.clone(),
         segment_epoch,
         pipeline,
-        stream_tx,
+        utterance_id: 0,
+        current_utterance_id: current_utterance_id.clone(),
+        stream_tx: if pipeline.is_streaming() {
+            Some(stream_tx)
+        } else {
+            None
+        },
     });
 
     if pipeline.is_streaming() {
@@ -670,6 +704,7 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_ini
                 generation,
                 stream_rx,
                 stream_partial_text,
+                current_utterance_id,
             );
         });
     }
@@ -923,8 +958,14 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_pus
                 state.samples_since_tick = state.segment.len();
                 // The pre-roll belongs to the utterance: forward it with the
                 // first block so the first word isn't clipped in the stream.
-                let seed = state.segment.clone();
-                forward_stream_audio(state, &seed);
+                if state.pipeline.is_streaming() && !state.segment.is_empty() {
+                    if let Some(tx) = &state.stream_tx {
+                        let _ = tx.send(StreamInput::Audio {
+                            samples: state.segment.clone(),
+                            utterance_id: state.utterance_id,
+                        });
+                    }
+                }
             } else {
                 state.preroll.extend_from_slice(slice);
                 let excess = state.preroll.len().saturating_sub(PREROLL_SAMPLES);
@@ -973,6 +1014,9 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_pus
                 // word is chopped in half. In Streaming mode the audio was
                 // already forwarded live, so no tail is carried.
                 state.segment = split_forced_cut(state.pipeline.pipeline(), &mut samples);
+                if state.segment.is_empty() {
+                    state.has_speech = false;
+                }
             }
             state.silence_run = 0;
             state.samples_since_tick = state.segment.len();
@@ -984,17 +1028,25 @@ pub unsafe extern "system" fn Java_dev_notune_transcribe_LiveSubtitleService_pus
                 .unwrap_or_else(|p| p.into_inner())
                 .clear();
             state.segment_epoch.store(stream_pos, Ordering::SeqCst);
+            state.utterance_id += 1;
+            state
+                .current_utterance_id
+                .store(state.utterance_id, Ordering::SeqCst);
 
             match boundary_action(state.pipeline.pipeline(), samples.len()) {
                 BoundaryAction::FinalizeStream => {
                     // The utterance audio is already in the stream; ask the
                     // worker to finalize it and deliver the committed text.
-                    let _ = state.stream_tx.send(StreamInput::Stop);
+                    if let Some(tx) = &state.stream_tx {
+                        let _ = tx.send(StreamInput::Stop);
+                    }
                 }
                 BoundaryAction::CancelStream => {
                     // Too short to be speech: reset the stream so this noise
                     // cannot contaminate the next sentence.
-                    let _ = state.stream_tx.send(StreamInput::Reset);
+                    if let Some(tx) = &state.stream_tx {
+                        let _ = tx.send(StreamInput::Reset);
+                    }
                 }
                 BoundaryAction::QueueFinal => {
                     // Finals are always queued (the worker may still drop them
@@ -1143,6 +1195,23 @@ mod tests {
     }
 
     #[test]
+    fn vad_sustained_speech_does_not_inflate_floor() {
+        let mut vad = SubtitleVad::new();
+        feed(&mut vad, 0.002, VAD_WINDOW_BLOCKS);
+        let baseline = vad.noise_floor();
+        // Sustained > 2s speech (0.08 and softer 0.025) must not push the floor up.
+        assert_eq!(
+            feed(&mut vad, 0.08, VAD_WINDOW_BLOCKS * 2),
+            VAD_WINDOW_BLOCKS * 2
+        );
+        assert_eq!(
+            feed(&mut vad, 0.025, VAD_WINDOW_BLOCKS * 2),
+            VAD_WINDOW_BLOCKS * 2
+        );
+        assert!((vad.noise_floor() - baseline).abs() < 1e-6);
+    }
+
+    #[test]
     fn vad_ignores_non_finite_rms() {
         let mut vad = SubtitleVad::new();
         assert!(!vad.observe(f32::NAN));
@@ -1187,6 +1256,20 @@ mod tests {
         let mut batch = SubtitlePipelineState::new(false, true);
         assert!(!batch.on_stream_failure());
         assert_eq!(batch.pipeline(), SubtitlePipeline::Batch);
+    }
+
+    #[test]
+    fn stream_failure_clears_sender_and_disconnects_worker() {
+        let mut pipeline = SubtitlePipelineState::new(true, true);
+        let (tx, rx) = crossbeam_channel::unbounded::<StreamInput>();
+        let mut slot = Some(tx);
+        assert!(clear_stream_on_failure(&mut pipeline, &mut slot));
+        assert!(!pipeline.is_streaming());
+        assert!(slot.is_none());
+        assert!(matches!(
+            rx.try_recv(),
+            Err(crossbeam_channel::TryRecvError::Disconnected)
+        ));
     }
 
     #[test]

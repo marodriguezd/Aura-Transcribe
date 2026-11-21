@@ -70,11 +70,19 @@ public class LiveSubtitleActivity extends AppCompatActivity {
 
         View rootView = findViewById(R.id.live_subtitle_root);
         if (rootView != null) {
+            final int baseLeft = rootView.getPaddingLeft();
+            final int baseTop = rootView.getPaddingTop();
+            final int baseRight = rootView.getPaddingRight();
+            final int baseBottom = rootView.getPaddingBottom();
             ViewCompat.setOnApplyWindowInsetsListener(rootView, (v, windowInsets) -> {
                 Insets insets = windowInsets.getInsets(
                         WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout()
                 );
-                v.setPadding(insets.left, insets.top, insets.right, insets.bottom);
+                v.setPadding(
+                        baseLeft + insets.left,
+                        baseTop + insets.top,
+                        baseRight + insets.right,
+                        baseBottom + insets.bottom);
                 return windowInsets;
             });
         }

@@ -46,6 +46,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class TranscribeFileActivity extends AppCompatActivity {
 
@@ -97,11 +98,20 @@ public class TranscribeFileActivity extends AppCompatActivity {
     // destroyed/recreated Activity bumps it to invalidate late callbacks.
     private volatile int currentOpId = 0;
     private final AtomicBoolean cancelRequested = new AtomicBoolean(false);
+    private volatile boolean decodeStarted = false;
+    private final AtomicReference<String> chunkError = new AtomicReference<>(null);
+
+    /** Marker exception carrying an already localized user-visible message. */
+    private static final class UserVisibleDecodeException extends IOException {
+        UserVisibleDecodeException(String message) {
+            super(message);
+        }
+    }
 
     // Transcript pieces of the chunks already transcribed, in order. Filled from
     // the main thread (onTextTranscribed) and drained by the decode thread.
     private final List<String> chunkTexts = Collections.synchronizedList(new ArrayList<>());
-    // Signalled by onTextTranscribed when the chunk currently in flight is done.
+    // Signalled by onTextTranscribed / error status when the chunk in flight completes.
     private volatile CountDownLatch pendingChunk;
 
     @Override
@@ -112,11 +122,19 @@ public class TranscribeFileActivity extends AppCompatActivity {
 
         View rootView = findViewById(R.id.root);
         if (rootView != null) {
+            final int baseLeft = rootView.getPaddingLeft();
+            final int baseTop = rootView.getPaddingTop();
+            final int baseRight = rootView.getPaddingRight();
+            final int baseBottom = rootView.getPaddingBottom();
             ViewCompat.setOnApplyWindowInsetsListener(rootView, (v, windowInsets) -> {
                 Insets insets = windowInsets.getInsets(
                         WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout()
                 );
-                v.setPadding(insets.left, insets.top, insets.right, insets.bottom);
+                v.setPadding(
+                        baseLeft + insets.left,
+                        baseTop + insets.top,
+                        baseRight + insets.right,
+                        baseBottom + insets.bottom);
                 return windowInsets;
             });
         }
@@ -226,13 +244,43 @@ public class TranscribeFileActivity extends AppCompatActivity {
         return null;
     }
 
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        Uri audioUri = getAudioUri();
+        if (audioUri == null) {
+            statusText.setText(getString(R.string.file_error_no_audio_received));
+            progressBar.setVisibility(View.GONE);
+            return;
+        }
+        cancelRequested.set(true);
+        currentOpId = NEXT_OP.incrementAndGet();
+        try { cancelTranscription(); } catch (Throwable ignored) { }
+        PostProcessor.cancelAllFor(this);
+        CountDownLatch latch = pendingChunk;
+        if (latch != null) latch.countDown();
+
+        decodeStarted = true;
+        resultArea.setVisibility(View.GONE);
+        copyButton.setVisibility(View.GONE);
+        progressArea.setVisibility(View.VISIBLE);
+        progressBar.setVisibility(View.VISIBLE);
+        findViewById(R.id.btn_cancel).setVisibility(View.VISIBLE);
+        statusText.setText(getString(R.string.file_decoding_audio));
+        startDecodeAndTranscribe();
+    }
+
     // Called from Rust when model is ready
     public void onStatusUpdate(String status) {
         runOnUiThread(() -> {
             if (cancelRequested.get() || isFinishing() || isDestroyed()) return;
-            if ("Ready".equals(status)) {
-                statusText.setText(getString(R.string.file_decoding_audio));
-                startDecodeAndTranscribe();
+            if (status != null && status.startsWith("Ready")) {
+                if (!decodeStarted) {
+                    decodeStarted = true;
+                    statusText.setText(getString(R.string.file_decoding_audio));
+                    startDecodeAndTranscribe();
+                }
             } else {
                 statusText.setText(status);
                 if (status != null && status.startsWith("Error")) {
@@ -284,6 +332,7 @@ public class TranscribeFileActivity extends AppCompatActivity {
         final int opId = NEXT_OP.incrementAndGet();
         currentOpId = opId;
         cancelRequested.set(false);
+        chunkError.set(null);
         chunkTexts.clear();
 
         new Thread(() -> {
@@ -301,6 +350,9 @@ public class TranscribeFileActivity extends AppCompatActivity {
                 Log.w(TAG, "Rejected a source larger than "
                         + BoundedSourceCopy.MAX_SOURCE_FILE_BYTES + " bytes");
                 showError(getString(R.string.file_error_too_large));
+            } catch (UserVisibleDecodeException e) {
+                if (cancelRequested.get() || opId != currentOpId) return;
+                showError(e.getMessage() != null ? e.getMessage() : getString(R.string.file_error_decode));
             } catch (Exception e) {
                 if (cancelRequested.get() || opId != currentOpId) return;
                 Log.e(TAG, "Error decoding audio", e);
@@ -386,8 +438,13 @@ public class TranscribeFileActivity extends AppCompatActivity {
                 } catch (Throwable ignored) {}
             }
 
-            // 3. Fallback to standard framework URI resolution
+            // 3. Fallback to standard framework URI resolution (content/resource schemes only)
             if (!dataSourceSet) {
+                String scheme = uri.getScheme();
+                if (!"content".equalsIgnoreCase(scheme)
+                        && !"android.resource".equalsIgnoreCase(scheme)) {
+                    throw new IOException("Unsupported URI scheme: " + scheme);
+                }
                 extractor.setDataSource(this, uri, null);
             }
 
@@ -499,7 +556,7 @@ public class TranscribeFileActivity extends AppCompatActivity {
                     totalSourceFrames += frameCount;
                     if (FileAudioChunks.exceedsDurationCap(
                             totalSourceFrames, sampleRate, MAX_DURATION_SECONDS)) {
-                        throw new IOException(getString(R.string.file_error_too_long));
+                        throw new UserVisibleDecodeException(getString(R.string.file_error_too_long));
                     }
                     for (int i = 0; i < frameCount; i++) {
                         if (channelCount == 1) {
@@ -566,6 +623,7 @@ public class TranscribeFileActivity extends AppCompatActivity {
         if (pcm.length == 0) return;
 
         CountDownLatch latch = new CountDownLatch(1);
+        chunkError.set(null);
         pendingChunk = latch;
         try {
             transcribeAudio(pcm, pcm.length, opId);
@@ -577,13 +635,19 @@ public class TranscribeFileActivity extends AppCompatActivity {
                 // would block until the timeout.
                 if (cancelRequested.get() || opId != currentOpId) throw new CancellationException();
                 try {
-                    if (latch.await(200, TimeUnit.MILLISECONDS)) return;
+                    if (latch.await(200, TimeUnit.MILLISECONDS)) {
+                        String err = chunkError.get();
+                        if (err != null) {
+                            throw new UserVisibleDecodeException(err);
+                        }
+                        return;
+                    }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     throw new CancellationException();
                 }
                 if (System.currentTimeMillis() > deadline) {
-                    throw new IOException(getString(R.string.file_error_timeout));
+                    throw new UserVisibleDecodeException(getString(R.string.file_error_timeout));
                 }
             }
         } finally {
@@ -664,6 +728,12 @@ public class TranscribeFileActivity extends AppCompatActivity {
     // Decode-scoped status ("Transcribing...", decode errors). Ignored when
     // the operation no longer belongs to this Activity instance.
     public void onStatusUpdate(String status, int opId) {
+        if (opId != currentOpId) return;
+        if (status != null && status.startsWith("Error")) {
+            chunkError.compareAndSet(null, status);
+            CountDownLatch latch = pendingChunk;
+            if (latch != null) latch.countDown();
+        }
         runOnUiThread(() -> {
             if (opId != currentOpId || isFinishing() || isDestroyed()) return;
             statusText.setText(status);
